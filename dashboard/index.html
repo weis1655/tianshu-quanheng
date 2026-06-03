@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🏛️ 天枢权衡看板</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@700;900&display=swap');
+
+  :root {
+    --bg-dark: #0a0a0f;
+    --bg-panel: #0d0d1a;
+    --cyan: #00f5ff;
+    --magenta: #ff00ff;
+    --yellow: #ffee00;
+    --red: #ff3366;
+    --green: #00ff88;
+    --gray: #4a4a6a;
+    --text: #e0e0ff;
+    --glow-cyan: 0 0 20px #00f5ff88, 0 0 40px #00f5ff44;
+    --glow-magenta: 0 0 20px #ff00ff88, 0 0 40px #ff00ff44;
+    --glow-yellow: 0 0 20px #ffee0088, 0 0 40px #ffee0044;
+  }
+
+  body {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    background: var(--bg-dark);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* 背景网格动画 */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background:
+      linear-gradient(90deg, #00f5ff08 1px, transparent 1px),
+      linear-gradient(#00f5ff08 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* 顶部导航 */
+  header {
+    position: relative;
+    z-index: 10;
+    padding: 20px 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--cyan);
+    background: linear-gradient(180deg, #0d0d1a 0%, transparent 100%);
+  }
+
+  .logo {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    font-weight: 900;
+    background: linear-gradient(90deg, var(--cyan), var(--magenta));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: var(--glow-cyan);
+    letter-spacing: 3px;
+  }
+
+  .logo span {
+    font-size: 14px;
+    opacity: 0.6;
+    display: block;
+    letter-spacing: 2px;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .refresh-time {
+    color: var(--gray);
+    font-size: 12px;
+  }
+
+  .refresh-btn {
+    background: transparent;
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    padding: 8px 16px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  .refresh-btn:hover {
+    background: var(--cyan);
+    color: var(--bg-dark);
+    box-shadow: var(--glow-cyan);
+  }
+
+  /* 主内容区 */
+  .container {
+    position: relative;
+    z-index: 1;
+    padding: 20px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* 行情指数条 */
+  .market-bar {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .market-item {
+    background: var(--bg-panel);
+    border: 1px solid var(--gray);
+    padding: 12px 20px;
+    flex: 1;
+    min-width: 180px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .market-item::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px; height: 100%;
+    background: var(--cyan);
+  }
+
+  .market-item.up::before { background: var(--green); }
+  .market-item.down::before { background: var(--red); }
+
+  .market-name {
+    font-size: 11px;
+    color: var(--gray);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  .market-value {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 4px 0;
+  }
+
+  .market-change {
+    font-size: 13px;
+  }
+
+  .up { color: var(--green); }
+  .down { color: var(--red); }
+  .flat { color: var(--yellow); }
+
+  /* 主要面板网格 */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 15px;
+    margin-bottom: 20px;
+  }
+
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--gray);
+    padding: 20px;
+    position: relative;
+  }
+
+  .panel::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 20px; height: 20px;
+    border-top: 2px solid var(--cyan);
+    border-right: 2px solid var(--cyan);
+  }
+
+  .panel-title {
+    font-size: 11px;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-title::before {
+    content: '▶';
+    font-size: 8px;
+  }
+
+  /* 持仓面板 */
+  .holdings-panel {
+    grid-column: 1;
+    border-color: var(--cyan);
+    box-shadow: inset 0 0 30px #00f5ff08;
+  }
+
+  /* 快筛面板 */
+  .screen-panel {
+    grid-column: 2;
+    border-color: var(--magenta);
+    box-shadow: inset 0 0 30px #ff00ff08;
+  }
+
+  .screen-panel .panel-title { color: var(--magenta); }
+  .screen-panel .panel-title::before { content: '◆'; }
+  .screen-panel::after { border-color: var(--magenta); }
+
+  /* 决策面板 */
+  .decision-panel {
+    grid-column: 3;
+    border-color: var(--yellow);
+    box-shadow: inset 0 0 30px #ffee0008;
+  }
+
+  .decision-panel .panel-title { color: var(--yellow); }
+  .decision-panel .panel-title::before { content: '★'; }
+  .decision-panel::after { border-color: var(--yellow); }
+
+  /* 五池流转 - 全宽 */
+  .flow-panel {
+    grid-column: 1 / -1;
+    border-color: var(--green);
+    box-shadow: inset 0 0 30px #00ff8808;
+  }
+
+  .flow-panel .panel-title { color: var(--green); }
+  .flow-panel .panel-title::before { content: '▶▶'; }
+  .flow-panel::after { border-color: var(--green); }
+
+  /* 股票卡片 */
+  .stock-card {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid var(--gray);
+    padding: 12px 15px;
+    margin-bottom: 10px;
+    position: relative;
+    transition: all 0.3s;
+  }
+
+  .stock-card:hover {
+    border-color: var(--cyan);
+    transform: translateX(5px);
+  }
+
+  /* 警戒闪烁 */
+  @keyframes danger-flash {
+    0%, 100% {
+      border-color: var(--red);
+      box-shadow: inset 0 0 20px #ff336620, 0 0 10px #ff336640;
+    }
+    50% {
+      border-color: transparent;
+      box-shadow: none;
+    }
+  }
+  @keyframes profit-flash {
+    0%, 100% {
+      border-color: var(--green);
+      box-shadow: inset 0 0 20px #00ff8820, 0 0 10px #00ff8840;
+    }
+    50% {
+      border-color: transparent;
+      box-shadow: none;
+    }
+  }
+
+  .stock-card.danger-alert {
+    animation: danger-flash 1s infinite;
+    border-color: var(--red) !important;
+  }
+
+  .stock-card.profit-alert {
+    animation: profit-flash 1.5s infinite;
+    border-color: var(--green) !important;
+  }
+
+  /* 告警面板 */
+  .alert-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--red);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 20px #ff336630;
+  }
+  .alert-banner-title {
+    font-size: 11px;
+    color: var(--red);
+    padding: 6px 12px 4px;
+    border-bottom: 1px solid #ff336630;
+    text-shadow: 0 0 8px var(--red);
+  }
+  .alert-item {
+    padding: 6px 12px;
+    font-size: 12px;
+    border-bottom: 1px solid #ffffff08;
+  }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-holding {
+    color: var(--red);
+    background: #ff336610;
+    text-shadow: 0 0 6px var(--red);
+  }
+  .alert-screen {
+    color: var(--yellow);
+    background: #ffee0010;
+    text-shadow: 0 0 6px var(--yellow);
+  }
+  .alert-sent {
+    float: right;
+    font-size: 10px;
+    opacity: 0.7;
+  }
+
+  .stock-card .code {
+    font-size: 10px;
+    color: var(--gray);
+    letter-spacing: 2px;
+  }
+
+  .stock-card .name {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 3px 0;
+  }
+
+  .stock-card .price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .stock-card .price {
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .stock-card .change {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .stock-card .theme-tag {
+    display: inline-block;
+    font-size: 9px;
+    padding: 2px 6px;
+    border: 1px solid;
+    margin-top: 5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .stock-card .pnl-badge {
+    position: absolute;
+    top: 10px; right: 10px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+  }
+
+  .pnl-pos { color: var(--green); border-color: var(--green); }
+  .pnl-neg { color: var(--red); border-color: var(--red); }
+  .pnl-flat { color: var(--yellow); border-color: var(--yellow); }
+
+  /* 池标签 */
+  .pool-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-right: 5px;
+  }
+
+  .pool-tag.candidate { background: #ff00ff22; color: var(--magenta); border: 1px solid var(--magenta); }
+  .pool-tag.observe { background: #00f5ff22; color: var(--cyan); border: 1px solid var(--cyan); }
+  .pool-tag.near { background: #ffee0022; color: var(--yellow); border: 1px solid var(--yellow); }
+  .pool-tag.hold { background: #00ff8822; color: var(--green); border: 1px solid var(--green); }
+
+  /* 流转箭头 */
+  .flow-arrow {
+    display: inline-block;
+    color: var(--cyan);
+    margin: 0 10px;
+    font-size: 20px;
+    animation: blink 1.5s infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .flow-step {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 5px;
+  }
+
+  .pool-count {
+    display: inline-block;
+    min-width: 24px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    margin-left: 5px;
+  }
+
+  .pool-count.empty { color: var(--gray); }
+  .pool-count.has { color: var(--cyan); }
+
+  /* 空状态 */
+  .empty-state {
+    text-align: center;
+    padding: 30px;
+    color: var(--gray);
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+
+  /* 加载动画 */
+  .loading {
+    display: inline-block;
+    width: 20px; height: 20px;
+    border: 2px solid var(--cyan);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 20px auto;
+    display: block;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* 骨架屏 */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-panel) 25%, var(--gray) 50%, var(--bg-panel) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 4px;
+  }
+  .skeleton-stock {
+    height: 60px;
+    margin-bottom: 10px;
+    padding: 12px 15px;
+  }
+  .skeleton-market {
+    height: 60px;
+    flex: 1;
+    min-width: 180px;
+  }
+  @keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* 扫描线效果 */
+  .scanline {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 3px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.1;
+    animation: scan 4s linear infinite;
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  @keyframes scan {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* 信号主题 */
+  .signal-item {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 12px;
+  }
+
+  .signal-item:last-child { border-bottom: none; }
+
+  .signal-grade {
+    display: inline-block;
+    width: 30px;
+    font-weight: 700;
+    margin-right: 8px;
+  }
+
+  .grade-s { color: var(--red); }
+  .grade-a { color: var(--magenta); }
+  .grade-b { color: var(--yellow); }
+
+  /* 响应式 */
+  @media (max-width: 900px) {
+    .main-grid {
+      grid-template-columns: 1fr;
+    }
+    .holdings-panel, .screen-panel, .decision-panel, .flow-panel {
+      grid-column: 1;
+    }
+  }
+
+  /* 底部装饰 */
+  footer {
+    text-align: center;
+    padding: 20px;
+    color: var(--gray);
+    font-size: 10px;
+    letter-spacing: 3px;
+    border-top: 1px solid rgba(0,245,255,0.2);
+    margin-top: 20px;
+  }
+
+  /* 闪烁效果 - 信号灯 */
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s infinite;
+    margin-right: 5px;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 5px var(--green); }
+    50% { opacity: 0.5; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scanline"></div>
+
+<header>
+  <div class="logo">
+    🏛️ 天枢权衡
+    <span>TIANSHU QUANHENG</span>
+  </div>
+  <div class="header-right">
+    <div class="refresh-time" id="refreshTime">加载中...</div>
+    <button class="refresh-btn" onclick="fetchData()">⟳ 刷新数据</button>
+  </div>
+</header>
+
+<div class="container">
+  <!-- 大盘指数 -->
+  <div class="market-bar" id="marketBar">
+    <div class="market-item skeleton skeleton-market"></div>
+    <div class="market-item skeleton skeleton-market"></div>
+    <div class="market-item skeleton skeleton-market"></div>
+  </div>
+
+  <!-- 主要面板 -->
+  <div class="main-grid">
+
+    <!-- 持仓面板 -->
+    <div class="panel holdings-panel">
+      <div class="panel-title">💼 持仓追踪</div>
+      <div id="holdingsContent">
+        <div class="skeleton skeleton-stock"></div>
+        <div class="skeleton skeleton-stock"></div>
+        <div class="skeleton skeleton-stock"></div>
+      </div>
+    </div>
+
+    <!-- 快筛面板 -->
+    <div class="panel screen-panel">
+      <div class="panel-title">🔍 今日快筛</div>
+      <div id="screenContent">
+        <div class="skeleton skeleton-stock"></div>
+        <div class="skeleton skeleton-stock"></div>
+        <div class="skeleton skeleton-stock"></div>
+      </div>
+    </div>
+
+    <!-- 决策面板 -->
+    <div class="panel decision-panel">
+      <div class="panel-title">💡 决策信号</div>
+      <div id="decisionContent">
+        <div class="skeleton skeleton-stock"></div>
+        <div class="skeleton skeleton-stock"></div>
+      </div>
+    </div>
+
+    <!-- 五池流转 -->
+    <div class="panel flow-panel">
+      <div class="panel-title">🔄 五池流转</div>
+      <div id="flowContent">
+        <div class="skeleton" style="height:30px;margin-bottom:10px"></div>
+        <div class="skeleton" style="height:30px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <span class="status-dot"></span>SYSTEM ONLINE | TIANSHU QUANHENG v1.0 | 天枢炒股 V3
+</footer>
+
+<script>
+// === 配置区 ===
+const ALERT_THRESHOLD_DOWN = -3.0;   // 跌幅超此值触发警戒(%)
+const ALERT_THRESHOLD_UP = 5.0;      // 涨幅超此值触发警戒(%)
+const AUTO_REFRESH_INTERVAL = 30;    // 自动刷新秒数
+// ================
+
+const API_BASE = '/api';
+
+// 格式化数字
+function fmtNum(n, decimals = 2) {
+  if (!n && n !== 0) return '--';
+  return Number(n).toFixed(decimals);
+}
+
+// 颜色类名
+function colorClass(val) {
+  if (val > 0) return 'up';
+  if (val < 0) return 'down';
+  return 'flat';
+}
+
+// PNL颜色
+function pnlClass(val) {
+  if (val > 0) return 'pnl-pos';
+  if (val < 0) return 'pnl-neg';
+  return 'pnl-flat';
+}
+
+// 渲染股票卡片
+function renderStockCard(s, showPnl = true) {
+  const pnlClass_ = pnlClass(s.pnl_pct || s.change_pct || 0);
+  const pnlVal = s.pnl_pct || s.change_pct || 0;
+  const pnlSign = pnlVal >= 0 ? '+' : '';
+  const changeSign = (s.change_pct || 0) >= 0 ? '+' : '';
+  const changeColor = colorClass(s.change_pct || 0);
+
+  // 警戒判断
+  const change = s.change_pct || 0;
+  let alertClass = '';
+  if (change <= ALERT_THRESHOLD_DOWN) {
+    alertClass = 'danger-alert';
+  } else if (change >= ALERT_THRESHOLD_UP) {
+    alertClass = 'profit-alert';
+  }
+
+  return `
+    <div class="stock-card ${alertClass}">
+      ${showPnl && pnlVal !== 0 ? `<div class="pnl-badge ${pnlClass_}">${pnlSign}${fmtNum(pnlVal)}%</div>` : ''}
+      <div class="code">${s.market || ''} ${s.code}</div>
+      <div class="name">${s.name}</div>
+      <div class="price-row">
+        <span class="price">${fmtNum(s.current_price)}</span>
+        <span class="change ${changeColor}">${changeSign}${fmtNum(s.change_pct)}%</span>
+      </div>
+      ${s.theme ? `<div class="theme-tag" style="color:${s.theme.includes('交通') ? '#ffee00' : '#ff00ff'};border-color:${s.theme.includes('交通') ? '#ffee00' : '#ff00ff'}">${s.theme}</div>` : ''}
+    </div>
+  `;
+}
+
+// 获取并渲染数据
+async function fetchData(silent = true) {
+  try {
+    const [dashRes, marketRes] = await Promise.all([
+      fetch(`${API_BASE}/dashboard?silent=${silent}`),
+      fetch(`${API_BASE}/market`)
+    ]);
+
+    const dash = await dashRes.json();
+    const market = await marketRes.json();
+
+    // 更新时间
+    document.getElementById('refreshTime').textContent = `更新: ${dash.timestamp}`;
+
+    // 大盘指数
+    renderMarket(market.market);
+
+    // 告警通知
+    if (dash.alerts && dash.alerts.length > 0) {
+      renderAlerts(dash.alerts);
+    }
+
+    // 持仓
+    renderHoldings(dash.pools['持仓池'] || { stocks: [], count: 0 });
+
+    // 快筛 - 候选池 + 重点观察池
+    renderScreen(dash.pools);
+
+    // 决策
+    renderDecision(dash.pools);
+
+    // 五池流转
+    renderFlow(dash.pools);
+
+  } catch (e) {
+    console.error('数据加载失败:', e);
+    document.querySelectorAll('[id$="Content"]').forEach(el => {
+      el.innerHTML = `<div class="empty-state">⚠️ 数据加载失败<br><br><button class="refresh-btn" onclick="fetchData()">重试</button></div>`;
+    });
+  }
+}
+
+// ─── 告警通知渲染 ──────────────────────────
+function renderAlerts(alerts) {
+  let html = '<div class="alert-banner-title">⚡ 实时告警</div>';
+  alerts.forEach(a => {
+    const icon = a.type === 'holding_alert' ? '📉' : '🎯';
+    const cls = a.type === 'holding_alert' ? 'alert-holding' : 'alert-screen';
+    const text = a.type === 'holding_alert'
+      ? `持仓警戒: ${a.stock} ${(a.change || 0) > 0 ? '+' : ''}${a.change}%`
+      : `快筛命中: ${a.theme} x${a.count}`;
+    const sent = a.sent ? '✅已推飞书' : '❌推送失败';
+    html += `<div class="alert-item ${cls}">${icon} ${text} <span class="alert-sent">${sent}</span></div>`;
+  });
+  // 更新已有面板，而非重复插入
+  let panel = document.getElementById('alertPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'alertPanel';
+    panel.className = 'alert-panel';
+    const container = document.querySelector('.container');
+    if (container) container.insertBefore(panel, container.firstChild);
+  }
+  panel.innerHTML = html;
+}
+
+function renderMarket(market) {
+  const el = document.getElementById('marketBar');
+  if (!market || !market.length) return;
+
+  el.innerHTML = market.map(m => {
+    const cls = colorClass(m.change_pct);
+    const sign = m.change_pct >= 0 ? '+' : '';
+    return `
+      <div class="market-item ${cls}">
+        <div class="market-name">${m.name}</div>
+        <div class="market-value">${fmtNum(m.price, 2)}</div>
+        <div class="market-change ${cls}">${sign}${fmtNum(m.change_pct)}%</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderHoldings(pool) {
+  const el = document.getElementById('holdingsContent');
+  if (!pool.stocks || pool.stocks.length === 0) {
+    el.innerHTML = '<div class="empty-state">空仓等待<br><br>建议仓位: 30%</div>';
+    return;
+  }
+  el.innerHTML = pool.stocks.map(s => renderStockCard(s, true)).join('');
+}
+
+function renderScreen(pools) {
+  const el = document.getElementById('screenContent');
+
+  // 合并快筛候选池 + 重点观察池（与后端池名一致）
+  const candidates = (pools['快筛候选池']?.stocks || []).slice(0, 4);
+  const observes = (pools['重点观察池']?.stocks || []).slice(0, 4);
+  const all = [...candidates, ...observes];
+
+  if (all.length === 0) {
+    el.innerHTML = '<div class="empty-state">暂无候选<br>等待快筛信号</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div style="margin-bottom:10px">
+      <span class="pool-tag candidate">候选 ${pools['快筛候选池']?.count || 0}</span>
+      <span class="pool-tag observe">重点 ${pools['重点观察池']?.count || 0}</span>
+    </div>
+    ${all.map(s => renderStockCard(s, false)).join('')}
+  `;
+}
+
+function renderDecision(pools) {
+  const el = document.getElementById('decisionContent');
+
+  // 边缘池（原"接近决策池"已停用，改用边缘池）
+  const nearCount = pools['边缘池']?.count || 0;
+  const holdCount = pools['持仓池']?.count || 0;
+  const hasSignal = nearCount > 0;
+
+  const signals = [];
+
+  if (holdCount > 0) {
+    const holds = pools['持仓池'].stocks;
+    holds.forEach(h => {
+      signals.push({
+        grade: h.pnl_pct > 5 ? 'S' : h.pnl_pct > 2 ? 'A' : 'B',
+        text: `${h.name} ${h.pnl_pct >= 0 ? '盈利' : '亏损'} ${Math.abs(h.pnl_pct || 0).toFixed(1)}%`,
+        type: h.pnl_pct >= 0 ? 'pos' : 'neg'
+      });
+    });
+  }
+
+  el.innerHTML = `
+    <div style="margin-bottom:15px">
+      <div style="font-size:24px;font-weight:900;color:${hasSignal || holdCount > 0 ? 'var(--yellow)' : 'var(--green)'}">
+        ${holdCount > 0 ? '持仓中' : hasSignal ? '待决策' : '空仓'}
+      </div>
+      <div style="font-size:12px;color:var(--gray);margin-top:5px">
+        ${holdCount > 0 ? `持有 ${holdCount} 只 | 建议仓位 30%` : hasSignal ? `接近决策 ${nearCount} 只` : '建议仓位 30% | 等待信号'}
+      </div>
+    </div>
+    ${signals.length > 0 ? signals.map(s => `
+      <div class="signal-item">
+        <span class="signal-grade grade-${s.grade.toLowerCase()}">${s.grade}</span>
+        <span style="color:${s.type === 'pos' ? 'var(--green)' : 'var(--red)'}">${s.text}</span>
+      </div>
+    `).join('') : '<div class="signal-item" style="color:var(--gray)">暂无持仓信号</div>'}
+  `;
+}
+
+function renderFlow(pools) {
+  const el = document.getElementById('flowContent');
+
+  // 池名与后端 PoolManager.POOL_NAMES 一致
+  const poolDefs = [
+    { key: '快筛候选池', label: '候选', cls: 'candidate' },
+    { key: '重点观察池', label: '重点', cls: 'observe' },
+    { key: '边缘池', label: '边缘', cls: 'near' },
+    { key: '持仓池', label: '持仓', cls: 'hold' },
+    { key: 'S级操作池', label: 'S级', cls: 'hold' },
+  ];
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:5px;">
+      ${poolDefs.map((p, i) => {
+        const count = pools[p.key]?.count || 0;
+        const cls = p.key === '持仓池' || p.key === 'S级操作池' ? 'hold' : p.key.includes('候选') ? 'candidate' : p.key.includes('观察') ? 'observe' : 'near';
+        return `
+          <div class="flow-step">
+            <span class="pool-tag ${cls}">${p.label}<span class="pool-count ${count > 0 ? 'has' : 'empty'}">${count}</span></span>
+          </div>
+          ${i < poolDefs.length - 1 ? '<span class="flow-arrow">→</span>' : ''}
+        `;
+      }).join('')}
+    </div>
+    <div style="margin-top:15px;display:flex;gap:10px;flex-wrap:wrap;">
+      <div style="font-size:10px;color:var(--gray);padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--gray)">
+        🚀 流入: ${pools['快筛候选池']?.count || 0} 只/轮
+      </div>
+      <div style="font-size:10px;color:var(--gray);padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--gray)">
+        ⚡ 升级: ${pools['重点观察池']?.count || 0} 只
+      </div>
+      <div style="font-size:10px;color:var(--gray);padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--gray)">
+        💰 持仓: ${pools['持仓池']?.count || 0} 只
+      </div>
+    </div>
+  `;
+}
+
+// 启动
+fetchData();
+setInterval(fetchData, AUTO_REFRESH_INTERVAL * 1000); // 自动刷新
+</script>
+</body>
+</html>

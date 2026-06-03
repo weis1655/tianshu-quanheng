@@ -1,0 +1,48 @@
+{
+  "records": [
+    {
+      "code": "603019",
+      "name": "中科曙光",
+      "event": "screen",
+      "driver_level": "S级",
+      "reason": "测试",
+      "timestamp": "2026-05-26T15:35:57.237550",
+      "date": "2026-05-26",
+      "status": "reviewed",
+      "review_score": 92,
+      "review_flow": "升级",
+      "T1_close": null,
+      "T1_chg": null,
+      "T2_close": null,
+      "T2_chg": null,
+      "final_result": null,
+      "target_pool": "重点观察池",
+      "review_timestamp": "2026-05-26T15:36:27.324941"
+    },
+    {
+      "code": "603019",
+      "name": "中科曙光",
+      "event": "screen",
+      "driver_level": "S级",
+      "reason": "AI算力龙头",
+      "timestamp": "2026-05-26T15:36:27.324449",
+      "date": "2026-05-26",
+      "status": "pending_review",
+      "review_score": null,
+      "review_flow": null,
+      "T1_close": null,
+      "T1_chg": null,
+      "T2_close": null,
+      "T2_chg": null,
+      "final_result": null
+    }
+  ],
+  "stats": {
+    "total_tracked": 0,
+    "upgrade_count": 0,
+    "demotion_count": 0,
+    "kept_count": 0,
+    "upgrade_accuracy": null,
+    "demotion_accuracy": null
+  }
+}

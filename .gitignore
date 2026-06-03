@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 数据文件（敏感）
+data/shared_memory.json
+data/决策日志.json
+data/复盘记录/
+data/历史记录/
+data/回顾报告/
+data/*.json
+!data/权重配置.json
+!data/trigger_config.json
+
+# 日志
+logs/
+*.log
+
+# 五池管理（运行时生成）
+五池管理/
+
+# 技能目录（本地配置）
+.herms/
+.ralph/
+
+# Docker
+.docker/
+
+# 其他
+*.bak
+*.tmp
+.DS_Store

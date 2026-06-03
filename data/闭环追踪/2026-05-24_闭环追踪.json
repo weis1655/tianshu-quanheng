@@ -1,0 +1,311 @@
+{
+  "date": "2026-05-24",
+  "stocks": {
+    "688301": {
+      "code": "688301",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 69,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.954592"
+      },
+      "decision": {
+        "priority": "备选",
+        "plan": {
+          "buy_method": "回调买入",
+          "position_pct": 10.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-24T10:31:30.295479"
+      }
+    },
+    "600982": {
+      "code": "600982",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 66,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.955212"
+      },
+      "decision": null
+    },
+    "601808": {
+      "code": "601808",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.958525"
+      },
+      "decision": null
+    },
+    "601225": {
+      "code": "601225",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.955694"
+      },
+      "decision": null
+    },
+    "600415": {
+      "code": "600415",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.958940"
+      },
+      "decision": null
+    },
+    "603128": {
+      "code": "603128",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 58,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T07:11:34.183462"
+      },
+      "decision": null
+    },
+    "601018": {
+      "code": "601018",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T07:11:34.183668"
+      },
+      "decision": null
+    },
+    "603986": {
+      "code": "603986",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 72,
+        "level": "B级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-24T07:11:34.183898"
+      },
+      "decision": null
+    },
+    "301308": {
+      "code": "301308",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 78,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-24T10:31:07.196517"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "回调买入",
+          "position_pct": 15.0,
+          "stop_loss": 64.5,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-24T10:31:30.294689"
+      }
+    },
+    "600704": {
+      "code": "600704",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 61,
+        "level": "C级",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.956092"
+      },
+      "decision": null
+    },
+    "688525": {
+      "code": "688525",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 80,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-24T10:31:07.196796"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "追涨（当前价格176.71附近，需确认分时强势）",
+          "position_pct": 20.0,
+          "stop_loss": 171.5,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-24T10:31:30.294359"
+      }
+    },
+    "001309": {
+      "code": "001309",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 77,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-24T10:31:07.197076"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "追涨（高换手需确认强势）",
+          "position_pct": 10.0,
+          "stop_loss": 28.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-24T10:31:30.295055"
+      }
+    },
+    "000401": {
+      "code": "000401",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 41,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T10:31:07.197391"
+      },
+      "decision": null
+    },
+    "601992": {
+      "code": "601992",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 45,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T10:31:07.197743"
+      },
+      "decision": null
+    },
+    "601669": {
+      "code": "601669",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.956455"
+      },
+      "decision": null
+    },
+    "002299": {
+      "code": "002299",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "C级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.956849"
+      },
+      "decision": null
+    },
+    "002234": {
+      "code": "002234",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 54,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T14:31:37.957226"
+      },
+      "decision": null
+    },
+    "300502": {
+      "code": "300502",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 71,
+        "level": "B级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-24T14:31:37.957710"
+      },
+      "decision": null
+    },
+    "300394": {
+      "code": "300394",
+      "name": "",
+      "screen": null,
+      "review": {
+        "score": 56,
+        "level": "D级",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-24T14:31:37.958107"
+      },
+      "decision": null
+    }
+  }
+}

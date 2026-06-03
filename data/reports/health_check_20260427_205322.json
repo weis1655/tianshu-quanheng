@@ -1,0 +1,78 @@
+{
+  "healthy": true,
+  "status": "healthy",
+  "summary": {
+    "ok": 5,
+    "warning": 1,
+    "error": 0
+  },
+  "checks": {
+    "配置文件": {
+      "status": "ok",
+      "message": "配置文件正常",
+      "details": {
+        "config_keys": [
+          "api",
+          "pools",
+          "screening",
+          "schedule",
+          "market",
+          "weights",
+          "logging",
+          "paths",
+          "features"
+        ]
+      },
+      "timestamp": "2026-04-27T20:53:22.440777"
+    },
+    "池目录": {
+      "status": "ok",
+      "message": "存在 5/5 个池文件",
+      "details": {
+        "existing_pools": [
+          "候选观察池",
+          "重点观察池",
+          "接近决策池",
+          "暂缓淘汰池",
+          "持仓池"
+        ],
+        "missing_pools": []
+      },
+      "timestamp": "2026-04-27T20:53:22.440916"
+    },
+    "数据目录": {
+      "status": "ok",
+      "message": "data目录正常 (2/2 子目录)",
+      "details": {
+        "existing_subdirs": [
+          "历史记录",
+          "cache"
+        ]
+      },
+      "timestamp": "2026-04-27T20:53:22.440952"
+    },
+    "日志目录": {
+      "status": "ok",
+      "message": "日志目录正常 (1 个文件)",
+      "details": {
+        "log_count": 1
+      },
+      "timestamp": "2026-04-27T20:53:22.441050"
+    },
+    "持仓池": {
+      "status": "ok",
+      "message": "持仓 1 只股票",
+      "details": {
+        "holdings_count": 1
+      },
+      "timestamp": "2026-04-27T20:53:22.441176"
+    },
+    "API可达性": {
+      "status": "warning",
+      "message": "API检查失败: No module named 'agents'",
+      "details": {},
+      "timestamp": "2026-04-27T20:53:22.441379"
+    }
+  },
+  "checked_at": "2026-04-27T20:53:22.441393"
+}

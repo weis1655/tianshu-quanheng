@@ -1,0 +1,30 @@
+{
+  "date": "2026-05-22",
+  "stocks": {
+    "600519": {
+      "code": "600519",
+      "name": "贵州茅台",
+      "screen": {
+        "name": "贵州茅台",
+        "reason": "白酒龙头，估值修复",
+        "driver_level": "A级",
+        "timestamp": "2026-05-22T16:44:04.077350"
+      },
+      "review": {
+        "score": 72,
+        "level": "B级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-22T16:44:04.077479"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_price": 1700
+        },
+        "timestamp": "2026-05-22T16:44:04.077677"
+      }
+    }
+  }
+}

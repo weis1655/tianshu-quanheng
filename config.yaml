@@ -1,0 +1,128 @@
+# 天枢权衡系统配置文件
+# 集中管理所有硬编码配置值
+
+## API 配置
+api:
+  # OpenCode API
+  opencode_url: "https://opencode.ai/zen/v1/chat/completions"
+  # 注意：API密钥应该通过环境变量提供，这里仅供参考
+  opencode_key: "${OPENCODE_API_KEY:-***}"
+  
+  # 默认模型
+  default_model: "minimax-m2.5-free"
+  
+  # LLM 参数
+  llm:
+    temperature: 0.3
+    max_tokens: 1000
+    timeout: 60
+    max_retries: 3
+    # 后端选择: "opencode" | "gemini" | "doubao" | "sensenova"
+    # 2026-05-15 修复：gemini CLI 不可用，doubao 触发 CAPTCHA，切换为 sensenova（商汤 API，最可靠）
+    backend: "sensenova"
+
+## 股票池配置
+pools:
+  # 最大持仓数
+  max_holdings: 20
+  max_candidates: 20
+  max_watching: 15
+  
+  # 字段映射（标准化）
+  field_mapping:
+    code: "股票代码"
+    name: "股票名称"
+    cost: "成本"
+    price: "最新价"
+    pnl: "盈亏"
+    pnl_pct: "盈亏比例"
+    date: "建仓日期"
+    remark: "备注"
+
+## 筛选规则配置
+screening:
+  # 粗筛规则
+  rough:
+    pe_min: 0
+    pe_max: 100
+    turnover_min: 0.5  # 百分比
+    circ_mv_min: 10  # 亿元
+    change_max: -7  # 最大跌幅百分比
+  
+  # 快筛参数
+  quick:
+    max_per_sector: 3
+    max_candidates: 10
+
+## 时间触发配置
+schedule:
+  # 自动触发时间窗口
+  windows:
+    news: "06:20-06:35"
+    screen: "06:40-07:00"
+    review: "07:05-07:20"
+    full_cycle: "07:05-07:20"
+  
+  # 时区
+  timezone: "Asia/Shanghai"
+
+## 市场配置
+market:
+  # 熔断阈值
+  circuit_breaker: -3.0  # 日跌幅超过此值触发熔断
+  
+  # 胜率阈值
+  win_rate:
+    benchmark: 50
+    high_threshold: 60
+    low_threshold: 40
+    window_days: 30  # 统计周期（天），0或空=全量
+
+  # 盈亏判定阈值
+  pnl_threshold: 2.0  # 超过此百分比为盈利
+
+## 权重配置
+weights:
+  技术面: 30
+  基本面: 25
+  新闻驱动: 25
+  情绪评分: 20
+
+## 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/tianshu.log"
+  
+  # 是否打印到stdout
+  console: true
+
+## 文件路径配置
+paths:
+  # 相对于项目根目录
+  data_dir: "data"
+  pool_dir: "data/五池管理"
+  history_dir: "data/历史记录"
+  cache_dir: "data/cache"
+  logs_dir: "logs"
+  
+  # 报告输出
+  report_dir: "data/历史记录"
+
+## 功能开关
+features:
+  # 是否启用自动调度
+  auto_schedule: true
+  
+  # 是否启用熔断
+  circuit_breaker: true
+  
+  # 是否自动调整权重
+  auto_adjust_weights: true
+  
+  # 是否发送飞书通知
+  feishu_notify: false
+  
+  # 是否缓存行情数据
+  cache_quotes: true
+  cache_ttl: 300  # 缓存时间（秒）

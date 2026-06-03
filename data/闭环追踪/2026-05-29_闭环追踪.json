@@ -1,0 +1,385 @@
+{
+  "date": "2026-05-29",
+  "stocks": {
+    "300757": {
+      "code": "300757",
+      "name": "罗博特科",
+      "screen": null,
+      "review": {
+        "score": 32,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.892936"
+      },
+      "decision": null
+    },
+    "688110": {
+      "code": "688110",
+      "name": "东芯股份",
+      "screen": null,
+      "review": {
+        "score": 37,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.896524"
+      },
+      "decision": null
+    },
+    "603936": {
+      "code": "603936",
+      "name": "博敏电子",
+      "screen": null,
+      "review": {
+        "score": 31,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.898202"
+      },
+      "decision": null
+    },
+    "600028": {
+      "code": "600028",
+      "name": "中国石化",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T07:11:34.903427"
+      },
+      "decision": null
+    },
+    "300474": {
+      "code": "300474",
+      "name": "景嘉微",
+      "screen": null,
+      "review": {
+        "score": 59,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T16:23:58.531347"
+      },
+      "decision": null
+    },
+    "688249": {
+      "code": "688249",
+      "name": "晶合集成",
+      "screen": null,
+      "review": {
+        "score": 63,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T07:11:34.903910"
+      },
+      "decision": null
+    },
+    "601101": {
+      "code": "601101",
+      "name": "昊华能源",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T07:11:34.904203"
+      },
+      "decision": null
+    },
+    "601699": {
+      "code": "601699",
+      "name": "潞安环能",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T10:33:18.752599"
+      },
+      "decision": null
+    },
+    "002639": {
+      "code": "002639",
+      "name": "雪人集团",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T10:33:18.752895"
+      },
+      "decision": null
+    },
+    "603011": {
+      "code": "603011",
+      "name": "合锻智能",
+      "screen": null,
+      "review": {
+        "score": 57,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T10:31:26.659671"
+      },
+      "decision": null
+    },
+    "603773": {
+      "code": "603773",
+      "name": "沃格光电",
+      "screen": null,
+      "review": {
+        "score": 30,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.900561"
+      },
+      "decision": null
+    },
+    "300554": {
+      "code": "300554",
+      "name": "三超新材",
+      "screen": null,
+      "review": {
+        "score": 31,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.910135"
+      },
+      "decision": null
+    },
+    "603893": {
+      "code": "603893",
+      "name": "瑞芯微",
+      "screen": null,
+      "review": {
+        "score": 63,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:08:37.532294"
+      },
+      "decision": null
+    },
+    "600930": {
+      "code": "600930",
+      "name": "华电新能",
+      "screen": null,
+      "review": {
+        "score": 71,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:08:37.532680"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "回调买入",
+          "position_pct": 15.0,
+          "stop_loss": 6.24,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-29T18:09:23.736703"
+      }
+    },
+    "000977": {
+      "code": "000977",
+      "name": "浪潮信息",
+      "screen": null,
+      "review": {
+        "score": 71,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:08:37.533029"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "回调买入",
+          "position_pct": 15.0,
+          "stop_loss": 62.69,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-29T18:09:23.735203"
+      }
+    },
+    "600111": {
+      "code": "600111",
+      "name": "北方稀土",
+      "screen": null,
+      "review": {
+        "score": 62,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:08:37.533363"
+      },
+      "decision": null
+    },
+    "601600": {
+      "code": "601600",
+      "name": "中国铝业",
+      "screen": null,
+      "review": {
+        "score": 70,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:08:37.539557"
+      },
+      "decision": {
+        "priority": "备选",
+        "plan": {
+          "buy_method": "待确认",
+          "position_pct": 0.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-05-29T18:09:23.737129"
+      }
+    },
+    "000582": {
+      "code": "000582",
+      "name": "北部湾港",
+      "screen": null,
+      "review": {
+        "score": 68,
+        "level": "B级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.914201"
+      },
+      "decision": null
+    },
+    "600584": {
+      "code": "600584",
+      "name": "长电科技",
+      "screen": null,
+      "review": {
+        "score": 69,
+        "level": "B级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.916750"
+      },
+      "decision": null
+    },
+    "688981": {
+      "code": "688981",
+      "name": "中芯国际",
+      "screen": null,
+      "review": {
+        "score": 69,
+        "level": "B级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.917372"
+      },
+      "decision": null
+    },
+    "002202": {
+      "code": "002202",
+      "name": "金风科技",
+      "screen": null,
+      "review": {
+        "score": 69,
+        "level": "B级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.920142"
+      },
+      "decision": null
+    },
+    "601598": {
+      "code": "601598",
+      "name": "中国外运",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "B级(黄色预警)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.923213"
+      },
+      "decision": null
+    },
+    "300705": {
+      "code": "300705",
+      "name": "新诺威",
+      "screen": null,
+      "review": {
+        "score": 79,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.925804"
+      },
+      "decision": null
+    },
+    "688363": {
+      "code": "688363",
+      "name": "华熙生物",
+      "screen": null,
+      "review": {
+        "score": 69,
+        "level": "B级(黄色预警)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-05-29T18:17:01.926310"
+      },
+      "decision": null
+    },
+    "000938": {
+      "code": "000938",
+      "name": "紫光股份",
+      "screen": null,
+      "review": {
+        "score": 0,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-05-29T18:17:01.926922"
+      },
+      "decision": null
+    }
+  }
+}

@@ -1,0 +1,709 @@
+{
+  "date": "2026-06-02",
+  "stocks": {
+    "300757": {
+      "code": "300757",
+      "name": "罗博特科",
+      "screen": null,
+      "review": {
+        "score": 56,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T14:59:12.382882"
+      },
+      "decision": null
+    },
+    "688110": {
+      "code": "688110",
+      "name": "东芯股份",
+      "screen": null,
+      "review": {
+        "score": 45,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.084749"
+      },
+      "decision": null
+    },
+    "603936": {
+      "code": "603936",
+      "name": "博敏电子",
+      "screen": null,
+      "review": {
+        "score": 59,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T14:59:12.384094"
+      },
+      "decision": null
+    },
+    "603773": {
+      "code": "603773",
+      "name": "沃格光电",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:04:18.080359"
+      },
+      "decision": null
+    },
+    "300554": {
+      "code": "300554",
+      "name": "三超新材",
+      "screen": null,
+      "review": {
+        "score": 51,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.085443"
+      },
+      "decision": null
+    },
+    "301236": {
+      "code": "301236",
+      "name": "云汉芯城",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T10:32:24.003376"
+      },
+      "decision": null
+    },
+    "002028": {
+      "code": "002028",
+      "name": "思源电气",
+      "screen": null,
+      "review": {
+        "score": 56,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.856658"
+      },
+      "decision": null
+    },
+    "300223": {
+      "code": "300223",
+      "name": "北京君正",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T07:11:37.567460"
+      },
+      "decision": null
+    },
+    "300502": {
+      "code": "300502",
+      "name": "新易盛",
+      "screen": null,
+      "review": {
+        "score": 78,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:04:18.081167"
+      },
+      "decision": null
+    },
+    "300394": {
+      "code": "300394",
+      "name": "天孚通信",
+      "screen": null,
+      "review": {
+        "score": 56,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.857095"
+      },
+      "decision": null
+    },
+    "600118": {
+      "code": "600118",
+      "name": "中国卫星",
+      "screen": null,
+      "review": {
+        "score": 46,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.086257"
+      },
+      "decision": null
+    },
+    "600879": {
+      "code": "600879",
+      "name": "航天电子",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:15:52.040268"
+      },
+      "decision": null
+    },
+    "600546": {
+      "code": "600546",
+      "name": "山煤国际",
+      "screen": null,
+      "review": {
+        "score": 59,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.858259"
+      },
+      "decision": null
+    },
+    "601088": {
+      "code": "601088",
+      "name": "中国神华",
+      "screen": null,
+      "review": {
+        "score": 59,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.858666"
+      },
+      "decision": null
+    },
+    "601857": {
+      "code": "601857",
+      "name": "中国石油",
+      "screen": null,
+      "review": {
+        "score": 58,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.859034"
+      },
+      "decision": null
+    },
+    "688041": {
+      "code": "688041",
+      "name": "海光信息",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:33:31.360342"
+      },
+      "decision": null
+    },
+    "600380": {
+      "code": "600380",
+      "name": "健康元",
+      "screen": null,
+      "review": {
+        "score": 55,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:09:08.860683"
+      },
+      "decision": null
+    },
+    "002294": {
+      "code": "002294",
+      "name": "信立泰",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.083265"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "回调买入",
+          "position_pct": 15.0,
+          "stop_loss": 32.01,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T13:49:40.840926"
+      }
+    },
+    "600979": {
+      "code": "600979",
+      "name": "广安爱众",
+      "screen": null,
+      "review": {
+        "score": 50,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.087002"
+      },
+      "decision": null
+    },
+    "300308": {
+      "code": "300308",
+      "name": "中际旭创",
+      "screen": null,
+      "review": {
+        "score": 73,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:33:31.361903"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "分批低吸（首次1/2仓位，确认后补1/2）",
+          "position_pct": 10.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T11:34:38.295297"
+      }
+    },
+    "002371": {
+      "code": "002371",
+      "name": "北方华创",
+      "screen": null,
+      "review": {
+        "score": 63,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:27:38.429249"
+      },
+      "decision": null
+    },
+    "603019": {
+      "code": "603019",
+      "name": "中科曙光",
+      "screen": null,
+      "review": {
+        "score": 64,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:27:38.429686"
+      },
+      "decision": null
+    },
+    "300666": {
+      "code": "300666",
+      "name": "江丰电子",
+      "screen": null,
+      "review": {
+        "score": 65,
+        "level": "B级(黄色预警)",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:33:31.362420"
+      },
+      "decision": null
+    },
+    "688126": {
+      "code": "688126",
+      "name": "颀中科技",
+      "screen": null,
+      "review": {
+        "score": 41,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.087795"
+      },
+      "decision": null
+    },
+    "600361": {
+      "code": "600361",
+      "name": "华锡有色",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.084941"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "现价跟随",
+          "position_pct": 15.0,
+          "stop_loss": 4.36,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T13:49:40.841639"
+      }
+    },
+    "000960": {
+      "code": "000960",
+      "name": "锡业股份",
+      "screen": null,
+      "review": {
+        "score": 61,
+        "level": "C级(观察区)",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T11:33:31.363830"
+      },
+      "decision": null
+    },
+    "600688": {
+      "code": "600688",
+      "name": "上海石化",
+      "screen": null,
+      "review": {
+        "score": 39,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.088569"
+      },
+      "decision": null
+    },
+    "000657": {
+      "code": "000657",
+      "name": "中钨高新",
+      "screen": null,
+      "review": {
+        "score": 60,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T12:06:30.045793"
+      },
+      "decision": null
+    },
+    "001309": {
+      "code": "001309",
+      "name": "德明利",
+      "screen": null,
+      "review": {
+        "score": 64,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T12:06:30.046388"
+      },
+      "decision": null
+    },
+    "300699": {
+      "code": "300699",
+      "name": "光威复材",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.086035"
+      },
+      "decision": null
+    },
+    "300777": {
+      "code": "300777",
+      "name": "中简科技",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.086595"
+      },
+      "decision": null
+    },
+    "002050": {
+      "code": "002050",
+      "name": "三花智控",
+      "screen": null,
+      "review": {
+        "score": 61,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T12:06:30.048921"
+      },
+      "decision": null
+    },
+    "600406": {
+      "code": "600406",
+      "name": "国电南瑞",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.087120"
+      },
+      "decision": null
+    },
+    "000400": {
+      "code": "000400",
+      "name": "许继电气",
+      "screen": null,
+      "review": {
+        "score": 75,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T13:48:45.087695"
+      },
+      "decision": null
+    },
+    "300122": {
+      "code": "300122",
+      "name": "锐科激光",
+      "screen": null,
+      "review": {
+        "score": 41,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.089331"
+      },
+      "decision": null
+    },
+    "600522": {
+      "code": "600522",
+      "name": "中天科技",
+      "screen": null,
+      "review": {
+        "score": 66,
+        "level": "B级(黄色预警)",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:15:52.043358"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "**回调买入**（今日已涨8.89%，不宜追高）",
+          "position_pct": 15.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T15:16:43.171234"
+      }
+    },
+    "600255": {
+      "code": "600255",
+      "name": "鑫科材料",
+      "screen": null,
+      "review": {
+        "score": 63,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T14:32:01.524955"
+      },
+      "decision": null
+    },
+    "601137": {
+      "code": "601137",
+      "name": "博威合金",
+      "screen": null,
+      "review": {
+        "score": 64,
+        "level": "C级(观察区)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:15:52.043962"
+      },
+      "decision": null
+    },
+    "600547": {
+      "code": "600547",
+      "name": "山东黄金",
+      "screen": null,
+      "review": {
+        "score": 74,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:15:52.044563"
+      },
+      "decision": {
+        "priority": "备选",
+        "plan": {
+          "buy_method": "**现价分批买入**（趋势股可适度追涨）",
+          "position_pct": 10.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T15:16:43.172035"
+      }
+    },
+    "601899": {
+      "code": "601899",
+      "name": "紫金矿业",
+      "screen": null,
+      "review": {
+        "score": 78,
+        "level": "A级",
+        "flow_direction": "升级",
+        "target_pool": "重点观察池",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:45:08.090073"
+      },
+      "decision": {
+        "priority": "主推",
+        "plan": {
+          "buy_method": "待确认",
+          "position_pct": 0.0,
+          "stop_loss": 0.0,
+          "target_1": 0.0,
+          "target_2": 0.0
+        },
+        "timestamp": "2026-06-02T15:46:18.079754"
+      }
+    },
+    "600000": {
+      "code": "600000",
+      "name": "浦发银行",
+      "screen": null,
+      "review": {
+        "score": 56,
+        "level": "C级(观察区)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:45:08.090850"
+      },
+      "decision": null
+    },
+    "600895": {
+      "code": "600895",
+      "name": "张江高科",
+      "screen": null,
+      "review": {
+        "score": 59,
+        "level": "C级(观察区)",
+        "flow_direction": "保留",
+        "target_pool": "",
+        "action_advice": "",
+        "timestamp": "2026-06-02T15:45:08.091621"
+      },
+      "decision": null
+    },
+    "000099": {
+      "code": "000099",
+      "name": "中信海直",
+      "screen": null,
+      "review": {
+        "score": 50,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.092373"
+      },
+      "decision": null
+    },
+    "301293": {
+      "code": "301293",
+      "name": "三博脑科",
+      "screen": null,
+      "review": {
+        "score": 46,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.093125"
+      },
+      "decision": null
+    },
+    "600775": {
+      "code": "600775",
+      "name": "南京熊猫",
+      "screen": null,
+      "review": {
+        "score": 43,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.093925"
+      },
+      "decision": null
+    },
+    "601208": {
+      "code": "601208",
+      "name": "创新新材",
+      "screen": null,
+      "review": {
+        "score": 53,
+        "level": "D级(淘汰)",
+        "flow_direction": "降级",
+        "target_pool": "边缘池",
+        "action_advice": "低分淘汰",
+        "timestamp": "2026-06-02T15:45:08.094715"
+      },
+      "decision": null
+    }
+  }
+}

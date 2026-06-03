@@ -1,0 +1,55 @@
+wing: tianshu_quanheng
+rooms:
+- name: "\u4E94\u6C60\u7BA1\u7406"
+  description: "Files from \u4E94\u6C60\u7BA1\u7406/"
+  keywords:
+  - "\u4E94\u6C60\u7BA1\u7406"
+  - "\u4E94\u6C60\u7BA1\u7406"
+- name: testing
+  description: Files from tests/
+  keywords:
+  - testing
+  - tests
+- name: logs
+  description: Files from logs/
+  keywords:
+  - logs
+  - logs
+- name: "\u89C4\u5219\u5E93"
+  description: "Files from \u89C4\u5219\u5E93/"
+  keywords:
+  - "\u89C4\u5219\u5E93"
+  - "\u89C4\u5219\u5E93"
+- name: documentation
+  description: Files from docs/
+  keywords:
+  - documentation
+  - docs
+- name: "\u4E94\u6C60\u5907\u4EFD_20260507"
+  description: "Files from \u4E94\u6C60\u5907\u4EFD_20260507/"
+  keywords:
+  - "\u4E94\u6C60\u5907\u4EFD_20260507"
+  - "\u4E94\u6C60\u5907\u4EFD_20260507"
+- name: dashboard
+  description: Files from dashboard/
+  keywords:
+  - dashboard
+  - dashboard
+- name: data
+  description: Files from data/
+  keywords:
+  - data
+  - data
+- name: scripts
+  description: Files from scripts/
+  keywords:
+  - scripts
+  - scripts
+- name: agents
+  description: Files from agents/
+  keywords:
+  - agents
+  - agents
+- name: general
+  description: Files that don't fit other rooms
+  keywords: []

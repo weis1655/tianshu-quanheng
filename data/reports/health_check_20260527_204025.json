@@ -1,0 +1,78 @@
+{
+  "healthy": true,
+  "status": "healthy",
+  "summary": {
+    "ok": 6,
+    "warning": 0,
+    "error": 0
+  },
+  "checks": {
+    "配置文件": {
+      "status": "ok",
+      "message": "配置文件正常",
+      "details": {
+        "config_keys": [
+          "api",
+          "pools",
+          "screening",
+          "schedule",
+          "market",
+          "weights",
+          "logging",
+          "paths",
+          "features"
+        ]
+      },
+      "timestamp": "2026-05-27T20:40:25.282530"
+    },
+    "池目录": {
+      "status": "ok",
+      "message": "存在 4/4 个池文件",
+      "details": {
+        "existing_pools": [
+          "快筛候选池",
+          "重点观察池",
+          "边缘池",
+          "持仓池"
+        ],
+        "missing_pools": []
+      },
+      "timestamp": "2026-05-27T20:40:25.282680"
+    },
+    "数据目录": {
+      "status": "ok",
+      "message": "data目录正常 (1/2 子目录)",
+      "details": {
+        "existing_subdirs": [
+          "历史记录"
+        ]
+      },
+      "timestamp": "2026-05-27T20:40:25.282727"
+    },
+    "日志目录": {
+      "status": "ok",
+      "message": "日志目录正常 (32 个文件)",
+      "details": {
+        "log_count": 32
+      },
+      "timestamp": "2026-05-27T20:40:25.283002"
+    },
+    "持仓池": {
+      "status": "ok",
+      "message": "持仓 2 只股票",
+      "details": {
+        "holdings_count": 2
+      },
+      "timestamp": "2026-05-27T20:40:25.283135"
+    },
+    "API可达性": {
+      "status": "ok",
+      "message": "API配置正常",
+      "details": {
+        "api_url": "https://opencode.ai/zen/v1/chat/completions"
+      },
+      "timestamp": "2026-05-27T20:40:25.283155"
+    }
+  },
+  "checked_at": "2026-05-27T20:40:25.283164"
+}
