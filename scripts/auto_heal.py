@@ -305,10 +305,48 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
     except Exception as e:
         logger.warning(f"[auto_heal]   ⚠️ CGC 查询异常: {e}")
 
-    # 用 CGC 查询调用该函数的代码
+    # 初始化 code_context
     code_context = ""
-    if cgc_hint:
-        # 查询调用该函数的代码
+
+    # CGC 失败时，用 git grep 备选定位
+    if not cgc_hint:
+        logger.warning(f"[auto_heal]   ⚠️ CGC 查询无结果，尝试 git grep 备选定位")
+        # 根据问题类型选择 grep 关键词
+        grep_keywords = {
+            "过热漏检": ["overheat", "over_heated", "overheat_detection"],
+            "降级延迟": ["downgrade", "score_downgrade", "downgrade_threshold"],
+            "质疑报告缺失": ["skeptic", "review_agent", "history_dir"],
+            "决策越权": ["decision", "position", "仓位", "max_position"],
+        }
+        keywords = []
+        for k, v in grep_keywords.items():
+            if k in issue["type"]:
+                keywords = v
+                break
+        if not keywords:
+            keywords = ["overheat", "downgrade"]  # 默认
+
+        # 执行 git grep
+        grep_result = _run_cmd(
+            ["git", "-C", str(project), "grep", "-l", "-i", *keywords],
+            timeout=15,
+        )
+        if grep_result.returncode == 0 and grep_result.stdout.strip():
+            files = grep_result.stdout.strip().split("\n")[:10]
+            code_context += f"\n## 备选定位（git grep）\n以下文件包含相关关键词：\n"
+            for f in files:
+                code_context += f"- {f}\n"
+            # 读取前几个文件的前 50 行作为上下文
+            for f in files[:3]:
+                fpath = project / f
+                if fpath.exists():
+                    try:
+                        lines = fpath.read_text(encoding="utf-8").split("\n")[:50]
+                        code_context += f"\n### {f} (前 50 行)\n" + "\n".join(lines) + "\n"
+                    except Exception:
+                        pass
+    else:
+        # 用 CGC 查询调用该函数的代码
         caller_query = f"MATCH (caller:Function)-[:CALLS]->(f:Function) WHERE f.name CONTAINS '{search_list[0]}' RETURN caller.name, caller.file LIMIT {cgc_max_results}"
         caller_result = _run_cmd(
             ["codegraphcontext", "query", caller_query],
@@ -443,21 +481,25 @@ def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, 
     return True
 
 
-def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng") -> Optional[str]:
-    """创建 PR 等待人工审核，返回 PR URL 或 None"""
-    # 推送到远程
-    push = _run_cmd(
-        ["git", "-C", worktree, "push", "origin", branch],
-    )
-    if push.returncode != 0:
-        logger.error(f"[auto_heal]   ❌ 推送失败: {push.stderr[:200]}")
+def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2) -> Optional[str]:
+    """创建 PR 等待人工审核，支持重试，返回 PR URL 或 None"""
+    # 推送到远程（带重试）
+    for attempt in range(1, max_pr_retries + 2):  # +2 因为 push 也需要重试
+        push = _run_cmd(["git", "-C", worktree, "push", "origin", branch], timeout=60)
+        if push.returncode == 0:
+            break
+        logger.warning(f"[auto_heal]   ⚠️ 推送第{attempt}次失败，重试...")
+        if attempt < max_pr_retries + 1:
+            time.sleep(2 ** attempt)
+    else:
+        logger.error(f"[auto_heal]   ❌ 推送失败，放弃 PR")
         return None
 
-    # 创建 PR
+    # PR 创建（带重试）
     pr_title = f"auto-heal: {issue.get('type', 'fix')} ({issue.get('code', '')})"
     diff_result = _run_cmd(["git", "-C", worktree, "diff", "main"], cwd=worktree)
     diff_lines = diff_result.stdout.splitlines()
-    diff_content = "\n".join(diff_lines[:50])  # 限制 50 行而非 2000 字符
+    diff_content = "\n".join(diff_lines[:50])  # 限制 50 行
     pr_body = f"""## 自动修复 PR
 
 **问题类型**: {issue.get('type', 'N/A')}
@@ -475,17 +517,23 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
 
 **请人工审核后再合并。**
 """
-    pr_result = _run_cmd(
-        ["gh", "pr", "create", "--repo", pr_repo, "--base", "main", "--head", branch,
-         "--title", pr_title, "--body", pr_body],
-    )
-    if pr_result.returncode != 0:
-        logger.error(f"[auto_heal]   ❌ PR 创建失败: {pr_result.stderr[:200]}")
-        return None
+    for attempt in range(1, max_pr_retries + 1):
+        pr_result = _run_cmd(
+            ["gh", "pr", "create", "--repo", pr_repo, "--base", "main", "--head", branch,
+             "--title", pr_title, "--body", pr_body],
+            timeout=30,
+        )
+        if pr_result.returncode == 0:
+            pr_url = pr_result.stdout.strip()
+            logger.info(f"[auto_heal]   🔗 PR 已创建: {pr_url}")
+            return pr_url
+        logger.warning(f"[auto_heal]   ⚠️ PR 创建第{attempt}次失败，重试...")
+        if attempt < max_pr_retries:
+            time.sleep(2 ** attempt)
 
-    pr_url = pr_result.stdout.strip()
-    logger.info(f"[auto_heal]   🔗 PR 已创建: {pr_url}")
-    return pr_url
+    # Fallback: PR 创建失败，但分支已推送，返回 pushed_no_pr 状态
+    logger.warning(f"[auto_heal]   ⚠️ PR 创建失败（gh 可能未配置），但分支已推送: {branch}")
+    return f"pushed_no_pr:{branch}"
 
 
 def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int = 50, forbidden: set | None = None, pr_repo: str = "weis1655/tianshu-quanheng") -> dict:
@@ -569,12 +617,16 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         return {"status": "failed", "reason": "business_constraint_violated"}
 
     # 编译+导入验证通过后，创建 PR 等待人工审核
-    pr_url = create_pr(worktree, branch, issue, pr_repo=pr_repo)
-    if pr_url:
-        # 不 merge，保留 worktree 供审查
-        logger.info(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_url}")
-        return {"status": "needs_review", "pr_url": pr_url}
-    return {"status": "failed", "reason": "pr_creation_failed"}
+    pr_result = create_pr(worktree, branch, issue, pr_repo=pr_repo)
+    if pr_result is None:
+        return {"status": "failed", "reason": "pr_creation_failed"}
+    elif pr_result.startswith("pushed_no_pr:"):
+        branch_name = pr_result.split(":")[1]
+        logger.warning(f"[auto_heal]   ⚠️ PR 创建失败，但分支已推送: {branch_name}")
+        return {"status": "pushed_no_pr", "branch": branch_name}
+    else:
+        logger.info(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_result}")
+        return {"status": "needs_review", "pr_url": pr_result}
 
 
 def cleanup_worktree(worktree: str, branch: str, safe_type: str | None = None, project: Path = None):
@@ -733,7 +785,12 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
         status = "unknown"
 
         try:
+            # CGC 查询计时
+            cgc_start = time.time()
             prompt = build_opencode_prompt(issue, worktree, cgc_timeout=cgc_timeout, cgc_max_results=cgc_max_results, project=paths.project)
+            cgc_elapsed = time.time() - cgc_start
+            cgc_has_hint = "代码图定位" in prompt  # 简单判断 CGC 是否返回结果
+
             ok, reason = run_opencode_fix(worktree, prompt, timeout_min=timeout_min, max_retries=max_retries, total_timeout_min=total_timeout_min)
             if not ok:
                 logger.warning(f"[auto_heal]   ⚠️ OpenCode 异常退出: {reason}，仍尝试核验改动")
@@ -751,10 +808,22 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
                 "reason": result.get("reason"),
             })
 
-            # 记录 metrics
+            # 记录详细 metrics
             run.metrics.setdefault(issue['type'], {})['elapsed'] = round(elapsed, 2)
             run.metrics.setdefault(issue['type'], {})['retries'] = retry_count
             run.metrics.setdefault(issue['type'], {})['status'] = status
+            run.metrics.setdefault(issue['type'], {})['cgc_status'] = 'hit' if cgc_has_hint else 'miss'
+            run.metrics.setdefault(issue['type'], {})['cgc_elapsed'] = round(cgc_elapsed, 2)
+            run.metrics.setdefault(issue['type'], {})['opencode_ok'] = ok
+            run.metrics.setdefault(issue['type'], {})['opencode_reason'] = reason
+
+            # 在 verify_and_reconcile 返回后记录 PR 状态
+            pr_status = "unknown"
+            if status == "pushed_no_pr":
+                pr_status = "pushed_no_pr"
+            elif status == "needs_review":
+                pr_status = "created"
+            run.metrics.setdefault(issue['type'], {})['pr_status'] = pr_status
 
             if status == "needs_review":
                 run.state = FixState.NEEDS_REVIEW
@@ -782,9 +851,12 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     total_elapsed = time.time() - run_total_start
     run.metrics['summary'] = {
         'total_issues': len(issues),
-        'merged': sum(1 for r in run.results if r["status"] == "needs_review"),
+        'needs_review': sum(1 for r in run.results if r["status"] == "needs_review"),
+        'pushed_no_pr': sum(1 for r in run.results if r["status"] == "pushed_no_pr"),
         'skipped': sum(1 for r in run.results if r["status"] in ("skipped", "dry_run", "no_change")),
         'failed': sum(1 for r in run.results if r["status"] == "failed"),
+        'cgc_hit_rate': round(sum(1 for m in run.metrics.values() if isinstance(m, dict) and m.get('cgc_status') == 'hit') / len(issues), 2) if issues else 0,
+        'opencode_success_rate': round(sum(1 for m in run.metrics.values() if isinstance(m, dict) and m.get('opencode_ok')) / len(issues), 2) if issues else 0,
         'total_elapsed': round(total_elapsed, 2),
         'avg_elapsed': round(total_elapsed / len(issues), 2) if issues else 0,
     }
