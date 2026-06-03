@@ -11,17 +11,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from safe_file_utils import safe_read_json
+from safe_file_utils import safe_read_json, safe_write_file
+from path_config import PathConfig
 
 logger = logging.getLogger(__name__)
-
-PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 
 from market_agent import fetch_quotes
 from base_agent import BaseAgent, add_market_prefix
 from pool_manager import PoolManager
 from logger import get_logger
+
+cfg = PathConfig()
 
 
 class FeedbackLoopAgent(BaseAgent):
@@ -30,8 +30,7 @@ class FeedbackLoopAgent(BaseAgent):
     def __init__(self):
         super().__init__("FeedbackLoop")
         self.pool_manager = PoolManager()
-        self.logger = get_logger("FeedbackLoop")
-    
+
     def run(self) -> Dict[str, Any]:
         """运行完整反馈闭环"""
         self.logger.log_agent_start("FeedbackLoop", "full_loop")
@@ -63,6 +62,20 @@ class FeedbackLoopAgent(BaseAgent):
                           total_decisions=stats.get("total", 0),
                           duration_s=round(duration, 2))
             
+            # 6. 生成反馈闭环报告
+            report_path = PathConfig().data_dir.parent / "data" / "历史记录" / f"{datetime.now().strftime('%Y-%m-%d')}_反馈闭环报告.md"
+            try:
+                lines = ["# 反馈闭环报告", f"**日期**: {datetime.now().strftime('%Y-%m-%d')}", ""]
+                if circuit_triggered:
+                    lines.append("## 🔴 市场熔断触发")
+                lines.append(f"## 持仓分析: {len(holdings or [])}只")
+                lines.append(f"## 决策统计: 总{stats.get('total',0)} 盈利{stats.get('wins',0)} 胜率{stats.get('rate',0):.1f}%")
+                report_text = "\n".join(lines)
+                safe_write_file(report_path, report_text)
+                self.logger.info(f"反馈闭环报告已保存: {report_path}")
+            except Exception as e:
+                self.logger.warning(f"反馈闭环报告写入失败: {e}")
+
             results["success"] = True
             
         except Exception as e:
@@ -82,7 +95,7 @@ class FeedbackLoopAgent(BaseAgent):
         """检查市场熔断条件"""
         self.logger.info("检查市场熔断...")
         
-        quotes = fetch_quotes(["sh000001"])
+        quotes = fetch_quotes(["sh000001", "sz399001", "sz399006"])  # 上证+深成指+创业板
         if not quotes:
             self.logger.warning("无法获取上证指数")
             return False
@@ -208,92 +221,15 @@ class FeedbackLoopAgent(BaseAgent):
             "window": window_label,
         }
     
-    def _normalize_logs(self, raw_logs: list) -> list:
-        """将原始格式映射为标准化格式，供 feedback_loop 使用"""
-        normalized = []
-        for r in raw_logs:
-            normalized.append({
-                "code": r.get("股票代码", ""),
-                "name": r.get("股票名称", ""),
-                "entry_price": r.get("推荐价格", 0),
-                "actual_pnl": r.get("实际结果"),
-                "drive_type": r.get("驱动类型", "未知"),
-                "date": r.get("日期", ""),
-                "recommendation": r.get("推荐操作", ""),
-                "confidence": r.get("信心度", ""),
-                "tech_score": r.get("技术面评分", 0),
-                "fundamental_score": r.get("基本面评分", 0),
-            })
-        return normalized
-    
     def auto_adjust_weights(self, win_rate: float, by_type: Dict) -> None:
         """根据胜率自动调整权重"""
         if win_rate < 50:
-            self.logger.info(f"胜率 {win_rate:.1f}% 低于基准，调整权重...")
-            # 这里可以添加权重调整逻辑
-            pass
+            # 胜率低于50%：执行调权（当前为空壳，预留调权接口）
+            self.logger.info(f"胜率 {win_rate:.1f}% 低于基准，预留调权逻辑")
+            # TODO: 接入权重计算算法
         else:
             self.logger.info(f"胜率 {win_rate:.1f}% 正常，无需调整")
 
-
-def load_pool(pool_name: str) -> list:
-    """兼容性：使用PoolManager加载五池"""
-    pm = PoolManager()
-    return pm.get_stocks(pool_name)
-
-
-def save_pool(pool_name: str, stocks: list) -> None:
-    """兼容性：保存五池"""
-    pm = PoolManager()
-    data = pm.load_pool(pool_name)
-    data["stocks"] = stocks
-    data["stocks"] = stocks
-    pm.save_pool(pool_name, data)
-
-
-def load_decision_log() -> list:
-    """兼容性：加载决策日志"""
-    log_file = PROJECT_ROOT / "data" / "decision_log.json"
-    if not log_file.exists():
-        return []
-    data = safe_read_json(log_file, default=None, log_error=False)
-    return data if data is not None else []
-
-
-def get_weight_config() -> dict:
-    """兼容性：获取权重配置"""
-    config_file = PROJECT_ROOT / "data" / "权重配置.json"
-    if not config_file.exists():
-        return {"技术面": 30, "基本面": 25, "新闻驱动": 25, "情绪评分": 20}
-    data = safe_read_json(config_file, default=None, log_error=False)
-    return data if data is not None else {"技术面": 30, "基本面": 25, "新闻驱动": 25, "情绪评分": 20}
-
-
-def save_weight_config(config: dict) -> None:
-    """兼容性：保存权重配置"""
-    config_file = PROJECT_ROOT / "data" / "权重配置.json"
-    success = safe_write_file(config_file, json.dumps(config, ensure_ascii=False, indent=2))
-    if not success:
-        logger.error(f"[FeedbackLoop] 保存权重配置失败: {config_file}")
-
-
-# 保持原有的函数接口，供main.py调用
-def analyze_holdings():
-    """分析持仓池（保留原接口）"""
-    agent = FeedbackLoopAgent()
-    return agent.analyze_holdings()
-
-
-def calculate_win_rate():
-    """计算胜率（保留原接口）"""
-    agent = FeedbackLoopAgent()
-    return agent.calculate_win_rate()
-
-
-def check_market_circuit() -> bool:
-    """检查市场熔断（保留原接口）"""
-    agent = FeedbackLoopAgent()
-    return agent.check_market_circuit()
 
 
 def run_full_loop():
