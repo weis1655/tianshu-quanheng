@@ -430,8 +430,28 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
             amplitude = float(parts[43])      # 振幅%
             mkt_cap = float(parts[44])        # 流通市值(亿)
             total_cap = float(parts[45])      # 总市值(亿)
-            upper_limit = prev_close * 1.1  # 涨停价：从昨收推算（A股常规）
-            lower_limit = prev_close * 0.9  # 跌停价：从昨收推算（A股常规）
+            # 判断交易状态(涨停/跌停)：按ST→创业板/科创板→北交所→主板的优先级覆盖
+            stock_name = parts[1]  # 股票名称，用于ST判断
+            is_st = 'ST' in stock_name or '*ST' in stock_name
+            if is_st:
+                upper_limit = prev_close * 1.05  # ST股5%涨停
+                lower_limit = prev_close * 0.95
+            elif raw_code.startswith(('3', '68')):
+                upper_limit = prev_close * 1.2   # 创业板/科创板20%
+                lower_limit = prev_close * 0.8
+            elif raw_code.startswith(('43', '83', '87')):
+                upper_limit = prev_close * 1.3   # 北交所30%
+                lower_limit = prev_close * 0.7
+            else:
+                upper_limit = prev_close * 1.1   # 主板10%
+                lower_limit = prev_close * 0.9
+            # 判断当前价格是否封板（允许千分之一精度误差）
+            if price >= upper_limit * 0.999:
+                trade_status = "涨停"
+            elif price <= lower_limit * 1.001:
+                trade_status = "跌停"
+            else:
+                trade_status = "正常"
             vol_ratio = float(parts[49])      # 量比
             month_chg = float(parts[63]) if parts[63] else 0   # 月涨跌%
             quarter_chg = float(parts[64]) if parts[64] else 0  # 季涨跌%
@@ -459,6 +479,7 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
                 "总市值_亿": total_cap,
                 "涨停价": upper_limit,
                 "跌停价": lower_limit,
+                "交易状态": trade_status,
                 "量比": vol_ratio,
                 "委托买入": float(parts[50]) if parts[50] else 0,
                 "委托卖出": float(parts[51]) if parts[51] else 0,

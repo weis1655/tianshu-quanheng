@@ -128,6 +128,8 @@ class DecisionAgent(BaseAgent):
             self._fetch_quotes = fetch_quotes
         except Exception:
             self._fetch_quotes = None
+        # 涨停/跌停排除集（_build_realtime_section 填充，_run_impl 消费）
+        self._limit_up_excluded_codes = set()
 
     def run(self, review_report: Optional[str] = None, pools: Optional[dict] = None) -> dict:
         """执行决策"""
@@ -247,6 +249,30 @@ class DecisionAgent(BaseAgent):
 
         # 提前提取评分（二审制Gate需要）
         scored_stocks = self._extract_scores(review_report)
+
+        # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
+        if self._limit_up_excluded_codes:
+            excluded = self._limit_up_excluded_codes
+            before_count = len(scored_stocks)
+            scored_stocks = [s for s in scored_stocks
+                             if str(s.get("code", s.get("代码", ""))) not in excluded]
+            # 同步从 pools 中移除涨停/跌停股
+            for pool_name, pool_data in pools.items():
+                if pool_data.get("stocks"):
+                    pool_data["stocks"] = [
+                        s for s in pool_data["stocks"]
+                        if str(s.get("代码", s.get("股票代码", ""))) not in excluded
+                    ]
+            removed = before_count - len(scored_stocks)
+            if removed:
+                print(f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
+                self.logger.info("limit_up_filtered", removed=removed, codes=list(excluded))
+            if not scored_stocks:
+                print("[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
+                return self._build_empty_decision(today, pools, market_env,
+                                                   "涨停/跌停排除：所有候选标的已封板",
+                                                   yellow_alerts=[])
+        # ──────────────────────────────────────────────────────────
 
         # ── 二审制Gate：阻塞标的计数 + 连续3次自动降级 ──
         if blocked_codes:
@@ -541,6 +567,10 @@ class DecisionAgent(BaseAgent):
             if code == "000000":
                 continue
 
+            # 防御性过滤：涨停/跌停排除（防止LLM误推封板股）
+            if hasattr(self, '_limit_up_excluded_codes') and code in self._limit_up_excluded_codes:
+                continue
+
             # 提取各字段（使用规范格式的正则）
             def _get_float(pat: str, default: float = 0.0) -> float:
                 m = re.search(pat, section)
@@ -772,22 +802,58 @@ class DecisionAgent(BaseAgent):
             except Exception:
                 pass
 
-        # 生成行情表格
+        # ── 涨停/跌停检测：仅在盘中交易时段启用 → 并将排除代码写到实例变量供_run_impl过滤 ──
+        now = datetime.now()
+        is_trading_session = (now.weekday() < 5  # 周一至周五
+                              and (9 <= now.hour < 11 or 12 <= now.hour < 15))
+        self._limit_up_excluded_codes = set()
+        excluded_codes_by_status = {"涨停": [], "跌停": []}
+
+        # 预扫描：收集封板标的
+        for raw, info in code_map.items():
+            q = all_quotes.get(raw, {})
+            if not q or not q.get("现价"):
+                continue
+            status = q.get("交易状态", "正常")
+            if is_trading_session and status in ("涨停", "跌停"):
+                self._limit_up_excluded_codes.add(raw)
+                excluded_codes_by_status.setdefault(status, []).append((raw, q.get("名称", info.get("name", "?")), q.get("现价", 0), q.get("涨跌幅", 0)))
+
+        # ── 生成涨停/跌停排除说明 ──
+        warn_lines = []
+        if excluded_codes_by_status["涨停"]:
+            warn_lines.append("⛔ **以下股票已涨停，无法买入（已从候选池移除）：**")
+            for raw, name, price, chg in excluded_codes_by_status["涨停"]:
+                warn_lines.append(f"- {raw} {name} 现价{price:.2f} ({chg:+.2f}%)")
+        if excluded_codes_by_status["跌停"]:
+            warn_lines.append("🔴 **以下股票已跌停（已从候选池移除）：**")
+            for raw, name, price, chg in excluded_codes_by_status["跌停"]:
+                warn_lines.append(f"- {raw} {name} 现价{price:.2f} ({chg:+.2f}%)")
+
+        # ── 生成行情表格（排除涨停/跌停标的）──
         lines = [
             "【⚠️ 实时行情 - 决策前强制刷新】",
-            f"刷新时间：{datetime.now().strftime('%H:%M:%S')}",
+            f"刷新时间：{now.strftime('%H:%M:%S')}",
             "**请务必使用以下实时价格制定买入/止损/止盈方案，禁止使用旧价格！**",
-            "",
-            "| 代码 | 名称 | 现价 | 今日涨跌 | 推荐买点 | 偏离 |",
-            "|------|------|------|---------|---------|------|",
         ]
+        if warn_lines:
+            lines.extend(["", "---", ""] + warn_lines + ["", "---"])
+        lines.extend([
+            "",
+            "| 代码 | 名称 | 现价 | 今日涨跌 | 状态 | 推荐买点 | 偏离 |",
+            "|------|------|------|---------|:----:|---------|------|",
+        ])
         has_deviation = False
         for raw, info in code_map.items():
+            if raw in self._limit_up_excluded_codes:
+                continue  # 涨停/跌停股从主表移除
             q = all_quotes.get(raw, {})
             if not q:
                 continue
             price = q.get("现价", 0)
             chg = q.get("涨跌幅", 0)
+            status = q.get("交易状态", "正常")
+            status_emoji = "✅" if status == "涨停" else ("🔴" if status == "跌停" else "正常")
             rec = info["rec_buy"]
             name = info["name"]
             if not name:
@@ -803,7 +869,7 @@ class DecisionAgent(BaseAgent):
                 except Exception:
                     pass
             lines.append(
-                f"| {raw} | {name} | **{price:.2f}** | {chg:+.2f}% | {rec or '—'} | {dev_str} |"
+                f"| {raw} | {name} | **{price:.2f}** | {chg:+.2f}% | {status_emoji} | {rec or '—'} | {dev_str} |"
             )
 
         if has_deviation:
@@ -812,6 +878,11 @@ class DecisionAgent(BaseAgent):
                 "⚠️ **警告：以下股票当前价格偏离推荐买点>3%，请务必使用实时现价计算止盈止损！**"
             )
 
+        if excluded_codes_by_status["涨停"] or excluded_codes_by_status["跌停"]:
+            self.logger.info("limit_up_excluded",
+                           count_zt=len(excluded_codes_by_status["涨停"]),
+                           count_dt=len(excluded_codes_by_status["跌停"]),
+                           codes=list(self._limit_up_excluded_codes))
         self.logger.info("realtime_fetched", count=len(all_quotes), has_deviation=has_deviation)
         return "\n".join(lines)
 
