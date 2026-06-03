@@ -119,13 +119,15 @@ REVIEWS = PROJECT / "data" / "回顾报告"
 WORKTREE_BASE = Path(os.environ.get("AUTO_HEAL_WORKTREE", "/tmp/auto_heal_worktrees"))
 
 
-def load_config() -> dict:
+def load_config(project: Path = None) -> dict:
     """加载配置文件"""
-    config_path = PROJECT / "config.yaml"
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    return {}
+    if project is None:
+        from os import environ
+        project = Path(environ.get("TIANSHU_HOME", "."))
+    config_path = project / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"配置文件不存在: {config_path}")
+    return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
 def validate_config(cfg: dict) -> list[str]:
@@ -151,16 +153,16 @@ def validate_config(cfg: dict) -> list[str]:
     return errors
 
 
-def get_latest_report() -> str:
-    """读取最新的回头看报告，提取分析"""
-    reports = sorted(REVIEWS.glob("*_回头看报告_*.md"))
-    if not reports:
-        logger.error("[auto_heal] ❌ 无回头看报告")
-        return ""
-    report_path = reports[-1]
-    content = report_path.read_text(encoding="utf-8")
-    logger.info(f"[auto_heal] 📄 报告: {report_path.name}")
-    return content
+def get_latest_report(reviews_dir: Path = None) -> Optional[Path]:
+    """获取最新的回顾报告"""
+    if reviews_dir is None:
+        from os import environ
+        home = Path(environ.get("TIANSHU_HOME", "."))
+        reviews_dir = home / "data" / "回顾报告"
+    if not reviews_dir.exists():
+        return None
+    reports = sorted(reviews_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return reports[0] if reports else None
 
 
 def extract_p0_issues(content: str) -> list[dict]:
@@ -271,8 +273,6 @@ def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") ->
 
 def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8, project: Path = None) -> str:
     """为 OpenCode 构建修复 prompt（含 CGC 代码图定位）"""
-    if project is None:
-        project = PROJECT
     # 先用 CGC 查询相关代码位置
     cgc_hint = ""
     try:
@@ -629,12 +629,10 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         return {"status": "needs_review", "pr_url": pr_result}
 
 
-def cleanup_worktree(worktree: str, branch: str, safe_type: str | None = None, project: Path = None):
+def cleanup_worktree(worktree: str, branch: str, project: Path, safe_type: str | None = None, worktree_base: Path = None):
     """清理 worktree"""
     if not worktree or not branch:
         return
-    if project is None:
-        project = PROJECT
     _run_cmd(
         ["git", "-C", str(project), "worktree", "remove", worktree, "--force"],
     )
@@ -643,7 +641,9 @@ def cleanup_worktree(worktree: str, branch: str, safe_type: str | None = None, p
     )
     # 只清理当前类型的锁文件
     if safe_type:
-        lock_file = WORKTREE_BASE / f".lock_{safe_type}"
+        if worktree_base is None:
+            worktree_base = project / "tmp" / "auto_heal_worktrees"
+        lock_file = worktree_base / f".lock_{safe_type}"
         lock_file.unlink(missing_ok=True)
     logger.info("[auto_heal]   🧹 Worktree 已清理")
 
@@ -668,16 +668,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_and_validate_config(project: Path) -> dict:
-    """加载并验证配置"""
-    # 临时设置 PROJECT 用于 load_config
-    global PROJECT, SCRIPTS, HISTORY, REVIEWS, WORKTREE_BASE
-    config_path = project / "config.yaml"
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f) or {}
-    else:
-        cfg = {}
+def load_and_validate_config(args, paths: PathsConfig) -> dict:
+    """加载并验证配置文件"""
+    cfg = load_config(paths.project)
 
     errors = validate_config(cfg)
     if errors:
@@ -685,12 +678,6 @@ def load_and_validate_config(project: Path) -> dict:
         for err in errors:
             logger.error(f"[auto_heal]   - {err}")
         sys.exit(1)
-
-    # 从 config 覆盖 WORKTREE_BASE
-    ah_cfg = cfg.get("auto_heal", {})
-    worktree_base_cfg = ah_cfg.get("worktree_base")
-    if worktree_base_cfg:
-        WORKTREE_BASE = Path(worktree_base_cfg)
 
     return cfg
 
@@ -707,12 +694,11 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     cgc_max_results = ah_cfg.get("cgc_max_results", 8)
     pr_repo = ah_cfg.get("pr_repo", "weis1655/tianshu-quanheng")
 
-    # 全局路径变量覆盖（保持向后兼容）
-    global PROJECT, SCRIPTS, HISTORY, REVIEWS
-    PROJECT = paths.project
-    SCRIPTS = paths.scripts
-    HISTORY = paths.history
-    REVIEWS = paths.reviews
+    # 使用 paths 参数，不再写回全局变量
+    reviews_dir = paths.reviews
+    history_dir = paths.history
+    worktree_base = paths.worktree_base
+    project = paths.project
 
     if args.dry_run:
         logger.info("[auto_heal] 🔍 Dry-run 模式：仅模拟，不执行实际修复")
@@ -722,13 +708,13 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     logger.info(f"{'='*50}\n")
 
     # Step 1: 读报告
-    report = get_latest_report()
-    if not report:
+    latest_report = get_latest_report(reviews_dir)
+    if not latest_report:
         logger.error("[auto_heal] ⛔ 无报告，退出")
         sys.exit(1)
 
-    # Step 2: 提取TOP-3 P0
-    issues = extract_p0_issues(report)
+    # Step 2: 提取 TOP-3 P0
+    issues = extract_p0_issues(latest_report)
     if not issues:
         logger.info("[auto_heal] ✅ 无P0问题，无需修复")
         return FixRun(
@@ -840,10 +826,10 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
         finally:
             # 根据状态决定是否清理 worktree
             if status in ("no_change", "needs_review"):
-                cleanup_worktree(worktree, branch, safe_type, project=paths.project)
+                cleanup_worktree(worktree, branch, project, safe_type=safe_type, worktree_base=worktree_base)
             elif status == "failed":
                 # failed 时保留 worktree 供审查，但仍清理当前类型的锁文件
-                lock_file = WORKTREE_BASE / f".lock_{safe_type}"
+                lock_file = worktree_base / f".lock_{safe_type}"
                 lock_file.unlink(missing_ok=True)
             # needs_review 时保留 worktree
 
@@ -903,26 +889,9 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     return run
 
 
-def print_summary(run: FixRun):
-    """打印汇总信息（已从 run_iteration 中移除，保留为空以便兼容）"""
-    pass
-
-
-def save_results(run: FixRun):
-    """保存结果（已从 run_iteration 中移除，保留为空以便兼容）"""
-    pass
-
-
 def main():
     """入口函数"""
     args = parse_args()
-    cfg = load_and_validate_config(PROJECT)
-
-    ah_cfg = cfg.get("auto_heal", {})
-    worktree_base_cfg = ah_cfg.get("worktree_base")
-    if worktree_base_cfg:
-        WORKTREE_BASE = Path(worktree_base_cfg)
-
     # 初始化路径配置
     paths = PathsConfig(
         project=PROJECT,
@@ -931,12 +900,11 @@ def main():
         reviews=REVIEWS,
         worktree_base=WORKTREE_BASE,
     )
+    cfg = load_and_validate_config(args, paths)
 
     run = run_iteration(cfg, args, paths)
-
     if run.issues:
-        print_summary(run)
-        save_results(run)
+        pass  # stubs removed
 
 
 if __name__ == "__main__":
