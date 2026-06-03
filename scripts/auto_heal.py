@@ -1,7 +1,35 @@
 #!/usr/bin/env python3
 """
-天枢权衡 — 自动迭代编排器 v1
-读回头看报告 → 提取TOP P0问题 → 派OpenCode修复 → 核验 → 合并
+天枢权衡 — 自动迭代编排器（Auto-Heal Pipeline）
+
+## 触发条件
+- Cron: 每个工作日 15:05 自动触发
+- 手动: `python3 auto_heal.py [--dry-run]`
+
+## 依赖项
+- OpenCode CLI (v1.14.28+) — 代码修复引擎
+- CodeGraphContext (v0.3.0+) — 代码图定位
+- gh CLI — PR 创建（需已登录 GitHub）
+- git — worktree 管理
+
+## 使用场景
+1. 读取每日回顾报告（data/回顾报告/*.md）
+2. 提取 P0 级别问题（过热漏检/降级延迟/质疑报告缺失/决策越权）
+3. 通过 CodeGraphContext 定位代码位置
+4. 在隔离 worktree 中调用 OpenCode 修复
+5. 验证修复（编译 + 导入检查）
+6. 创建 PR 等待人工审核
+
+## 版本历史
+- v1 (2026-06-04): 初始版本
+- v2: 添加 git add/commit/push，修复 $(cat file) 问题
+- v3: 集成 CodeGraphContext
+- v4: 状态机架构 + PR 审核机制 + 3 次重试
+- v5: 信号处理 + 增量编译
+- v6: 超时控制 + schema 验证 + logging 模块
+- v7 (策略 A): PR 降级 + metrics 完善 + CGC 备选定位
+- v8 (策略 B): 移除全局覆盖 + 注入补全 + stub 清理
+- v9 (策略 C): 修复成功率指标 + 失败根因分类 + 时间序列持久化
 """
 import json
 import os
@@ -82,16 +110,36 @@ def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 30,
 
 
 class FixState(Enum):
-    PENDING = "pending"
+    """修复状态机：7 种状态。
+    
+    状态转换:
+        INIT → FIXING → NEEDS_REVIEW | FAILED | SKIPPED
+        FIXING → (retry) → FIXING (最多 3 次)
+        FIXING → (3 次失败) → FAILED
+    """
+    INIT = "init"
     FIXING = "fixing"
-    VERIFYING = "verifying"
-    MERGED = "merged"
-    SKIPPED = "skipped"
-    FAILED = "failed"
     NEEDS_REVIEW = "needs_review"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    DRY_RUN = "dry_run"
+    MERGED = "merged"  # 预留：PR 审核通过后手动合并
 
 
 class FailureReason(Enum):
+    """失败根因分类枚举。
+    
+    分类规则:
+        - timeout: OpenCode 运行超时
+        - compile_error: 修复后编译失败
+        - import_error: 修复后导入失败
+        - business_constraint_violated: 违反业务约束（如实盘亏损）
+        - pr_creation_failed: PR 创建失败
+        - no_changes: OpenCode 未产生改动
+        - cgc_miss: CodeGraphContext 无结果（备用：git grep）
+        - skipped: 被跳过（非交易日/报告缺失等）
+        - unknown: 未分类的失败
+    """
     TIMEOUT = "timeout"
     COMPILE_ERROR = "compile_error"
     IMPORT_ERROR = "import_error"
@@ -105,12 +153,22 @@ class FailureReason(Enum):
 
 @dataclass
 class FixRun:
-    """单次修复运行状态"""
+    """单次迭代运行的完整记录。
+    
+    Attributes:
+        run_id: 运行唯一标识（ISO 时间戳）
+        timestamp: 运行开始时间（ISO 格式字符串）
+        issues: 待修复问题列表
+        results: 每个问题的修复结果
+        metrics: 详细指标（含 summary 汇总）
+        state: 当前状态机状态
+        action_log: 操作日志列表
+    """
     run_id: str
     timestamp: str
     issues: list[dict]
     results: list[dict] = field(default_factory=list)
-    state: FixState = FixState.PENDING
+    state: FixState = FixState.INIT
     action_log: list[str] = field(default_factory=list)
     metrics: dict = field(default_factory=dict)
 
@@ -165,8 +223,15 @@ def validate_config(cfg: dict) -> list[str]:
     return errors
 
 
-def get_latest_report(reviews_dir: Path = None) -> Optional[Path]:
-    """获取最新的回顾报告"""
+def get_latest_report(reviews_dir: Path = None) -> Path | None:
+    """获取最新的回顾报告。
+    
+    Args:
+        reviews_dir: 回顾报告目录
+    
+    Returns:
+        Path | None: 最新报告路径，目录为空时返回 None
+    """
     if reviews_dir is None:
         from os import environ
         home = Path(environ.get("TIANSHU_HOME", "."))
@@ -241,7 +306,17 @@ def get_cgc_keyword(issue_type: str) -> str:
 
 
 def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") -> tuple[str, str, str]:
-    """为问题创建隔离的 git worktree，返回 (path, branch, safe_type)"""
+    """创建隔离的工作树。
+    
+    Args:
+        issue: 问题描述（含 type/code 字段）
+        idx: 问题索引
+        run: 当前运行记录
+        paths: 路径配置
+    
+    Returns:
+        tuple[str, str, str]: (工作树路径, 分支名, safe_type)
+    """
     # sanitize: 只保留 ASCII 字母数字和下划线，中文替换为英文缩写
     raw_type = issue["type"]
     type_map = {
@@ -284,7 +359,18 @@ def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") ->
 
 
 def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8, project: Path = None) -> str:
-    """为 OpenCode 构建修复 prompt（含 CGC 代码图定位）"""
+    """构建 OpenCode 修复提示词。
+    
+    Args:
+        issue: 问题描述（含 type/issue 字段）
+        worktree: 工作树路径
+        project: 项目根目录
+        cgc_timeout: CodeGraphContext 查询超时（秒）
+        cgc_max_results: CodeGraphContext 最大返回结果数
+    
+    Returns:
+        str: 完整的 OpenCode 提示词（含问题描述、代码上下文、修复指令）
+    """
     # 先用 CGC 查询相关代码位置
     cgc_hint = ""
     try:
@@ -408,7 +494,17 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
 
 
 def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retries: int = 3, total_timeout_min: int = 30) -> tuple[bool, str]:
-    """在 worktree 中运行 OpenCode 修复，支持重试和总超时，返回 (成功, 原因)"""
+    """在工作树中运行 OpenCode 修复。
+    
+    Args:
+        worktree: 工作树路径
+        prompt: OpenCode 提示词
+        timeout_min: 单次运行超时（分钟）
+        max_retries: 最大重试次数
+    
+    Returns:
+        tuple[bool, str]: (是否成功, 失败原因/成功消息)
+    """
     prompt_file = Path(worktree) / ".auto_heal_prompt.md"
     prompt_file.write_text(prompt, encoding="utf-8")
 
@@ -493,8 +589,16 @@ def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, 
     return True
 
 
-def classify_failure_reason(status: str, reason: str = "") -> FailureReason:
-    """将失败原因分类为枚举值"""
+def classify_failure_reason(status: str, reason: str = "") -> FailureReason | None:
+    """将修复结果分类为失败根因枚举。
+    
+    Args:
+        status: 修复状态（needs_review/pushed_no_pr/failed/skipped）
+        reason: 失败原因描述
+    
+    Returns:
+        FailureReason | None: 失败根因枚举值，成功时返回 None
+    """
     if status in ("needs_review", "pushed_no_pr"):
         return None  # 成功
     if status == "skipped":
@@ -515,8 +619,19 @@ def classify_failure_reason(status: str, reason: str = "") -> FailureReason:
     return FailureReason.UNKNOWN
 
 
-def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2) -> Optional[str]:
-    """创建 PR 等待人工审核，支持重试，返回 PR URL 或 None"""
+def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2) -> str | None:
+    """创建 PR 等待人工审核，支持重试。
+    
+    Args:
+        worktree: 工作树路径
+        branch: 分支名称
+        issue: 问题描述（含 type/issue 字段）
+        pr_repo: GitHub 仓库（格式: owner/repo）
+        max_pr_retries: PR 创建最大重试次数
+    
+    Returns:
+        str | None: PR URL（成功）、"pushed_no_pr:{branch}"（PR 失败但分支已推送）、None（推送失败）
+    """
     # 推送到远程（带重试）
     for attempt in range(1, max_pr_retries + 2):  # +2 因为 push 也需要重试
         push = _run_cmd(["git", "-C", worktree, "push", "origin", branch], timeout=60)
@@ -571,7 +686,20 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
 
 
 def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int = 50, forbidden: set | None = None, pr_repo: str = "weis1655/tianshu-quanheng") -> dict:
-    """核验 worktree 中的改动，通过后创建 PR 等待审核"""
+    """验证修复并创建 PR。
+    
+    Args:
+        worktree: 工作树路径
+        branch: 分支名称
+        issue: 问题描述
+        max_lines: 最大改动行数
+        forbidden: 禁止修改的文件集合
+        pr_repo: GitHub 仓库
+    
+    Returns:
+        dict: 验证结果（含 status/reason/pr_url 等字段）
+            status 取值: "needs_review" | "pushed_no_pr" | "failed" | "no_change"
+    """
     if forbidden is None:
         forbidden = DEFAULT_FORBIDDEN_FILES
     # 检查是否有改动
@@ -663,8 +791,16 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         return {"status": "needs_review", "pr_url": pr_result}
 
 
-def cleanup_worktree(worktree: str, branch: str, project: Path, safe_type: str | None = None, worktree_base: Path = None):
-    """清理 worktree"""
+def cleanup_worktree(worktree: str, branch: str, project: Path, safe_type: str | None = None, worktree_base: Path | None = None):
+    """清理工作树和锁文件。
+    
+    Args:
+        worktree: 工作树路径
+        branch: 分支名称
+        project: 项目根目录
+        safe_type: 安全类型（用于锁文件名）
+        worktree_base: 工作树基础目录
+    """
     if not worktree or not branch:
         return
     _run_cmd(
@@ -741,7 +877,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_and_validate_config(args, paths: PathsConfig) -> dict:
-    """加载并验证配置文件"""
+    """加载并验证配置文件。
+    
+    Args:
+        args: 命令行参数
+        paths: 路径配置
+    
+    Returns:
+        dict: 配置内容
+    
+    Raises:
+        FileNotFoundError: 配置文件不存在
+        yaml.YAMLError: 配置文件格式错误
+    """
     cfg = load_config(paths.project)
 
     errors = validate_config(cfg)
@@ -755,7 +903,20 @@ def load_and_validate_config(args, paths: PathsConfig) -> dict:
 
 
 def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> FixRun:
-    """执行一次迭代修复"""
+    """执行一轮自动迭代修复。
+    
+    Args:
+        cfg: 配置文件内容（dict）
+        args: 命令行参数（含 --dry-run 标志）
+        paths: 路径配置（PathsConfig 实例）
+    
+    Returns:
+        FixRun: 包含本次运行所有结果的 FixRun 实例
+    
+    Raises:
+        FileNotFoundError: 回顾报告目录不存在
+        ValueError: 配置文件无效
+    """
     ah_cfg = cfg.get("auto_heal", {})
     timeout_min = ah_cfg.get("timeout_minutes", 10)
     max_retries = ah_cfg.get("max_retries", 3)
