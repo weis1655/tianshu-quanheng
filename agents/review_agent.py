@@ -915,15 +915,15 @@ class ReviewAgent(BaseAgent):
                 sr.driver_level = _score_to_level(sr.composite_score)
                 print(f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
             
-            # ── P0-降级延迟修复：硬性降级阈值（<55分强制降级）─────────
+            # ── P0-降级延迟修复：硬性降级阈值（<60分强制降级）─────────
             # 解决奕东电子(41分)、兆易创新(46分)等低分未降级问题
-            if sr.composite_score < 55:
+            if sr.composite_score < 60:
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 if sr.action_advice == "":
                     sr.action_advice = "低分淘汰"
-                sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<55分阈值"
-                print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<55分 → 边缘池")
+                sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<60分阈值"
+                print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<60分 → 边缘池")
 
             stocks.append(sr)
             if sr.flow_direction == "升级":
@@ -1002,12 +1002,16 @@ class ReviewAgent(BaseAgent):
         pe_ttm = 0.0
         turnover = 0.0
         volume_ratio = 1.0
+        month_chg = 0.0  # 月涨跌
+        quarter_chg = 0.0  # 季涨跌
         
         if quote:
             change_pct = float(quote.get("涨跌幅", 0) or 0)
             pe_ttm = float(quote.get("市盈率_TTM", 0) or 0)
             turnover = float(quote.get("换手率", 0) or 0)
             volume_ratio = float(quote.get("量比", 1) or 1)
+            month_chg = float(quote.get("月涨跌", 0) or 0)
+            quarter_chg = float(quote.get("季涨跌", 0) or 0)
         else:
             # 从池数据中获取
             change_str = stock_data.get("今日涨跌", "0%")
@@ -1025,6 +1029,22 @@ class ReviewAgent(BaseAgent):
             change_pct > 12 and
             (pe_ttm > 80 or turnover > 12)
         )
+        
+        # CRITICAL（新增）：月涨跌>30% + 评分>70 → 中期过热，强制降级
+        if not is_critical and month_chg > 30 and stock_review.composite_score > 70:
+            is_critical = True
+            return {
+                "severity": "critical",
+                "reason": f"月涨跌{month_chg:.1f}%中期过热 + 评分{stock_review.composite_score}分 → 强制降级",
+            }
+        
+        # CRITICAL（新增）：季涨跌>50% → 长期暴涨，强制降级
+        if not is_critical and quarter_chg > 50:
+            is_critical = True
+            return {
+                "severity": "critical",
+                "reason": f"季涨跌{quarter_chg:.1f}%长期暴涨 → 强制降级",
+            }
         
         # WARNING-1：涨幅>8% + 评分>75 → 扣10分（门槛70→75）
         is_warning_1 = change_pct > 8 and stock_review.composite_score > 75

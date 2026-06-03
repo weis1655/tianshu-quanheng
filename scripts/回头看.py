@@ -257,6 +257,37 @@ def get_persistent_issues(state):
     return [ptype for ptype, count in persistent.items() if count >= 3]
 
 
+# === Index 大盘基准对比模块 ===
+INDEX_CODE = "000001"  # 上证指数
+INDEX_PREFIX = "sh"
+
+
+def fetch_index_data(num_days=40):
+    """获取上证指数日K线，存入 PRICE_CACHE 复用缓存"""
+    return fetch_stock_history(INDEX_CODE, num_days=num_days)
+
+
+def calc_index_change(decision_date, hold_days=3):
+    """计算决策日到hold_days后的上证指数涨跌幅"""
+    prices = fetch_index_data(hold_days + 30)
+    if not prices:
+        return None
+    sorted_dates = sorted(prices.keys())
+    entry_idx = None
+    for i, d in enumerate(sorted_dates):
+        if d >= decision_date:
+            entry_idx = i
+            break
+    if entry_idx is None or entry_idx + hold_days >= len(sorted_dates):
+        return None
+    entry_price = prices[sorted_dates[entry_idx]]
+    exit_price = prices[sorted_dates[entry_idx + hold_days]]
+    if entry_price and entry_price > 0:
+        return round((exit_price - entry_price) / entry_price * 100, 2)
+    return None
+# ═══════════════════════════════════════════
+
+
 def get_report_files(trading_days):
     """获取指定交易日范围内的报告文件"""
     files = {'快筛': [], '审查': [], '决策': []}
@@ -1065,8 +1096,34 @@ def generate_report(days=7, output_file=None):
         report += "⚠️ 未找到决策报告数据\n"
     
     # 四、实战回测（策略A：实战验证）
+    # 计算大盘基准：获取每只验证股票对应时期的上证指数涨跌幅
+    import urllib.request  # 确保导入
+    index_changes = {}
+    for r in verified_stocks:
+        p = r.get('_perf', {})
+        if p and p.get('entry_date'):
+            idx_chg = calc_index_change(p['entry_date'], hold_days=3)
+            if idx_chg is not None:
+                index_changes[r['code']] = idx_chg
+
+    # 计算相对收益
+    relative_returns = []
+    for r in verified_stocks:
+        p = r.get('_perf', {})
+        if p and p.get('change_pct') is not None:
+            stock_chg = p['change_pct']
+            idx_chg = index_changes.get(r['code'])
+            if idx_chg is not None:
+                relative_returns.append(stock_chg - idx_chg)
+
+    avg_relative = round(sum(relative_returns) / len(relative_returns), 2) if relative_returns else 0
+
+    # 计算大盘平均收益
+    all_idx_chgs = [v for v in index_changes.values() if v is not None]
+    avg_index_return = round(sum(all_idx_chgs) / len(all_idx_chgs), 2) if all_idx_chgs else 0
+
     report += f"""
----
+|---
 
 ## 📊 四、实战回测（进化检测）
 
@@ -1077,19 +1134,24 @@ def generate_report(days=7, output_file=None):
 | 亏损标的 | {len(perf_total) - len(perf_profits)}只 |
 | 实战准确率（3日后涨） | {actual_accuracy}% |
 | 平均收益 | {avg_return:+.2f}% |
-| 同比大盘参考 | —（需接入指数） |
+| 上证指数同期均值 | {avg_index_return:+.2f}% |
+| 平均相对收益 | {avg_relative:+.2f}% |
 
 ### 各标的实战表现
 
-| 日期 | 代码 | 名称 | 方向 | 买入价 | 卖出价 | 3日涨跌 |
-|------|------|------|------|--------|--------|---------|
+| 日期 | 代码 | 名称 | 方向 | 买入价 | 卖出价 | 3日涨跌 | 上证同期 | 相对收益 |
+|------|------|------|------|--------|--------|---------|---------|---------|
 """
     for r in verified_stocks:
         p = r.get('_perf', {})
         flow_mark = '✅' if p.get('is_profit') else '❌'
+        idx_chg = index_changes.get(r['code'], 'N/A')
+        idx_str = f"{idx_chg:+.2f}%" if isinstance(idx_chg, (int, float)) else "N/A"
+        rel_str = f"{(p.get('change_pct', 0) - idx_chg):+.2f}%" if isinstance(idx_chg, (int, float)) else "N/A"
         report += (f"| {r.get('date', '')} | {r['code']} | {r['name']} | "
                    f"{r.get('flow', '')} | {p.get('buy_price', 'N/A')} | "
-                   f"{p.get('sell_price', 'N/A')} | {flow_mark} {p.get('change_pct', 0):+.2f}% |\n")
+                   f"{p.get('sell_price', 'N/A')} | {flow_mark} {p.get('change_pct', 0):+.2f}% | "
+                   f"{idx_str} | {rel_str} |\n")
     
     report += """
 ### 实战损伤报告
