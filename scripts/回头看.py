@@ -8,14 +8,22 @@ import os
 import sys
 import json
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 
+# 添加 agents 目录到 sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent / 'agents'))
+from safe_file_utils import safe_read_file, safe_write_file, safe_read_json
+from path_config import PathConfig
+from trading_calendar import is_trading_day
+
 # 配置路径
-BASE_DIR = Path('/home/seven/hermes-data/tianshu-quanheng/data')
-HISTORY_DIR = BASE_DIR / '历史记录'
-OUTPUT_DIR = BASE_DIR / '回顾报告'
+cfg = PathConfig()
+BASE_DIR = cfg.data_dir  # 对应 /home/seven/hermes-data/tianshu-quanheng/data
+HISTORY_DIR = cfg.data_dir / '历史记录'  # data/历史记录
+OUTPUT_DIR = cfg.history_dir  # data/回顾报告
 
 
 def parse_date_from_filename(filename):
@@ -27,11 +35,11 @@ def parse_date_from_filename(filename):
 
 
 def get_trading_days(days=7):
-    """获取过去N个交易日（排除周末）"""
+    """获取过去N个交易日（使用交易日历，含法定节假日过滤）"""
     trading_days = []
     current = datetime.now()
     while len(trading_days) < days:
-        if current.weekday() < 5:
+        if is_trading_day(current.date()):
             trading_days.insert(0, current.strftime('%Y-%m-%d'))
         current -= timedelta(days=1)
     return trading_days  # 按时间正序返回
@@ -54,10 +62,16 @@ def get_market_prefix(code):
 
 
 def fetch_stock_history(code, num_days=40):
-    """从新浪财经获取股票日K线（含缓存）"""
+    """从新浪财经获取股票日K线（含缓存+TTL 1小时）"""
     global PRICE_CACHE
     if code in PRICE_CACHE:
-        return PRICE_CACHE[code]
+        cached = PRICE_CACHE[code]
+        if isinstance(cached, dict) and "data" in cached and "timestamp" in cached:
+            if time.time() - cached["timestamp"] <= 3600:
+                return cached["data"]
+        elif isinstance(cached, dict) and "data" not in cached:
+            # 旧格式
+            return cached
 
     prefix = get_market_prefix(code)
     url = (f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/"
@@ -91,12 +105,12 @@ def fetch_stock_history(code, num_days=40):
         data = json.loads(raw)
         # 转为 {date: close} 字典
         prices = {d["day"]: float(d["close"]) for d in data if "day" in d and "close" in d}
-        PRICE_CACHE[code] = prices
+        PRICE_CACHE[code] = {"data": prices, "timestamp": time.time()}
         return prices
     except (IOError, json.JSONDecodeError, urllib.error.URLError,
             urllib.error.HTTPError, OSError, ValueError) as e:
         print(f"[回头看] ⚠️ 行情获取失败 {code}: {e}")
-        PRICE_CACHE[code] = {}
+        PRICE_CACHE[code] = {"data": {}, "timestamp": time.time()}
         return {}
 
 
@@ -106,19 +120,31 @@ def load_price_cache(cache_path):
     PRICE_CACHE_FILE = cache_path
     if cache_path and os.path.exists(cache_path):
         try:
-            with open(cache_path, 'r') as f:
-                PRICE_CACHE = json.load(f)
+            raw = safe_read_json(cache_path, default={})
+            # 兼容旧格式（{code: {date: price}}）和新格式（{code: {"data": ..., "timestamp": ...}}）
+            PRICE_CACHE = {}
+            for code, value in raw.items():
+                if isinstance(value, dict) and "data" in value:
+                    PRICE_CACHE[code] = value
+                else:
+                    PRICE_CACHE[code] = {"data": value, "timestamp": 0}
         except (IOError, json.JSONDecodeError):
             PRICE_CACHE = {}
 
 
 def save_price_cache():
-    """保存价格缓存到文件"""
+    """保存价格缓存到文件（仅保存数据部分，保持向后兼容）"""
     if not PRICE_CACHE_FILE:
         return
     try:
-        with open(PRICE_CACHE_FILE, 'w') as f:
-            json.dump(PRICE_CACHE, f, ensure_ascii=False)
+        # 仅保存 data 部分，保持旧格式兼容
+        save_data = {}
+        for code, value in PRICE_CACHE.items():
+            if isinstance(value, dict) and "data" in value:
+                save_data[code] = value["data"]
+            else:
+                save_data[code] = value
+        safe_write_file(PRICE_CACHE_FILE, json.dumps(save_data, ensure_ascii=False))
     except IOError as e:
         print(f"[回头看] ⚠️ 缓存写入失败: {e}")
 
@@ -166,8 +192,7 @@ def load_state():
     """读取历史状态，损坏时静默重置"""
     try:
         if STATE_FILE.exists():
-            with open(STATE_FILE, 'r') as f:
-                return json.load(f)
+            return safe_read_json(STATE_FILE, default=None) or {'last_date': None, 'history': [], 'persistent_p0': {}}
     except (IOError, json.JSONDecodeError) as e:
         print(f"[回头看] ⚠️ 状态文件损坏，重置: {e}")
     return {'last_date': None, 'history': [], 'persistent_p0': {}}
@@ -194,8 +219,7 @@ def save_state(metrics):
         state['last_date'] = metrics.get('date')
         state['history'] = history
         state['persistent_p0'] = persistent_p0
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        safe_write_file(STATE_FILE, json.dumps(state, ensure_ascii=False, indent=2))
         return state
     except (IOError, OSError, TypeError, ValueError) as e:
         print(f"[回头看] ⚠️ 状态保存失败: {e}")
@@ -256,14 +280,7 @@ def get_report_files(trading_days):
     return files
 
 
-def safe_read_file(filepath):
-    """安全读取文件，失败返回None"""
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return f.read()
-    except (IOError, OSError, UnicodeDecodeError) as e:
-        print(f"[回头看] ⚠️ 读取失败: {filepath} - {e}")
-        return None
+
 
 
 def extract_fast_screen_stocks(filepath):
@@ -476,6 +493,12 @@ def extract_decision_results(filepath):
                 main_section = sec[:500]
                 break
         pos_match = re.search(r'(?:单笔仓位|仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', main_section)
+        if pos_match:
+            # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
+            match_start = max(0, pos_match.start() - 10)
+            match_context = main_section[match_start:pos_match.end() + 10]
+            if any(kw in match_context for kw in ['涨幅', '权重', '百分比']):
+                pos_match = None
         pos = int(pos_match.group(1)) if pos_match else 15
         result['main_stocks'].append({'name': name.strip(), 'code': code, 'position': pos})
     
@@ -500,6 +523,12 @@ def extract_decision_results(filepath):
                 backup_section = sec[:500]
                 break
         pos_match = re.search(r'(?:单笔仓位|仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', backup_section)
+        if pos_match:
+            # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
+            match_start = max(0, pos_match.start() - 10)
+            match_context = backup_section[match_start:pos_match.end() + 10]
+            if any(kw in match_context for kw in ['涨幅', '权重', '百分比']):
+                pos_match = None
         pos = int(pos_match.group(1)) if pos_match else 0
         result['backup_stocks'].append({'name': name.strip(), 'code': code, 'position': pos})
     
@@ -637,7 +666,7 @@ def calculate_fast_screen_accuracy(files, trading_days):
     categories = defaultdict(list)
     for s in all_stocks:
         desc = s.get('description', '')
-        if 'AI' in desc or '半导体' in desc or '算力' in desc or '光模块' in desc:
+        if ('AI' in desc or '半导体' in desc or '算力' in desc or '光模块' in desc) and '智能家居' not in desc:
             categories['AI/半导体'].append(s)
         elif '医药' in desc or '医疗' in desc:
             categories['医药'].append(s)
@@ -645,7 +674,7 @@ def calculate_fast_screen_accuracy(files, trading_days):
             categories['军工'].append(s)
         elif '资源' in desc or '煤炭' in desc or '贵金属' in desc or '黄金' in desc:
             categories['资源品'].append(s)
-        elif '机器人' in desc or '智能' in desc:
+        elif ('机器人' in desc or ('智能' in desc and not any(kw in desc for kw in ['家居', '家', '电网', '管理']))):
             categories['机器人/智能'].append(s)
         elif '油运' in desc or '航运' in desc:
             categories['油运/物流'].append(s)
@@ -1181,13 +1210,12 @@ def generate_report(days=7, output_file=None):
 
 *报告生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*  
 *生成工具：天枢回头看自动化模块 v3*  
-*工作目录：/home/seven/hermes-data/tianshu-quanheng*
+*工作目录：{cfg.root}*
 """
     
     # 保存报告
     if output_file:
-        with open(output_file, 'w') as f:
-            f.write(report)
+        safe_write_file(output_file, report)
         print(f"✅ 报告已保存至: {output_file}")
     
     # 保存本期状态（策略C）
