@@ -32,19 +32,20 @@ def get_latest_report() -> str:
 
 
 def extract_p0_issues(content: str) -> list[dict]:
-    """从报告中提取 TOP-3 P0 问题（按类型去重，每种取第一个）"""
+    """从报告中提取 TOP-3 P0 问题（按类型去重，过滤不可修复类型）"""
     issues: list[dict] = []
     seen_types: set[str] = set()
+    # 这些是市场结果/数据问题，非代码缺陷，自动修复无效
+    SKIP_TYPES = {"P0-实盘亏损"}
 
     for m in re.finditer(r"### 🔴 (P0-\S+)", content):
         ptype = m.group(1)
-        if ptype in seen_types:
+        if ptype in seen_types or ptype in SKIP_TYPES:
             continue
         seen_types.add(ptype)
         if len(issues) >= 3:
             break
 
-        # 找到该问题块的完整内容（到下一个 ### 或 ---）
         start = m.start()
         end_m = re.search(r"(?=^### |^---)", content[m.end():], re.MULTILINE)
         end = m.end() + end_m.start() if end_m else min(m.end() + 500, len(content))
@@ -67,7 +68,17 @@ def extract_p0_issues(content: str) -> list[dict]:
 
 def create_worktree(issue: dict, idx: int) -> tuple[str, str]:
     """为问题创建隔离的 git worktree，返回 (path, branch)"""
-    safe_type = re.sub(r"[^a-zA-Z0-9]", "_", issue["type"])
+    # sanitize: 只保留 ASCII 字母数字和下划线，中文替换为英文缩写
+    raw_type = issue["type"]
+    type_map = {
+        "P0-过热漏检": "overheat",
+        "P0-降级延迟": "downgrade_slow",
+        "P0-质疑报告缺失": "missing_skeptic",
+        "P0-决策越权": "decision_abuse",
+    }
+    safe_type = type_map.get(raw_type, re.sub(r"[^a-zA-Z0-9]", "_", raw_type))
+    if not safe_type:
+        safe_type = f"p0_{idx}"
     branch = f"auto-heal/{safe_type}_{issue['code']}_{datetime.now().strftime('%H%M%S')}"
     worktree_path = str(WORKTREE_BASE / f"heal_{idx:02d}_{safe_type}")
 
@@ -90,19 +101,42 @@ def create_worktree(issue: dict, idx: int) -> tuple[str, str]:
 
 
 def build_opencode_prompt(issue: dict, worktree: str) -> str:
-    """为 OpenCode 构建修复 prompt"""
-    return f"""你正在修复天枢权衡系统的代码问题。工作目录: {worktree}
+    """为 OpenCode 构建修复 prompt（含 CGC 代码图定位）"""
+    # 先用 CGC 查询相关代码位置
+    cgc_hint = ""
+    try:
+        cgc_keywords = issue["type"].replace("P0-", "").replace("漏检", " overheat downgrade").replace("延迟", "downgrade").replace("缺失", "missing")
+        cgc_result = subprocess.run(
+            ["codegraphcontext", "query",
+             f"MATCH (f:Function) WHERE f.name CONTAINS "
+             f"ANY(['overheat','downgrade','threshold','score','降级','过热','止损']) "
+             f"RETURN f.name, f.file, f.start_line LIMIT 8"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if cgc_result.returncode == 0 and cgc_result.stdout.strip():
+            lines = [l for l in cgc_result.stdout.split("\n") if l.strip()][:8]
+            cgc_hint = "\n".join(lines)
+    except Exception:
+        pass
+
+    prompt = f"""你正在修复天枢权衡系统的代码问题。工作目录: {worktree}
 
 ## 问题描述
 {issue['type']}: 股票 {issue['code']}
 详情: {issue.get('detail', '')}
-
+"""
+    if cgc_hint:
+        prompt += f"""
+## 代码图定位（CGC查询结果）
+以下为代码库中与问题相关的函数位置，作为修复参考：
+{cgc_hint}
+"""
+    prompt += f"""
 ## 修复指令
-1. 阅读 agents/ 和 scripts/ 目录中与 "{issue['type']}" 相关的代码
-2. 定位导致该问题的根因代码位置
-3. 修复代码（最小改动原则）
-4. 运行 python3 -m py_compile 验证语法
-5. 输出修复的：文件名、行号、改动内容
+1. 根据问题类型，定位相关代码
+2. 修复代码（最小改动原则，只改1-2行）
+3. 运行 python3 -m py_compile 验证语法
+4. 输出修复的：文件名、行号、改动内容
 
 ## 约束
 - 只修问题直接相关的代码
@@ -111,6 +145,7 @@ def build_opencode_prompt(issue: dict, worktree: str) -> str:
 - 不升级依赖版本
 - 修复完即止，不要做额外优化
 """
+    return prompt
 
 
 def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10) -> bool:
@@ -251,11 +286,14 @@ def main():
     log = {
         "timestamp": datetime.now().isoformat(),
         "results": results,
-        "report": HISTORY / f"{datetime.now().strftime('%Y-%m-%d')}_auto_heal.json",
+        "report": str(HISTORY / f"{datetime.now().strftime('%Y-%m-%d')}_auto_heal.json"),
     }
     log_path = HISTORY / f"{datetime.now().strftime('%Y-%m-%d')}_auto_heal.json"
-    log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[auto_heal] 📝 日志: {log_path}")
+    try:
+        log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"[auto_heal] 📝 日志: {log_path}")
+    except Exception as e:
+        print(f"[auto_heal] ⚠️ 日志写入失败: {e}")
 
 
 if __name__ == "__main__":
