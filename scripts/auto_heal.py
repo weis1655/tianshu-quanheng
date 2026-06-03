@@ -91,6 +91,18 @@ class FixState(Enum):
     NEEDS_REVIEW = "needs_review"
 
 
+class FailureReason(Enum):
+    TIMEOUT = "timeout"
+    COMPILE_ERROR = "compile_error"
+    IMPORT_ERROR = "import_error"
+    BUSINESS_CONSTRAINT = "business_constraint_violated"
+    PR_CREATION_FAILED = "pr_creation_failed"
+    NO_CHANGES = "no_changes"
+    CGC_MISS = "cgc_miss"
+    SKIPPED = "skipped"
+    UNKNOWN = "unknown"
+
+
 @dataclass
 class FixRun:
     """单次修复运行状态"""
@@ -481,6 +493,28 @@ def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, 
     return True
 
 
+def classify_failure_reason(status: str, reason: str = "") -> FailureReason:
+    """将失败原因分类为枚举值"""
+    if status in ("needs_review", "pushed_no_pr"):
+        return None  # 成功
+    if status == "skipped":
+        return FailureReason.SKIPPED
+    reason_lower = reason.lower()
+    if "timeout" in reason_lower:
+        return FailureReason.TIMEOUT
+    if "compile" in reason_lower or "py_compile" in reason_lower:
+        return FailureReason.COMPILE_ERROR
+    if "import" in reason_lower:
+        return FailureReason.IMPORT_ERROR
+    if "business" in reason_lower:
+        return FailureReason.BUSINESS_CONSTRAINT
+    if "pr" in reason_lower:
+        return FailureReason.PR_CREATION_FAILED
+    if "no change" in reason_lower:
+        return FailureReason.NO_CHANGES
+    return FailureReason.UNKNOWN
+
+
 def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2) -> Optional[str]:
     """创建 PR 等待人工审核，支持重试，返回 PR URL 或 None"""
     # 推送到远程（带重试）
@@ -660,6 +694,44 @@ class PathsConfig:
     worktree_base: Path
 
 
+class TimeSeriesStore:
+    """时间序列指标存储 — CSV 格式，追加写入"""
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.csv_path = self.data_dir / "auto_heal_timeseries.csv"
+        self._ensure_header()
+
+    def _ensure_header(self):
+        if not self.csv_path.exists():
+            import csv
+            fields = ["timestamp", "run_id", "total_issues", "needs_review", "pushed_no_pr",
+                      "skipped", "failed", "fix_success_rate", "avg_success_elapsed",
+                      "cgc_hit_rate", "opencode_success_rate", "total_elapsed"]
+            with open(self.csv_path, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow(fields)
+
+    def append(self, run: FixRun, summary: dict):
+        import csv
+        row = [
+            datetime.now(TIANSHU_TZ).isoformat(),
+            run.run_id,
+            summary.get("total_issues", 0),
+            summary.get("needs_review", 0),
+            summary.get("pushed_no_pr", 0),
+            summary.get("skipped", 0),
+            summary.get("failed", 0),
+            summary.get("fix_success_rate", 0),
+            summary.get("avg_success_elapsed", 0),
+            summary.get("cgc_hit_rate", 0),
+            summary.get("opencode_success_rate", 0),
+            summary.get("total_elapsed", 0),
+        ]
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(row)
+
+
 def parse_args() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description="天枢自动迭代")
@@ -835,12 +907,44 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
 
     # 汇总 metrics
     total_elapsed = time.time() - run_total_start
+
+    # 成功修复 = needs_review + pushed_no_pr
+    successful_fixes = sum(1 for r in run.results if r["status"] in ("needs_review", "pushed_no_pr"))
+    fix_success_rate = round(successful_fixes / len(issues), 2) if issues else 0
+
+    # avg_success_elapsed 仅计算成功修复项的平均耗时
+    success_elapsed_list = [
+        run.metrics[r["issue"]["type"]]["elapsed"]
+        for r in run.results
+        if r["status"] in ("needs_review", "pushed_no_pr")
+        and isinstance(run.metrics.get(r["issue"]["type"]), dict)
+    ]
+    avg_success_elapsed = round(sum(success_elapsed_list) / len(success_elapsed_list), 2) if success_elapsed_list else 0
+
+    # status_distribution 各状态分布
+    status_distribution = {}
+    for r in run.results:
+        s = r["status"]
+        status_distribution[s] = status_distribution.get(s, 0) + 1
+
+    # failure_breakdown 失败根因分类
+    failure_breakdown = {}
+    for r in run.results:
+        if r["status"] == "failed":
+            fr = classify_failure_reason(r["status"], r.get("reason", ""))
+            fr_name = fr.value if fr else "unknown"
+            failure_breakdown[fr_name] = failure_breakdown.get(fr_name, 0) + 1
+
     run.metrics['summary'] = {
         'total_issues': len(issues),
         'needs_review': sum(1 for r in run.results if r["status"] == "needs_review"),
         'pushed_no_pr': sum(1 for r in run.results if r["status"] == "pushed_no_pr"),
         'skipped': sum(1 for r in run.results if r["status"] in ("skipped", "dry_run", "no_change")),
         'failed': sum(1 for r in run.results if r["status"] == "failed"),
+        'fix_success_rate': fix_success_rate,
+        'avg_success_elapsed': avg_success_elapsed,
+        'status_distribution': status_distribution,
+        'failure_breakdown': failure_breakdown,
         'cgc_hit_rate': round(sum(1 for m in run.metrics.values() if isinstance(m, dict) and m.get('cgc_status') == 'hit') / len(issues), 2) if issues else 0,
         'opencode_success_rate': round(sum(1 for m in run.metrics.values() if isinstance(m, dict) and m.get('opencode_ok')) / len(issues), 2) if issues else 0,
         'total_elapsed': round(total_elapsed, 2),
@@ -889,6 +993,25 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     return run
 
 
+def send_webhook_alert(webhook_url: str, summary: dict, threshold: float = 0.3):
+    """当修复成功率低于阈值时发送 Webhook 告警"""
+    success_rate = summary.get("fix_success_rate", 0)
+    if success_rate < threshold:
+        import urllib.request, json
+        payload = json.dumps({
+            "content": f"🚨 天枢自动迭代告警：修复成功率 {success_rate:.0%} 低于阈值 {threshold:.0%}\n"
+                       f"总问题: {summary.get('total_issues', 0)} | "
+                       f"成功: {summary.get('needs_review', 0) + summary.get('pushed_no_pr', 0)} | "
+                       f"失败: {summary.get('failed', 0)} | "
+                       f"跳过: {summary.get('skipped', 0)}"
+        }).encode()
+        try:
+            req = urllib.request.Request(webhook_url, data=payload, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            logger.warning(f"[auto_heal]   Webhook 告警失败: {e}")
+
+
 def main():
     """入口函数"""
     args = parse_args()
@@ -903,6 +1026,12 @@ def main():
     cfg = load_and_validate_config(args, paths)
 
     run = run_iteration(cfg, args, paths)
+
+    # 时间序列数据持久化
+    data_dir = paths.history
+    ts_store = TimeSeriesStore(data_dir)
+    ts_store.append(run, run.metrics.get("summary", {}))
+
     if run.issues:
         pass  # stubs removed
 
