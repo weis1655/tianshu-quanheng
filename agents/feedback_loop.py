@@ -30,6 +30,7 @@ class FeedbackLoopAgent(BaseAgent):
     def __init__(self):
         super().__init__("FeedbackLoop")
         self.pool_manager = PoolManager()
+        self.logger = get_logger("FeedbackLoop")
 
     def run(self) -> Dict[str, Any]:
         """运行完整反馈闭环"""

@@ -126,3 +126,34 @@ features:
   # 是否缓存行情数据
   cache_quotes: true
   cache_ttl: 300  # 缓存时间（秒）
+
+## 自动迭代配置
+auto_heal:
+  # 超时设置
+  timeout_minutes: 10
+  max_retries: 3
+
+  # 修复约束
+  max_lines_changed: 50
+  forbidden_files:
+    - "agents/__init__.py"
+    - "config/"
+    - ".env"
+    - ".env.*"
+    - "requirements.txt"
+    - "pyproject.toml"
+
+  # CGC 查询
+  cgc_timeout: 15
+  cgc_max_results: 8
+
+  # 工作树
+  worktree_base: "/tmp/auto_heal_worktrees"
+
+  # 日志
+  log_actions: true
+  log_retention_days: 7
+
+  # PR 配置
+  pr_enabled: true
+  pr_repo: "weis1655/tianshu-quanheng"

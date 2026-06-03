@@ -10,11 +10,24 @@ import sys
 import subprocess
 import time
 import argparse
+import yaml
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 30,
+             check: bool = False, capture: bool = True) -> subprocess.CompletedProcess:
+    """统一命令执行封装，替代直接 subprocess.run"""
+    result = subprocess.run(
+        cmd, cwd=cwd, capture_output=capture, text=True, timeout=timeout,
+    )
+    if check and result.returncode != 0:
+        print(f"[auto_heal] ❌ 命令失败: {' '.join(cmd)}\n{result.stderr[:200]}")
+    return result
+
 
 class FixState(Enum):
     PENDING = "pending"
@@ -47,6 +60,15 @@ SCRIPTS = PROJECT / "scripts"
 HISTORY = PROJECT / "data" / "历史记录"
 REVIEWS = PROJECT / "data" / "回顾报告"
 WORKTREE_BASE = Path("/tmp/auto_heal_worktrees")
+
+
+def load_config() -> dict:
+    """加载配置文件"""
+    config_path = PROJECT / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    return {}
 
 
 def get_latest_report() -> str:
@@ -134,15 +156,11 @@ def create_worktree(issue: dict, idx: int, run: FixRun) -> tuple[str, str]:
     lock_file.write_text(run.run_id, encoding="utf-8")
 
     # 清理旧 worktree
-    subprocess.run(
-        ["git", "-C", str(PROJECT), "worktree", "remove", worktree_path, "--force"],
-        capture_output=True,
-    )
-    subprocess.run(["rm", "-rf", worktree_path], capture_output=True)
+    _run_cmd(["git", "-C", str(PROJECT), "worktree", "remove", worktree_path, "--force"])
+    _run_cmd(["rm", "-rf", worktree_path])
 
-    result = subprocess.run(
+    result = _run_cmd(
         ["git", "-C", str(PROJECT), "worktree", "add", "-b", branch, worktree_path, "main"],
-        capture_output=True, text=True,
     )
     if result.returncode != 0:
         print(f"[auto_heal] ⚠️ Worktree 创建失败: {result.stderr.strip()}")
@@ -152,7 +170,7 @@ def create_worktree(issue: dict, idx: int, run: FixRun) -> tuple[str, str]:
     return worktree_path, branch
 
 
-def build_opencode_prompt(issue: dict, worktree: str) -> str:
+def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8) -> str:
     """为 OpenCode 构建修复 prompt（含 CGC 代码图定位）"""
     # 先用 CGC 查询相关代码位置
     cgc_hint = ""
@@ -173,12 +191,12 @@ def build_opencode_prompt(issue: dict, worktree: str) -> str:
         # 正确 Cypher: (file:File)-[:CONTAINS]->(f:Function)
         # 注意: f.name CONTAINS ANY([...]) 语法错误，需用 ANY(kw IN [...] WHERE f.name CONTAINS kw)
         kw_pattern = " OR ".join(f'f.name CONTAINS "{kw}"' for kw in search_list)
-        cgc_result = subprocess.run(
+        cgc_result = _run_cmd(
             ["codegraphcontext", "query",
              f"MATCH (file:File)-[:CONTAINS]->(f:Function) "
              f"WHERE {kw_pattern} "
-             f"RETURN file.name, f.name LIMIT 8"],
-            capture_output=True, text=True, timeout=15,
+             f"RETURN file.name, f.name LIMIT {cgc_max_results}"],
+            timeout=cgc_timeout,
         )
         if cgc_result.returncode == 0 and cgc_result.stdout.strip():
             lines = [l for l in cgc_result.stdout.split("\n") if l.strip()][:8]
@@ -190,10 +208,10 @@ def build_opencode_prompt(issue: dict, worktree: str) -> str:
     code_context = ""
     if cgc_hint:
         # 查询调用该函数的代码
-        caller_query = f"MATCH (caller:Function)-[:CALLS]->(f:Function) WHERE f.name CONTAINS '{search_list[0]}' RETURN caller.name, caller.file LIMIT 5"
-        caller_result = subprocess.run(
+        caller_query = f"MATCH (caller:Function)-[:CALLS]->(f:Function) WHERE f.name CONTAINS '{search_list[0]}' RETURN caller.name, caller.file LIMIT {cgc_max_results}"
+        caller_result = _run_cmd(
             ["codegraphcontext", "query", caller_query],
-            capture_output=True, text=True, timeout=15,
+            timeout=cgc_timeout,
         )
         if caller_result.returncode == 0 and caller_result.stdout.strip():
             callers = caller_result.stdout.strip()
@@ -246,10 +264,9 @@ def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retr
     prompt_text = prompt_file.read_text(encoding="utf-8")
 
     for attempt in range(1, max_retries + 1):
-        result = subprocess.run(
+        result = _run_cmd(
             ["opencode", "run", prompt_text],
             cwd=worktree,
-            capture_output=True, text=True,
             timeout=timeout_min * 60,
         )
 
@@ -270,33 +287,26 @@ def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retr
     return False, f"failed after {max_retries} attempts, needs manual intervention"
 
 
-def check_business_constraints(worktree: str, issue: dict) -> bool:
+def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, forbidden: set = None) -> bool:
     """检查业务约束"""
+    if forbidden is None:
+        forbidden = {"agents/__init__.py", "config/", ".env", ".env.*", "requirements.txt", "pyproject.toml"}
     # 1. 检查是否修改了不该修改的文件
-    result = subprocess.run(
+    result = _run_cmd(
         ["git", "-C", worktree, "diff", "--name-only", "main"],
-        capture_output=True, text=True,
     )
     changed_files = result.stdout.strip().split("\n") if result.stdout.strip() else []
 
     # 禁止修改的文件
-    FORBIDDEN_FILES = {
-        "agents/__init__.py",
-        "config/",
-        ".env",
-        "requirements.txt",
-        "pyproject.toml",
-    }
     for f in changed_files:
-        for forbidden in FORBIDDEN_FILES:
-            if f.startswith(forbidden):
+        for forb in forbidden:
+            if f.startswith(forb):
                 print(f"[auto_heal]   ❌ 禁止修改的文件: {f}")
                 return False
 
-    # 2. 检查改动行数是否合理（单问题不超过 50 行）
-    stat = subprocess.run(
+    # 2. 检查改动行数是否合理（单问题不超过 max_lines 行）
+    stat = _run_cmd(
         ["git", "-C", worktree, "diff", "--numstat", "main"],
-        capture_output=True, text=True,
     )
     total_lines = 0
     for line in stat.stdout.strip().split("\n"):
@@ -308,27 +318,27 @@ def check_business_constraints(worktree: str, issue: dict) -> bool:
                 except ValueError:
                     pass
 
-    if total_lines > 50:
-        print(f"[auto_heal]   ⚠️ 改动行数过多: {total_lines} 行（建议 ≤50）")
+    if total_lines > max_lines:
+        print(f"[auto_heal]   ⚠️ 改动行数过多: {total_lines} 行（建议 ≤{max_lines}）")
         # 不阻塞，仅警告
 
     return True
 
 
-def create_pr(worktree: str, branch: str, issue: dict) -> Optional[str]:
+def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng") -> Optional[str]:
     """创建 PR 等待人工审核，返回 PR URL 或 None"""
     # 推送到远程
-    push = subprocess.run(
+    push = _run_cmd(
         ["git", "-C", worktree, "push", "origin", branch],
-        capture_output=True, text=True,
     )
     if push.returncode != 0:
         print(f"[auto_heal]   ❌ 推送失败: {push.stderr[:200]}")
         return None
 
     # 创建 PR
-    repo = os.environ.get("TIANSHU_REPO", "weis1655/tianshu-quanheng")
     pr_title = f"auto-heal: {issue.get('type', 'fix')} ({issue.get('code', '')})"
+    diff_result = _run_cmd(["git", "-C", worktree, "diff", "main"], cwd=worktree)
+    diff_content = diff_result.stdout[:2000]
     pr_body = f"""## 自动修复 PR
 
 **问题类型**: {issue.get('type', 'N/A')}
@@ -337,7 +347,7 @@ def create_pr(worktree: str, branch: str, issue: dict) -> Optional[str]:
 
 ### 修复内容
 ```
-{subprocess.run(["git", "-C", worktree, "diff", "main"], capture_output=True, text=True).stdout[:2000]}
+{diff_content}
 ```
 
 ### 验证结果
@@ -346,10 +356,9 @@ def create_pr(worktree: str, branch: str, issue: dict) -> Optional[str]:
 
 **请人工审核后再合并。**
 """
-    pr_result = subprocess.run(
-        ["gh", "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
+    pr_result = _run_cmd(
+        ["gh", "pr", "create", "--repo", pr_repo, "--base", "main", "--head", branch,
          "--title", pr_title, "--body", pr_body],
-        capture_output=True, text=True,
     )
     if pr_result.returncode != 0:
         print(f"[auto_heal]   ❌ PR 创建失败: {pr_result.stderr[:200]}")
@@ -360,18 +369,18 @@ def create_pr(worktree: str, branch: str, issue: dict) -> Optional[str]:
     return pr_url
 
 
-def verify_and_reconcile(worktree: str, branch: str, issue: dict) -> dict:
+def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int = 50, forbidden: set = None, pr_repo: str = "weis1655/tianshu-quanheng") -> dict:
     """核验 worktree 中的改动，通过后创建 PR 等待审核"""
+    if forbidden is None:
+        forbidden = {"agents/__init__.py", "config/", ".env", ".env.*", "requirements.txt", "pyproject.toml"}
     # 检查是否有改动
-    result = subprocess.run(
+    result = _run_cmd(
         ["git", "-C", worktree, "diff", "--stat"],
-        capture_output=True, text=True,
     )
 
     # 检查分支是否有新 commit（OpenCode 可能自行 commit）
-    branch_log = subprocess.run(
+    branch_log = _run_cmd(
         ["git", "-C", worktree, "log", "--oneline", "main..HEAD"],
-        capture_output=True, text=True,
     )
     branch_commits = branch_log.stdout.strip().split("\n") if branch_log.stdout.strip() else []
 
@@ -394,9 +403,8 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict) -> dict:
     for pyfile in Path(worktree).rglob("*.py"):
         if ".venv" in str(pyfile) or "__pycache__" in str(pyfile):
             continue
-        comp = subprocess.run(
+        comp = _run_cmd(
             ["python3", "-m", "py_compile", str(pyfile)],
-            capture_output=True, text=True,
         )
         if comp.returncode != 0:
             print(f"[auto_heal]   ❌ 编译失败: {pyfile}\n{comp.stderr[:200]}")
@@ -409,9 +417,9 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict) -> dict:
         if ".venv" in str(pyfile) or "__pycache__" in str(pyfile):
             continue
         # 尝试导入模块（仅验证无导入错误）
-        import_result = subprocess.run(
+        import_result = _run_cmd(
             ["python3", "-c", f"import sys; sys.path.insert(0, '{worktree}'); import importlib.util; spec = importlib.util.spec_from_file_location('{pyfile.stem}', '{pyfile}'); importlib.util.module_from_spec(spec)"],
-            capture_output=True, text=True, timeout=10,
+            timeout=10,
         )
         if import_result.returncode != 0:
             print(f"[auto_heal]   ❌ 导入失败: {pyfile}\n{import_result.stderr[:200]}")
@@ -420,11 +428,11 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict) -> dict:
     print(f"[auto_heal]   ✅ 模块导入通过")
 
     # 业务约束检查
-    if not check_business_constraints(worktree, issue):
+    if not check_business_constraints(worktree, issue, max_lines=max_lines, forbidden=forbidden):
         return {"status": "failed", "reason": "business_constraint_violated"}
 
     # 编译+导入验证通过后，创建 PR 等待人工审核
-    pr_url = create_pr(worktree, branch, issue)
+    pr_url = create_pr(worktree, branch, issue, pr_repo=pr_repo)
     if pr_url:
         # 不 merge，保留 worktree 供审查
         print(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_url}")
@@ -434,13 +442,11 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict) -> dict:
 
 def cleanup_worktree(worktree: str, branch: str):
     """清理 worktree"""
-    subprocess.run(
+    _run_cmd(
         ["git", "-C", str(PROJECT), "worktree", "remove", worktree, "--force"],
-        capture_output=True,
     )
-    subprocess.run(
+    _run_cmd(
         ["git", "-C", str(PROJECT), "branch", "-D", branch],
-        capture_output=True,
     )
     # 清理锁文件
     for lock in WORKTREE_BASE.glob(".lock_*"):
@@ -456,6 +462,18 @@ def main():
 
     if args.dry_run:
         print("[auto_heal] 🔍 Dry-run 模式：仅模拟，不执行实际修复")
+
+    # 加载配置
+    cfg = load_config()
+    ah_cfg = cfg.get("auto_heal", {})
+    timeout_min = ah_cfg.get("timeout_minutes", 10)
+    max_retries = ah_cfg.get("max_retries", 3)
+    max_lines = ah_cfg.get("max_lines_changed", 50)
+    forbidden = set(ah_cfg.get("forbidden_files", []))
+    cgc_timeout = ah_cfg.get("cgc_timeout", 15)
+    cgc_max_results = ah_cfg.get("cgc_max_results", 8)
+    pr_enabled = ah_cfg.get("pr_enabled", True)
+    pr_repo = ah_cfg.get("pr_repo", "weis1655/tianshu-quanheng")
 
     print(f"\n{'='*50}")
     print(f"🔄 天枢自动迭代 v1 | {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -484,6 +502,8 @@ def main():
     # Step 3: 创建工作树基目录
     WORKTREE_BASE.mkdir(parents=True, exist_ok=True)
 
+    run_total_start = time.time()
+
     for i, issue in enumerate(issues[:3]):
         print(f"\n{'─'*40}")
         print(f"📌 问题 {i+1}: {issue['type']} ({issue['code']})")
@@ -494,53 +514,86 @@ def main():
             print(f"[auto_heal]   ⏭️ 该问题今日已修复，跳过")
             run.results.append({"issue": issue, "status": "skipped", "reason": "already_fixed_today"})
             log_action(run, f"跳过 {issue['type']} - 已修复")
+            # 记录 metrics
+            run.metrics.setdefault(issue['type'], {})['status'] = 'skipped'
             continue
 
         # Dry-run 模式：跳过实际修复
         if args.dry_run:
             print(f"[auto_heal]   🔎 Dry-run: 模拟修复 {issue['type']}")
             run.results.append({"issue": issue, "status": "dry_run", "reason": "dry_run_mode"})
+            run.metrics.setdefault(issue['type'], {})['status'] = 'dry_run'
             continue
 
         worktree, branch = create_worktree(issue, i, run)
         if not worktree:
             run.results.append({"issue": issue, "status": "skipped", "reason": "worktree_failed"})
             log_action(run, f"跳过 {issue['type']} - worktree 创建失败")
+            run.metrics.setdefault(issue['type'], {})['status'] = 'worktree_failed'
             continue
 
         run.state = FixState.FIXING
         log_action(run, f"开始修复 {issue['type']}")
 
-        prompt = build_opencode_prompt(issue, worktree)
-        ok, reason = run_opencode_fix(worktree, prompt, max_retries=3)
-        if not ok:
-            print(f"[auto_heal]   ⚠️ OpenCode 异常退出: {reason}，仍尝试核验改动")
-            run.state = FixState.FAILED
-            log_action(run, f"OpenCode 修复失败: {reason}")
+        run_start = time.time()
+        retry_count = 0
 
-        result = verify_and_reconcile(worktree, branch, issue)
-        status = result.get("status", "unknown")
-        run.results.append({
-            "issue": issue,
-            "status": status,
-            "pr_url": result.get("pr_url"),
-            "reason": result.get("reason"),
-        })
+        try:
+            prompt = build_opencode_prompt(issue, worktree, cgc_timeout=cgc_timeout, cgc_max_results=cgc_max_results)
+            ok, reason = run_opencode_fix(worktree, prompt, timeout_min=timeout_min, max_retries=max_retries)
+            if not ok:
+                print(f"[auto_heal]   ⚠️ OpenCode 异常退出: {reason}，仍尝试核验改动")
+                run.state = FixState.FAILED
+                log_action(run, f"OpenCode 修复失败: {reason}")
 
-        if status == "needs_review":
-            run.state = FixState.NEEDS_REVIEW
-            log_action(run, f"修复 {issue['type']} 完成，状态: 需人工审核 (PR: {result.get('pr_url')})")
-        elif status == "no_change":
-            run.state = FixState.SKIPPED
-            log_action(run, f"修复 {issue['type']} 完成，状态: 无改动")
-            cleanup_worktree(worktree, branch)
-        elif status == "failed":
-            run.state = FixState.FAILED
-            log_action(run, f"修复 {issue['type']} 失败: {result.get('reason')}")
-            print(f"[auto_heal]   ⚠️ 保留 worktree 供审查: {worktree}")
-        else:
-            cleanup_worktree(worktree, branch)
-            log_action(run, f"修复 {issue['type']} 完成，状态: {status}")
+            result = verify_and_reconcile(worktree, branch, issue, max_lines=max_lines, forbidden=forbidden, pr_repo=pr_repo)
+            status = result.get("status", "unknown")
+            elapsed = time.time() - run_start
+
+            run.results.append({
+                "issue": issue,
+                "status": status,
+                "pr_url": result.get("pr_url"),
+                "reason": result.get("reason"),
+            })
+
+            # 记录 metrics
+            run.metrics.setdefault(issue['type'], {})['elapsed'] = round(elapsed, 2)
+            run.metrics.setdefault(issue['type'], {})['retries'] = retry_count
+            run.metrics.setdefault(issue['type'], {})['status'] = status
+
+            if status == "needs_review":
+                run.state = FixState.NEEDS_REVIEW
+                log_action(run, f"修复 {issue['type']} 完成，状态: 需人工审核 (PR: {result.get('pr_url')})")
+            elif status == "no_change":
+                run.state = FixState.SKIPPED
+                log_action(run, f"修复 {issue['type']} 完成，状态: 无改动")
+            elif status == "failed":
+                run.state = FixState.FAILED
+                log_action(run, f"修复 {issue['type']} 失败: {result.get('reason')}")
+                print(f"[auto_heal]   ⚠️ 保留 worktree 供审查: {worktree}")
+            else:
+                log_action(run, f"修复 {issue['type']} 完成，状态: {status}")
+        finally:
+            # 根据状态决定是否清理 worktree
+            if status in ("no_change", "needs_review"):
+                cleanup_worktree(worktree, branch)
+            elif status == "failed":
+                # failed 时保留 worktree 供审查，但仍清理锁文件
+                for lock in WORKTREE_BASE.glob(".lock_*"):
+                    lock.unlink(missing_ok=True)
+            # needs_review 时保留 worktree
+
+    # 汇总 metrics
+    total_elapsed = time.time() - run_total_start
+    run.metrics['summary'] = {
+        'total_issues': len(issues),
+        'merged': sum(1 for r in run.results if r["status"] == "needs_review"),
+        'skipped': sum(1 for r in run.results if r["status"] in ("skipped", "dry_run", "no_change")),
+        'failed': sum(1 for r in run.results if r["status"] == "failed"),
+        'total_elapsed': round(total_elapsed, 2),
+        'avg_elapsed': round(total_elapsed / len(issues), 2) if issues else 0,
+    }
 
     # Step 4: 汇总
     print(f"\n{'='*50}")
