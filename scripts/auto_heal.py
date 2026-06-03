@@ -12,11 +12,21 @@ import time
 import shlex
 import argparse
 import yaml
+import logging
+import signal
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional
+
+# 日志初始化
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("auto_heal")
 
 # 时区：Asia/Shanghai
 TIANSHU_TZ = timezone(timedelta(hours=8))
@@ -31,6 +41,27 @@ DEFAULT_FORBIDDEN_FILES = frozenset({
     "pyproject.toml",
 })
 
+# 信号处理：待清理的 worktree 列表
+_worktree_to_cleanup: list[str] = []
+
+
+def _signal_handler(signum, frame):
+    """处理 SIGINT/SIGTERM，清理遗留的 worktree"""
+    logger.warning(f"[auto_heal] 收到信号 {signum}，正在清理...")
+    for wt in _worktree_to_cleanup:
+        if wt and Path(wt).exists():
+            _run_cmd(["git", "-C", str(PROJECT), "worktree", "remove", wt, "--force"])
+            logger.info(f"[auto_heal] 已清理 worktree: {wt}")
+    # 清理所有锁文件
+    for lock in WORKTREE_BASE.glob(".lock_*"):
+        lock.unlink(missing_ok=True)
+    logger.info(f"[auto_heal] 锁文件已清理")
+    sys.exit(128 + signum)
+
+
+# 注册信号处理
+signal.signal(signal.SIGINT, _signal_handler)
+signal.signal(signal.SIGTERM, _signal_handler)
 
 
 def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 30,
@@ -41,12 +72,12 @@ def _run_cmd(cmd: list[str], cwd: str | None = None, timeout: int = 30,
             cmd, cwd=cwd, capture_output=capture, text=True, timeout=timeout,
         )
     except subprocess.TimeoutExpired as e:
-        print(f"[auto_heal] ⏰ 命令超时 (timeout={timeout}s): {' '.join(cmd)}")
+        logger.warning(f"[auto_heal] ⏰ 命令超时 (timeout={timeout}s): {' '.join(cmd)}")
         result = subprocess.CompletedProcess(
             args=cmd, returncode=124, stdout="", stderr=str(e)
         )
     if check and result.returncode != 0:
-        print(f"[auto_heal] ❌ 命令失败: {' '.join(cmd)}\n{result.stderr[:200]}")
+        logger.error(f"[auto_heal] ❌ 命令失败: {' '.join(cmd)}\n{result.stderr[:200]}")
     return result
 
 
@@ -59,6 +90,7 @@ class FixState(Enum):
     FAILED = "failed"
     NEEDS_REVIEW = "needs_review"
 
+
 @dataclass
 class FixRun:
     """单次修复运行状态"""
@@ -70,17 +102,21 @@ class FixRun:
     action_log: list[str] = field(default_factory=list)
     metrics: dict = field(default_factory=dict)
 
+
 def log_action(run: FixRun, action: str) -> None:
     """记录操作日志"""
     entry = f"[{datetime.now(TIANSHU_TZ).isoformat()}] {action}"
     run.action_log.append(entry)
-    print(f"[auto_heal] 📝 {action}")
+    logger.info(f"[auto_heal] 📝 {action}")
 
+
+# 路径配置：从环境变量读取默认值（后续可在 main 中通过 config 覆盖）
 PROJECT = Path(os.environ.get("TIANSHU_HOME", "/home/seven/hermes-data/tianshu-quanheng"))
 SCRIPTS = PROJECT / "scripts"
 HISTORY = PROJECT / "data" / "历史记录"
 REVIEWS = PROJECT / "data" / "回顾报告"
-WORKTREE_BASE = Path("/tmp/auto_heal_worktrees")
+# 先定义默认值（在 load_config 之前无法读取 config，所以用环境变量+默认值）
+WORKTREE_BASE = Path(os.environ.get("AUTO_HEAL_WORKTREE", "/tmp/auto_heal_worktrees"))
 
 
 def load_config() -> dict:
@@ -92,15 +128,38 @@ def load_config() -> dict:
     return {}
 
 
+def validate_config(cfg: dict) -> list[str]:
+    """验证配置，返回错误列表"""
+    errors = []
+    ah_cfg = cfg.get("auto_heal", {})
+
+    # timeout_minutes 应为正数
+    timeout = ah_cfg.get("timeout_minutes", 10)
+    if not isinstance(timeout, (int, float)) or timeout <= 0:
+        errors.append("auto_heal.timeout_minutes 必须为正数")
+
+    # max_retries 应为 1-10 的正整数
+    retries = ah_cfg.get("max_retries", 3)
+    if not isinstance(retries, int) or retries < 1 or retries > 10:
+        errors.append("auto_heal.max_retries 必须是 1-10 的整数")
+
+    # max_lines_changed 应为正数
+    lines = ah_cfg.get("max_lines_changed", 50)
+    if not isinstance(lines, int) or lines <= 0:
+        errors.append("auto_heal.max_lines_changed 必须为正整数")
+
+    return errors
+
+
 def get_latest_report() -> str:
     """读取最新的回头看报告，提取分析"""
     reports = sorted(REVIEWS.glob("*_回头看报告_*.md"))
     if not reports:
-        print("[auto_heal] ❌ 无回头看报告")
+        logger.error("[auto_heal] ❌ 无回头看报告")
         return ""
     report_path = reports[-1]
     content = report_path.read_text(encoding="utf-8")
-    print(f"[auto_heal] 📄 报告: {report_path.name}")
+    logger.info(f"[auto_heal] 📄 报告: {report_path.name}")
     return content
 
 
@@ -133,9 +192,9 @@ def extract_p0_issues(content: str) -> list[dict]:
             "detail": detail_match.group(1).strip() if detail_match else "",
         })
 
-    print(f"[auto_heal] 🔍 提取到 {len(issues)} 个P0问题:")
+    logger.info(f"[auto_heal] 🔍 提取到 {len(issues)} 个P0问题:")
     for i in issues:
-        print(f"         • {i['type']} ({i['code']})")
+        logger.info(f"         • {i['type']} ({i['code']})")
     return issues
 
 
@@ -152,6 +211,7 @@ def was_recently_fixed(issue_type: str, history_dir: Path) -> bool:
             pass
     return False
 
+
 def get_cgc_keyword(issue_type: str) -> str:
     """根据问题类型返回 CGC 搜索关键词"""
     type_keywords = {
@@ -166,9 +226,8 @@ def get_cgc_keyword(issue_type: str) -> str:
     return "overheat"  # 默认关键词
 
 
-
-def create_worktree(issue: dict, idx: int, run: FixRun) -> tuple[str, str]:
-    """为问题创建隔离的 git worktree，返回 (path, branch)"""
+def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") -> tuple[str, str, str]:
+    """为问题创建隔离的 git worktree，返回 (path, branch, safe_type)"""
     # sanitize: 只保留 ASCII 字母数字和下划线，中文替换为英文缩写
     raw_type = issue["type"]
     type_map = {
@@ -181,35 +240,39 @@ def create_worktree(issue: dict, idx: int, run: FixRun) -> tuple[str, str]:
     if not safe_type:
         safe_type = f"p0_{idx}"
     branch = f"auto-heal/{safe_type}_{issue['code']}_{datetime.now(TIANSHU_TZ).strftime('%H%M%S')}"
-    worktree_path = str(WORKTREE_BASE / f"heal_{idx:02d}_{safe_type}")
+    worktree_path = str(paths.worktree_base / f"heal_{idx:02d}_{safe_type}")
 
     # 原子锁文件创建
-    lock_file = WORKTREE_BASE / f".lock_{safe_type}"
+    lock_file = paths.worktree_base / f".lock_{safe_type}"
     try:
         fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(fd, run.run_id.encode("utf-8"))
         os.close(fd)
     except FileExistsError:
-        print(f"[auto_heal]   ⚠️ 同类型修复正在运行，跳过")
-        return "", ""
+        logger.warning("[auto_heal]   ⚠️ 同类型修复正在运行，跳过")
+        return "", "", ""
 
     # 清理旧 worktree
-    _run_cmd(["git", "-C", str(PROJECT), "worktree", "remove", worktree_path, "--force"])
+    _run_cmd(["git", "-C", str(paths.project), "worktree", "remove", worktree_path, "--force"])
     _run_cmd(["rm", "-rf", worktree_path])
 
     result = _run_cmd(
-        ["git", "-C", str(PROJECT), "worktree", "add", "-b", branch, worktree_path, "main"],
+        ["git", "-C", str(paths.project), "worktree", "add", "-b", branch, worktree_path, "main"],
     )
     if result.returncode != 0:
-        print(f"[auto_heal] ⚠️ Worktree 创建失败: {result.stderr.strip()}")
+        logger.warning(f"[auto_heal] ⚠️ Worktree 创建失败: {result.stderr.strip()}")
         lock_file.unlink(missing_ok=True)
-        return "", ""
-    print(f"[auto_heal] 🌿 Worktree: {worktree_path} @ {branch}")
+        return "", "", ""
+    logger.info(f"[auto_heal] 🌿 Worktree: {worktree_path} @ {branch}")
+    # 注册待清理的 worktree
+    _worktree_to_cleanup.append(worktree_path)
     return worktree_path, branch, safe_type
 
 
-def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8) -> str:
+def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8, project: Path = None) -> str:
     """为 OpenCode 构建修复 prompt（含 CGC 代码图定位）"""
+    if project is None:
+        project = PROJECT
     # 先用 CGC 查询相关代码位置
     cgc_hint = ""
     try:
@@ -240,7 +303,7 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
             lines = [l for l in cgc_result.stdout.split("\n") if l.strip()][:8]
             cgc_hint = "\n".join(lines)
     except Exception as e:
-        print(f"[auto_heal]   ⚠️ CGC 查询异常: {e}")
+        logger.warning(f"[auto_heal]   ⚠️ CGC 查询异常: {e}")
 
     # 用 CGC 查询调用该函数的代码
     code_context = ""
@@ -256,12 +319,12 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
             code_context = f"\n## 调用上下文\n以下代码调用了相关函数：\n{callers}"
 
     # 读取 CLAUDE.md 作为上下文
-    claude_md = PROJECT / "CLAUDE.md"
+    claude_md = project / "CLAUDE.md"
     if claude_md.exists():
         try:
             code_context += f"\n## 修复规范（CLAUDE.md）\n{claude_md.read_text(encoding='utf-8')}\n"
         except Exception as e:
-            print(f"[auto_heal]   ⚠️ 读取 CLAUDE.md 失败: {e}")
+            logger.warning(f"[auto_heal]   ⚠️ 读取 CLAUDE.md 失败: {e}")
 
     prompt = f"""你正在修复天枢权衡系统的代码问题。工作目录: {worktree}
 
@@ -277,7 +340,7 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
 """
     if code_context:
         prompt += code_context
-    prompt += f"""
+    prompt += """
 ## 修复指令
 1. 根据问题类型，定位相关代码
 2. 修复代码（最小改动原则，只改1-2行）
@@ -294,18 +357,25 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
     return prompt
 
 
-def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retries: int = 3) -> tuple[bool, str]:
-    """在 worktree 中运行 OpenCode 修复，支持重试，返回 (成功, 原因)"""
+def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retries: int = 3, total_timeout_min: int = 30) -> tuple[bool, str]:
+    """在 worktree 中运行 OpenCode 修复，支持重试和总超时，返回 (成功, 原因)"""
     prompt_file = Path(worktree) / ".auto_heal_prompt.md"
     prompt_file.write_text(prompt, encoding="utf-8")
 
-    print(f"[auto_heal] 🔧 OpenCode 启动修复... (超时{timeout_min}分钟, 最多重试{max_retries}次)")
+    logger.info(f"[auto_heal] 🔧 OpenCode 启动修复... (超时{timeout_min}分钟, 最多重试{max_retries}次, 总超时{total_timeout_min}分钟)")
     start = time.time()
+    total_deadline = time.time() + total_timeout_min * 60
 
     prompt_text = prompt_file.read_text(encoding="utf-8")
 
     try:
         for attempt in range(1, max_retries + 1):
+            # 检查总超时
+            if time.time() > total_deadline:
+                elapsed_total = time.time() - start
+                logger.warning(f"[auto_heal]   ⏰ 总超时 ({total_timeout_min}min)，停止重试")
+                return False, f"total_timeout ({total_timeout_min}min), elapsed {elapsed_total:.0f}s"
+
             result = _run_cmd(
                 ["opencode", "run", prompt_text],
                 cwd=worktree,
@@ -313,16 +383,16 @@ def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retr
             )
 
             elapsed = time.time() - start
-            print(f"[auto_heal]   ⏱ 第{attempt}次尝试 | {elapsed:.0f}秒 | 退出码: {result.returncode}")
+            logger.info(f"[auto_heal]   ⏱ 第{attempt}次尝试 | {elapsed:.0f}秒 | 退出码: {result.returncode}")
             if result.stdout:
-                print(f"[auto_heal]   📋 {result.stdout[:500]}")
+                logger.info(f"[auto_heal]   📋 {result.stdout[:500]}")
             if result.stderr:
-                print(f"[auto_heal]   ⚠️ {result.stderr[:300]}")
+                logger.warning(f"[auto_heal]   ⚠️ {result.stderr[:300]}")
 
             if result.returncode == 0:
                 return True, "success"
             if attempt < max_retries:
-                print(f"[auto_heal]   ⏳ 第{attempt}次失败，{2**attempt}s 后重试...")
+                logger.info(f"[auto_heal]   ⏳ 第{attempt}次失败，{2**attempt}s 后重试...")
                 time.sleep(2**attempt)
 
         # 第 3 次失败
@@ -349,7 +419,7 @@ def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, 
     for f in changed_files:
         for forb in forbidden:
             if f.startswith(forb):
-                print(f"[auto_heal]   ❌ 禁止修改的文件: {f}")
+                logger.error(f"[auto_heal]   ❌ 禁止修改的文件: {f}")
                 return False
 
     # 2. 检查改动行数是否合理（单问题不超过 max_lines 行）
@@ -367,7 +437,7 @@ def check_business_constraints(worktree: str, issue: dict, max_lines: int = 50, 
                     pass
 
     if total_lines > max_lines:
-        print(f"[auto_heal]   ⚠️ 改动行数过多: {total_lines} 行（建议 ≤{max_lines}）")
+        logger.warning(f"[auto_heal]   ⚠️ 改动行数过多: {total_lines} 行（建议 ≤{max_lines}）")
         # 不阻塞，仅警告
 
     return True
@@ -380,13 +450,14 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
         ["git", "-C", worktree, "push", "origin", branch],
     )
     if push.returncode != 0:
-        print(f"[auto_heal]   ❌ 推送失败: {push.stderr[:200]}")
+        logger.error(f"[auto_heal]   ❌ 推送失败: {push.stderr[:200]}")
         return None
 
     # 创建 PR
     pr_title = f"auto-heal: {issue.get('type', 'fix')} ({issue.get('code', '')})"
     diff_result = _run_cmd(["git", "-C", worktree, "diff", "main"], cwd=worktree)
-    diff_content = diff_result.stdout[:2000]
+    diff_lines = diff_result.stdout.splitlines()
+    diff_content = "\n".join(diff_lines[:50])  # 限制 50 行而非 2000 字符
     pr_body = f"""## 自动修复 PR
 
 **问题类型**: {issue.get('type', 'N/A')}
@@ -409,11 +480,11 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
          "--title", pr_title, "--body", pr_body],
     )
     if pr_result.returncode != 0:
-        print(f"[auto_heal]   ❌ PR 创建失败: {pr_result.stderr[:200]}")
+        logger.error(f"[auto_heal]   ❌ PR 创建失败: {pr_result.stderr[:200]}")
         return None
 
     pr_url = pr_result.stdout.strip()
-    print(f"[auto_heal]   🔗 PR 已创建: {pr_url}")
+    logger.info(f"[auto_heal]   🔗 PR 已创建: {pr_url}")
     return pr_url
 
 
@@ -437,31 +508,45 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
     has_branch_commits = len(branch_commits) > 0
 
     if not has_worktree_changes and not has_branch_commits:
-        print(f"[auto_heal]   ➖ 无改动")
+        logger.info("[auto_heal]   ➖ 无改动")
         return {"status": "no_change", "reason": "no_changes"}
 
     if has_branch_commits:
-        print(f"[auto_heal]   📦 分支有 {len(branch_commits)} 个新 commit:")
+        logger.info(f"[auto_heal]   📦 分支有 {len(branch_commits)} 个新 commit:")
         for c in branch_commits[:5]:
-            print(f"      {c}")
+            logger.info(f"      {c}")
 
-    print(f"[auto_heal]   📊 改动统计:\n{result.stdout}")
+    logger.info(f"[auto_heal]   📊 改动统计:\n{result.stdout}")
 
-    # 编译验证
-    for pyfile in Path(worktree).rglob("*.py"):
+    # 增量编译验证：只验证 git diff 中修改的文件
+    changed_files_result = _run_cmd(["git", "-C", worktree, "diff", "--name-only", "main"])
+    changed_files = [f.strip() for f in changed_files_result.stdout.strip().split("\n") if f.strip()]
+
+    for rel_path in changed_files:
+        if not rel_path.endswith(".py"):
+            continue
+        pyfile = Path(worktree) / rel_path
+        if not pyfile.exists():
+            continue
+        # 跳过 venv 和 __pycache__
         if ".venv" in str(pyfile) or "__pycache__" in str(pyfile):
             continue
         comp = _run_cmd(
             ["python3", "-m", "py_compile", str(pyfile)],
         )
         if comp.returncode != 0:
-            print(f"[auto_heal]   ❌ 编译失败: {pyfile}\n{comp.stderr[:200]}")
+            logger.error(f"[auto_heal]   ❌ 编译失败: {pyfile}\n{comp.stderr[:200]}")
             return {"status": "failed", "reason": "compile_error"}
 
-    print(f"[auto_heal]   ✅ 编译通过")
+    logger.info("[auto_heal]   ✅ 编译通过")
 
     # 简单的回归检查：确保修改的文件能被导入
-    for pyfile in Path(worktree).rglob("*.py"):
+    for rel_path in changed_files:
+        if not rel_path.endswith(".py"):
+            continue
+        pyfile = Path(worktree) / rel_path
+        if not pyfile.exists():
+            continue
         if ".venv" in str(pyfile) or "__pycache__" in str(pyfile):
             continue
         # 尝试导入模块（仅验证无导入错误）
@@ -474,10 +559,10 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
             timeout=10,
         )
         if import_result.returncode != 0:
-            print(f"[auto_heal]   ❌ 导入失败: {pyfile}\n{import_result.stderr[:200]}")
+            logger.error(f"[auto_heal]   ❌ 导入失败: {pyfile}\n{import_result.stderr[:200]}")
             return {"status": "failed", "reason": "import_error"}
 
-    print(f"[auto_heal]   ✅ 模块导入通过")
+    logger.info("[auto_heal]   ✅ 模块导入通过")
 
     # 业务约束检查
     if not check_business_constraints(worktree, issue, max_lines=max_lines, forbidden=forbidden):
@@ -487,64 +572,118 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
     pr_url = create_pr(worktree, branch, issue, pr_repo=pr_repo)
     if pr_url:
         # 不 merge，保留 worktree 供审查
-        print(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_url}")
+        logger.info(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_url}")
         return {"status": "needs_review", "pr_url": pr_url}
     return {"status": "failed", "reason": "pr_creation_failed"}
 
 
-def cleanup_worktree(worktree: str, branch: str, safe_type: str | None = None):
+def cleanup_worktree(worktree: str, branch: str, safe_type: str | None = None, project: Path = None):
     """清理 worktree"""
     if not worktree or not branch:
         return
+    if project is None:
+        project = PROJECT
     _run_cmd(
-        ["git", "-C", str(PROJECT), "worktree", "remove", worktree, "--force"],
+        ["git", "-C", str(project), "worktree", "remove", worktree, "--force"],
     )
     _run_cmd(
-        ["git", "-C", str(PROJECT), "branch", "-D", branch],
+        ["git", "-C", str(project), "branch", "-D", branch],
     )
     # 只清理当前类型的锁文件
     if safe_type:
         lock_file = WORKTREE_BASE / f".lock_{safe_type}"
         lock_file.unlink(missing_ok=True)
-    print(f"[auto_heal]   🧹 Worktree 已清理")
+    logger.info("[auto_heal]   🧹 Worktree 已清理")
 
 
-def main():
+# ============== 架构：PathsConfig + 拆分后的子函数 ==============
+
+@dataclass
+class PathsConfig:
+    """路径配置容器"""
+    project: Path
+    scripts: Path
+    history: Path
+    reviews: Path
+    worktree_base: Path
+
+
+def parse_args() -> argparse.Namespace:
+    """解析命令行参数"""
     parser = argparse.ArgumentParser(description="天枢自动迭代")
     parser.add_argument("--dry-run", action="store_true", help="模拟运行，不实际修改代码")
     parser.add_argument("--config", type=str, help="配置文件路径")
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    if args.dry_run:
-        print("[auto_heal] 🔍 Dry-run 模式：仅模拟，不执行实际修复")
 
-    # 加载配置
-    cfg = load_config()
+def load_and_validate_config(project: Path) -> dict:
+    """加载并验证配置"""
+    # 临时设置 PROJECT 用于 load_config
+    global PROJECT, SCRIPTS, HISTORY, REVIEWS, WORKTREE_BASE
+    config_path = project / "config.yaml"
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = {}
+
+    errors = validate_config(cfg)
+    if errors:
+        logger.error("[auto_heal] 配置验证失败:")
+        for err in errors:
+            logger.error(f"[auto_heal]   - {err}")
+        sys.exit(1)
+
+    # 从 config 覆盖 WORKTREE_BASE
+    ah_cfg = cfg.get("auto_heal", {})
+    worktree_base_cfg = ah_cfg.get("worktree_base")
+    if worktree_base_cfg:
+        WORKTREE_BASE = Path(worktree_base_cfg)
+
+    return cfg
+
+
+def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> FixRun:
+    """执行一次迭代修复"""
     ah_cfg = cfg.get("auto_heal", {})
     timeout_min = ah_cfg.get("timeout_minutes", 10)
     max_retries = ah_cfg.get("max_retries", 3)
+    total_timeout_min = ah_cfg.get("total_timeout_minutes", 30)
     max_lines = ah_cfg.get("max_lines_changed", 50)
     forbidden = set(ah_cfg.get("forbidden_files", []))
     cgc_timeout = ah_cfg.get("cgc_timeout", 15)
     cgc_max_results = ah_cfg.get("cgc_max_results", 8)
-    pr_enabled = ah_cfg.get("pr_enabled", True)
     pr_repo = ah_cfg.get("pr_repo", "weis1655/tianshu-quanheng")
 
-    print(f"\n{'='*50}")
-    print(f"🔄 天枢自动迭代 v1 | {datetime.now(TIANSHU_TZ).strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'='*50}\n")
+    # 全局路径变量覆盖（保持向后兼容）
+    global PROJECT, SCRIPTS, HISTORY, REVIEWS
+    PROJECT = paths.project
+    SCRIPTS = paths.scripts
+    HISTORY = paths.history
+    REVIEWS = paths.reviews
+
+    if args.dry_run:
+        logger.info("[auto_heal] 🔍 Dry-run 模式：仅模拟，不执行实际修复")
+
+    logger.info(f"\n{'='*50}")
+    logger.info(f"🔄 天枢自动迭代 v1 | {datetime.now(TIANSHU_TZ).strftime('%Y-%m-%d %H:%M')}")
+    logger.info(f"{'='*50}\n")
 
     # Step 1: 读报告
     report = get_latest_report()
     if not report:
-        print("[auto_heal] ⛔ 无报告，退出")
+        logger.error("[auto_heal] ⛔ 无报告，退出")
         sys.exit(1)
 
     # Step 2: 提取TOP-3 P0
     issues = extract_p0_issues(report)
     if not issues:
-        print("[auto_heal] ✅ 无P0问题，无需修复")
-        return
+        logger.info("[auto_heal] ✅ 无P0问题，无需修复")
+        return FixRun(
+            run_id=datetime.now(TIANSHU_TZ).strftime("%Y%m%d_%H%M%S"),
+            timestamp=datetime.now(TIANSHU_TZ).isoformat(),
+            issues=[],
+        )
 
     # 创建状态追踪
     run = FixRun(
@@ -555,32 +694,31 @@ def main():
     log_action(run, f"开始自动迭代，发现 {len(issues)} 个P0问题")
 
     # Step 3: 创建工作树基目录
-    WORKTREE_BASE.mkdir(parents=True, exist_ok=True)
+    paths.worktree_base.mkdir(parents=True, exist_ok=True)
 
     run_total_start = time.time()
 
     for i, issue in enumerate(issues[:3]):
-        print(f"\n{'─'*40}")
-        print(f"📌 问题 {i+1}: {issue['type']} ({issue['code']})")
-        print(f"{'─'*40}")
+        logger.info(f"\n{'─'*40}")
+        logger.info(f"📌 问题 {i+1}: {issue['type']} ({issue['code']})")
+        logger.info(f"{'─'*40}")
 
         # 幂等性检测：检查该问题今日是否已修复
-        if was_recently_fixed(issue["type"], HISTORY):
-            print(f"[auto_heal]   ⏭️ 该问题今日已修复，跳过")
+        if was_recently_fixed(issue["type"], paths.history):
+            logger.info("[auto_heal]   ⏭️ 该问题今日已修复，跳过")
             run.results.append({"issue": issue, "status": "skipped", "reason": "already_fixed_today"})
             log_action(run, f"跳过 {issue['type']} - 已修复")
-            # 记录 metrics
             run.metrics.setdefault(issue['type'], {})['status'] = 'skipped'
             continue
 
         # Dry-run 模式：跳过实际修复
         if args.dry_run:
-            print(f"[auto_heal]   🔎 Dry-run: 模拟修复 {issue['type']}")
+            logger.info(f"[auto_heal]   🔎 Dry-run: 模拟修复 {issue['type']}")
             run.results.append({"issue": issue, "status": "dry_run", "reason": "dry_run_mode"})
             run.metrics.setdefault(issue['type'], {})['status'] = 'dry_run'
             continue
 
-        worktree, branch, safe_type = create_worktree(issue, i, run)
+        worktree, branch, safe_type = create_worktree(issue, i, run, paths)
         if not worktree:
             run.results.append({"issue": issue, "status": "skipped", "reason": "worktree_failed"})
             log_action(run, f"跳过 {issue['type']} - worktree 创建失败")
@@ -595,10 +733,10 @@ def main():
         status = "unknown"
 
         try:
-            prompt = build_opencode_prompt(issue, worktree, cgc_timeout=cgc_timeout, cgc_max_results=cgc_max_results)
-            ok, reason = run_opencode_fix(worktree, prompt, timeout_min=timeout_min, max_retries=max_retries)
+            prompt = build_opencode_prompt(issue, worktree, cgc_timeout=cgc_timeout, cgc_max_results=cgc_max_results, project=paths.project)
+            ok, reason = run_opencode_fix(worktree, prompt, timeout_min=timeout_min, max_retries=max_retries, total_timeout_min=total_timeout_min)
             if not ok:
-                print(f"[auto_heal]   ⚠️ OpenCode 异常退出: {reason}，仍尝试核验改动")
+                logger.warning(f"[auto_heal]   ⚠️ OpenCode 异常退出: {reason}，仍尝试核验改动")
                 run.state = FixState.FAILED
                 log_action(run, f"OpenCode 修复失败: {reason}")
 
@@ -627,13 +765,13 @@ def main():
             elif status == "failed":
                 run.state = FixState.FAILED
                 log_action(run, f"修复 {issue['type']} 失败: {result.get('reason')}")
-                print(f"[auto_heal]   ⚠️ 保留 worktree 供审查: {worktree}")
+                logger.warning(f"[auto_heal]   ⚠️ 保留 worktree 供审查: {worktree}")
             else:
                 log_action(run, f"修复 {issue['type']} 完成，状态: {status}")
         finally:
             # 根据状态决定是否清理 worktree
             if status in ("no_change", "needs_review"):
-                cleanup_worktree(worktree, branch, safe_type)
+                cleanup_worktree(worktree, branch, safe_type, project=paths.project)
             elif status == "failed":
                 # failed 时保留 worktree 供审查，但仍清理当前类型的锁文件
                 lock_file = WORKTREE_BASE / f".lock_{safe_type}"
@@ -652,22 +790,22 @@ def main():
     }
 
     # Step 4: 汇总
-    print(f"\n{'='*50}")
-    print(f"📊 自动迭代汇总")
-    print(f"{'='*50}")
+    logger.info(f"\n{'='*50}")
+    logger.info(f"📊 自动迭代汇总")
+    logger.info(f"{'='*50}")
     merged = sum(1 for r in run.results if r["status"] == "needs_review")
     skipped = sum(1 for r in run.results if r["status"] in ("skipped", "dry_run", "no_change"))
     failed = sum(1 for r in run.results if r["status"] == "failed")
-    print(f"  待审核: {merged}/{len(run.results)}")
-    print(f"  跳过:   {skipped}/{len(run.results)}")
-    print(f"  失败:   {failed}/{len(run.results)}")
+    logger.info(f"  待审核: {merged}/{len(run.results)}")
+    logger.info(f"  跳过:   {skipped}/{len(run.results)}")
+    logger.info(f"  失败:   {failed}/{len(run.results)}")
     if merged > 0:
-        print(f"\n  ✅ 生成 {merged} 个 PR 等待人工审核")
-    print()
+        logger.info(f"\n  ✅ 生成 {merged} 个 PR 等待人工审核")
+    logger.info("")
 
     # 记录结果
-    report_path = REVIEWS / f"{datetime.now(TIANSHU_TZ).strftime('%Y-%m-%d')}_回头看报告_v3.md"
-    log_path = HISTORY / f"{run.run_id}_auto_heal.json"
+    report_path = paths.reviews / f"{datetime.now(TIANSHU_TZ).strftime('%Y-%m-%d')}_回头看报告_v3.md"
+    log_path = paths.history / f"{run.run_id}_auto_heal.json"
     log = {
         "timestamp": run.timestamp,
         "run_id": run.run_id,
@@ -678,17 +816,55 @@ def main():
     }
     try:
         log_path.write_text(json.dumps(log, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"[auto_heal] 📝 日志: {log_path}")
+        logger.info(f"[auto_heal] 📝 日志: {log_path}")
     except Exception as e:
-        print(f"[auto_heal] ⚠️ 日志写入失败: {e}")
+        logger.warning(f"[auto_heal] ⚠️ 日志写入失败: {e}")
 
     # 保存操作日志
-    log_file_path = HISTORY / f"{run.run_id}_actions.log"
+    log_file_path = paths.history / f"{run.run_id}_actions.log"
     try:
         log_file_path.write_text("\n".join(run.action_log), encoding="utf-8")
-        print(f"[auto_heal] 📋 操作日志: {log_file_path}")
+        logger.info(f"[auto_heal] 📋 操作日志: {log_file_path}")
     except Exception as e:
-        print(f"[auto_heal] ⚠️ 操作日志写入失败: {e}")
+        logger.warning(f"[auto_heal] ⚠️ 操作日志写入失败: {e}")
+
+    return run
+
+
+def print_summary(run: FixRun):
+    """打印汇总信息（已从 run_iteration 中移除，保留为空以便兼容）"""
+    pass
+
+
+def save_results(run: FixRun):
+    """保存结果（已从 run_iteration 中移除，保留为空以便兼容）"""
+    pass
+
+
+def main():
+    """入口函数"""
+    args = parse_args()
+    cfg = load_and_validate_config(PROJECT)
+
+    ah_cfg = cfg.get("auto_heal", {})
+    worktree_base_cfg = ah_cfg.get("worktree_base")
+    if worktree_base_cfg:
+        WORKTREE_BASE = Path(worktree_base_cfg)
+
+    # 初始化路径配置
+    paths = PathsConfig(
+        project=PROJECT,
+        scripts=SCRIPTS,
+        history=HISTORY,
+        reviews=REVIEWS,
+        worktree_base=WORKTREE_BASE,
+    )
+
+    run = run_iteration(cfg, args, paths)
+
+    if run.issues:
+        print_summary(run)
+        save_results(run)
 
 
 if __name__ == "__main__":
