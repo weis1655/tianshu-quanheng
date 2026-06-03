@@ -42,3 +42,10 @@ logs/
 *.bak
 *.tmp
 .DS_Store
+
+# 敏感配置文件
+.env
+.env.*
+*.pem
+*.key
+*.crt
