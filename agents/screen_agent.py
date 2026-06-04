@@ -353,40 +353,21 @@ class ScreenAgent(BaseAgent):
             "统计": {"创建日期": datetime.now().strftime("%Y-%m-%d"), "累计进入": 0}
         })
 
-        # ── P1-1：48小时重复筛选防护 + 跨期去重 ───────────────────
+        # ── P1-1：48小时重复筛选防护 ──────────────────────────
         today = datetime.now()
         all_existing = data.get("stocks", [])
         existing_codes = {s.get("代码", s.get("股票代码", "")) for s in all_existing}
-        
-        # P1-2026-06-04: 跨池检查 — 已在重点池/S级池/持仓池的标的，7天内不重复添加
-        cross_pool_data = {}
-        for pn in ["重点观察池", "S级操作池", "持仓池"]:
-            pf = self.root / "五池管理" / f"{pn}.json"
-            if pf.exists():
-                pd = self.safe_read_json(pf, {})
-                stocks_arr = pd.get("stocks", [])
-                if pn == "持仓池":
-                    cross_pool_data[pn] = {str(s.get("股票代码", "")) for s in stocks_arr}
-                else:
-                    cross_pool_data[pn] = {str(s.get("代码", "")) for s in stocks_arr}
-        
         filtered = []
         for s in new_stocks:
-            code = s["代码"]
-            if code in existing_codes:
+            if s["代码"] in existing_codes:
                 continue  # 已在池中，不重复添加
-            # 检查48小时内是否被筛过但未进入池
+            # 检查48小时内是否被筛过但未进入池（检查fast_screen_history）
             fast_history = data.get("_fast_screen_history", {})
-            last_seen = fast_history.get(code)
+            last_seen = fast_history.get(s["代码"])
             if last_seen:
                 last_date = datetime.strptime(last_seen, "%Y-%m-%d")
                 if (today - last_date).days < 2:
                     continue  # 48小时内已筛过，跳过
-            # 跨期去重：在其他活跃池中的标的，7天内不重复进入快筛
-            in_other_pools = [pn for pn, cs in cross_pool_data.items() if code in cs]
-            if in_other_pools:
-                print(f"[ScreenAgent] ⏭️ {s['名称']}({code}) 已在 {in_other_pools}，跳过快筛重复添加")
-                continue
             filtered.append(s)
 
         # 记录这次筛选历史（即使未入池也记录，用于48h防护）
