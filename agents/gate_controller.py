@@ -82,8 +82,8 @@ class GateController:
 
     @staticmethod
     def get_yellow_alerts(scored_stocks: list) -> list:
-        """获取60-69分黄色预警标的"""
-        return [s for s in scored_stocks if 60 <= s.get("score", 0) < 70]
+        """获取60-74分黄色预警标的"""
+        return [s for s in scored_stocks if 60 <= s.get("score", 0) < 75]
 
     @staticmethod
     def is_all_blocked(scored_stocks: list, blocked_codes: Set[str]) -> bool:
