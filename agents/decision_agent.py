@@ -5,7 +5,7 @@ Decision Agent - 决策 Agent（重构版）
 1次LLM调用
 
 设计原则：
-- 只看 Review Agent 评分≥70 的股票
+- 只看 Review Agent 评分≥75 的股票
 - 每个决策必须包含：仓位/止损/止盈/触发条件/失效条件
 - 永远输出"不做的情况"
 
@@ -98,13 +98,13 @@ USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票
 
 今日大盘环境：{market_env}
 
-快筛候选池：{candidate_pool}
+五池状态：{candidate_pool}
 
 **原始新闻**见：{history_dir}/{today}_宏观前置分析.md
 
-请只对评分≥70分的股票制定执行方案。
-如果无≥70分的股票，请输出"今日暂无通过审查的股票"，并列出60-69分（黄色预警）的备选观察标的及其关注要点。
-低于60分的不输出。"""
+请只对评分≥75分的股票制定执行方案。
+     如果无≥75分的股票，请输出"今日暂无通过审查的股票"，并列出60-74分（黄色预警）的备选观察标的及其关注要点。
+     低于60分的不输出。"""
 
 
 class DecisionAgent(BaseAgent):
@@ -339,9 +339,9 @@ class DecisionAgent(BaseAgent):
                              if str(s.get("code", s.get("代码", ""))) not in blocked_codes]
             if not scored_stocks:
                 print("[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
-                # 提取备选观察：60-69分黄色预警标的
+                # 提取备选观察：60-74分黄色预警标的
                 yellow_alerts = [s for s in all_scored_stocks
-                                 if 60 <= s["score"] < 70]
+                                 if 60 <= s["score"] < 75]
                 return self._build_empty_decision(today, pools, market_env,
                                                    "二审制Gate：所有候选标的均未通过质疑审查",
                                                    yellow_alerts=yellow_alerts)
@@ -367,7 +367,7 @@ class DecisionAgent(BaseAgent):
                 names = "、".join(f"{s['name']}({s['code']})" for s in uncovered)
                 coverage_warning = (
                     f"\n\n## ⚠️ Skeptic覆盖度警告\n"
-                    f"以下标的的审查评分≥70分，但**未出现在Skeptic质疑审查报告中**：\n"
+                    f"以下标的的审查评分≥75分，但**未出现在Skeptic质疑审查报告中**：\n"
                     f"{names}\n\n"
                     f"说明：SkepticAgent当期未对这些标的进行质疑审查，LLM在制定执行方案时"
                     f"需自行评估其质疑风险，或等待补全质疑后再做决策。\n"
@@ -414,10 +414,10 @@ class DecisionAgent(BaseAgent):
             max_tokens=1500
         )
 
-        # P0-2: 若LLM返回空仓但有评分≥70的股票，先二次尝试（优先LLM方案）
+        # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
         if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不建议"]) and scored_stocks:
-            # P3修复：只选择审查通过（passed=True）且评分≥70的标的
-            actionable = [s for s in scored_stocks if s.get("score", 0) >= 70 and s.get("passed", False)]
+            # P0-2026-06-04: 只选择审查通过（passed=True）且评分≥75的标的
+            actionable = [s for s in scored_stocks if s.get("score", 0) >= 75 and s.get("passed", False)]
             if actionable:
                 best = actionable[0]
                 override_prompt = f"""基于审查评分，强制制定执行方案：
@@ -444,7 +444,7 @@ class DecisionAgent(BaseAgent):
                         f"### 【主推】{best['name']}（{best['code']}）\n"
                         f"━━━━━━━━━━━━━━━━\n"
                         f"📍 池子位置：审查通过（综合评分{best['score']}分）\n"
-                        f"💡 逻辑支撑：审查评分≥70分，基本面/技术面驱动明确\n"
+                        f"💡 逻辑支撑：审查评分≥75分，基本面/技术面驱动明确\n"
                         f"💰 执行方案\n"
                         f"• 单笔仓位：10%（保守建仓，等待市场确认）\n"
                         f"• 买入方式：分批低吸（首次1/2仓位，确认后补1/2）\n"
@@ -541,12 +541,13 @@ class DecisionAgent(BaseAgent):
 
         # 检查空仓状态（P2修复：增强空仓判断，增加备选策略）
         if any(k in raw_text for k in ["暂无", "空仓", "等待", "观望", "建议空仓"]):
-            no_action_reason = "无审查通过≥70分的股票，建议空仓等待"
-            # 备选策略：检查是否有60-69分的"黄色预警"股票可观察
+            no_action_reason = "无审查通过≥75分的股票，建议空仓等待"
+            # 备选策略：检查是否有60-74分的"黄色预警"股票可观察
             # 注：scored_stocks 来自 _extract_scores，键名为 code/name/score（非中文）
-            yellow_watch = [s for s in scored_stocks if 60 <= s.get("score", 0) < 70]
+            yellow_watch = [s for s in scored_stocks if 60 <= s.get("score", 0) < 75]
             if yellow_watch:
-                no_action_reason += f"\n🟡 备选观察（{len(yellow_watch)}只黄色预警标的，60-69分）："
+                # P0-2026-06-04: 备选观察阈值扩为60-74（与≥75决策阈值对齐）
+                no_action_reason += f"\n🟡 备选观察（{len(yellow_watch)}只黄色预警标的，60-74分）："
                 for i, s in enumerate(yellow_watch[:5], 1):
                     conf = s.get("confidence", "")
                     conf_str = f" [{conf}]" if conf else ""
@@ -687,8 +688,9 @@ class DecisionAgent(BaseAgent):
                         "severity": "high"
                     })
 
-                # 冲突检测4：审查评分60-69（黄色预警）但决策主推
-                if 60 <= review_score < 70 and priority == "主推":
+                # P0-2026-06-04: 阈值已同步为≥75（与审查升级阈值一致）
+                # 冲突检测4：审查评分60-74（黄色预警）但决策主推
+                if 60 <= review_score < 75 and priority == "主推":
                     consistency_issues.append({
                         "code": code, "name": plan.name,
                         "issue": f"审查评分{review_score}分（黄色预警）但决策主推",
@@ -1135,7 +1137,7 @@ class DecisionAgent(BaseAgent):
         # 构建备选观察文本
         alert_text = ""
         if yellow_alerts:
-            alert_lines = ["\n\n## 🟡 备选观察标的（60-69分黄色预警）\n"]
+            alert_lines = ["\n\n## 🟡 备选观察标的（60-74分黄色预警）\n"]
             for s in yellow_alerts[:5]:  # 最多5只
                 alert_lines.append(f"- {s['name']}({s['code']}) {s['score']}分")
             if len(yellow_alerts) > 5:

@@ -107,8 +107,12 @@ class PoolUpdater:
                         # P1-2026-06-04: 晋级S级=移出重点池，防跨池重复
                         removed = self.pool_manager.remove_stock("重点观察池", code) if self.pool_manager else False
                         print(f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
+                    elif pool_name == "快筛候选池":
+                        # P1-2026-06-04: 晋级S级也应从快筛候选池移除（该标的不应同时在候选池和S级池）
+                        removed = self.pool_manager.remove_stock("快筛候选池", code) if self.pool_manager else False
+                        print(f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
                     else:
-                        print(f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非重点池，仅警告）")
+                        print(f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非活跃池，仅警告）")
 
     def _extract_logic_snippet(self, name: str, decision_result: str) -> str:
         """提取该股票决策报告中的核心逻辑"""
