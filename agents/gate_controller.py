@@ -141,9 +141,16 @@ class GateController:
             stock_score = stock.get('score', stock.get('综合评分', '?'))
             return {'allowed': False, 'reason': f'{target_pool}准入规则不满足(评分{stock_score})'}
         # 3. 跨池重复检查
+        # P2-2026-06-04: 跨池重复默认拦截，除非显式 allow_cross_pool=True
         stock_code = str(stock.get("代码", stock.get("股票代码", "")))
+        cross_pool_allowed = stock.pop('allow_cross_pool', False) if isinstance(stock, dict) else False
         if pool_manager and stock_code:
             duplicates = GateController.check_cross_pool_duplicate(stock_code, exclude_pool=target_pool, pool_manager=pool_manager)
             if duplicates:
-                return {'allowed': True, 'reason': f'允许写入(已存在于{duplicates}，跨池记录已标记)', 'cross_pool': duplicates}
+                # 跨池重复：默认拒绝，除非标记为允许（如S级过期回流等受控路径）
+                if cross_pool_allowed:
+                    return {'allowed': True, 'reason': f'允许写入(已存在于{duplicates}，跨池记录已标记)', 'cross_pool': duplicates}
+                else:
+                    print(f"[GateController] 🚫 {stock_code} 跨池重复拦截: 已在 {duplicates}，写入 {target_pool} 被阻止")
+                    return {'allowed': False, 'reason': f'跨池重复拦截: 代码已在 {duplicates}，拒绝写入 {target_pool}'}
         return {'allowed': True, 'reason': '通过'}

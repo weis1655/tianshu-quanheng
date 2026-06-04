@@ -1199,7 +1199,8 @@ class ReviewAgent(BaseAgent):
         skip_set = set(skip_pools or [])
 
         # ALL_POOLS 排除持仓池（持仓池不参与流转）和目标池
-        all_trade_pools = ["快筛候选池", "重点观察池", "边缘池"]
+        # P0-2026-06-04: 加入S级操作池防跨池重复（之前漏了这只有3/3与重点池重叠）
+        all_trade_pools = ["快筛候选池", "重点观察池", "边缘池", "S级操作池"]
         other_pools = [p for p in all_trade_pools if p != pool_name and p not in skip_set]
 
         filtered = []

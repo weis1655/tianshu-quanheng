@@ -93,7 +93,7 @@ class PoolUpdater:
         print(f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
 
     def _check_s_pool_overlap(self, new_stocks: list):
-        """检查S级主推标的是否已在其他流转池中"""
+        """检查S级主推标的是否已在其他流转池中，若在重点观察池则移除（晋级S级=移出重点池）"""
         check_pools = ["快筛候选池", "重点观察池", "边缘池"]
         for s in new_stocks:
             code = s.get("代码", "")
@@ -103,7 +103,12 @@ class PoolUpdater:
                 pool_data = self._safe_read_json(pool_file, {})
                 pool_codes = {str(x.get("代码", "")) for x in pool_data.get("stocks", [])}
                 if code in pool_codes:
-                    print(f"[P1-3] ⚠️ S级主推 {name}({code}) 同时存在于 {pool_name}")
+                    if pool_name == "重点观察池":
+                        # P1-2026-06-04: 晋级S级=移出重点池，防跨池重复
+                        removed = self.pool_manager.remove_stock("重点观察池", code) if self.pool_manager else False
+                        print(f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
+                    else:
+                        print(f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非重点池，仅警告）")
 
     def _extract_logic_snippet(self, name: str, decision_result: str) -> str:
         """提取该股票决策报告中的核心逻辑"""

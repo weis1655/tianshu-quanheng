@@ -165,6 +165,8 @@ class DecisionAgent(BaseAgent):
                     print(f"[Gate] ⚠️ {r['名称']} 同时存在于 {dup}")
 
                 # Gate守卫检查：容量校验 + 写入规则
+                # P2-2026-06-04: S级过期回流是受控路径，显式允许跨池
+                r['allow_cross_pool'] = True
                 rule = GateController.enforce_writing_rules(r, "重点观察池", pool_manager=self.pool_manager)
                 if not rule['allowed']:
                     print(f"[Gate] 🚫 {r['名称']} 被守卫拦截: {rule['reason']}")

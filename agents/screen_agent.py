@@ -234,7 +234,7 @@ class ScreenAgent(BaseAgent):
                 return "B"
             return "C"
 
-        for name, code, reason in all_found[:10]:
+        for name, code, reason in all_stocks[:10]:
             q = realtime_map.get(code, {})
             # P1: 计算技术面评分（原代码导入但未调用，已修复）
             tech_score = {"技术面评分": None, "评分理由": [], "风险提示": []}
