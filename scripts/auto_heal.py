@@ -358,6 +358,64 @@ def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") ->
     return worktree_path, branch, safe_type
 
 
+def precheck_opencode_auth() -> tuple[bool, str]:
+    """预检 OpenCode 环境和 API key 是否可用，防止因 API 缺失导致空跑。
+
+    Returns:
+        tuple[bool, str]: (是否通过预检, 提示信息)
+    """
+    # 1. 检查 OpenCode auth 配置文件
+    auth_file = Path(os.path.expanduser("~/.local/share/opencode/auth.json"))
+    if not auth_file.exists():
+        return False, "OpenCode auth config not found at ~/.local/share/opencode/auth.json"
+
+    try:
+        auth_data = json.loads(auth_file.read_text())
+        if "opencode" not in auth_data:
+            return False, "OpenCode provider 'opencode' not configured in auth"
+    except (json.JSONDecodeError, OSError) as e:
+        return False, f"OpenCode auth file unreadable: {e}"
+
+    # 2. 检查 opencode.json 中配置的 provider → 需要的环境变量
+    opencode_conf = Path(os.path.expanduser("~/.config/opencode/opencode.json"))
+    required_env_vars = []
+    configured_providers = []
+    if opencode_conf.exists():
+        try:
+            conf = json.loads(opencode_conf.read_text())
+            configured_providers = list(conf.get("provider", {}).keys())
+            # Google provider → 需要 GOOGLE_GENERATIVE_AI_API_KEY
+            if "google" in configured_providers:
+                required_env_vars.append("GOOGLE_GENERATIVE_AI_API_KEY")
+            # Anthropic provider → 需要 ANTHROPIC_API_KEY
+            if "anthropic" in configured_providers:
+                required_env_vars.append("ANTHROPIC_API_KEY")
+            # OpenAI provider → 需要 OPENAI_API_KEY
+            if "openai" in configured_providers:
+                required_env_vars.append("OPENAI_API_KEY")
+        except Exception:
+            pass  # 无法读取配置文件时跳过 env var 检查
+
+    missing_env_vars = [v for v in required_env_vars if not os.environ.get(v)]
+    if missing_env_vars:
+        return False, (
+            f"已配置 provider({configured_providers}) 所需环境变量缺失: "
+            f"{', '.join(missing_env_vars)}"
+        )
+
+    # 3. 快速验证：调用 opencode auth list 确认 provider 可用
+    result = _run_cmd(["opencode", "auth", "list"], timeout=15)
+    if result.returncode != 0:
+        return False, f"OpenCode CLI not responding: {result.stderr[:200]}"
+
+    providers = result.stdout
+    if "zen" not in providers.lower() and "api" not in providers.lower():
+        return False, f"No valid OpenCode provider found:\n{providers[:300]}"
+
+    logger.info(f"[auto_heal] ✅ OpenCode 预检通过，provider 可用")
+    return True, providers.strip()
+
+
 def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc_max_results: int = 8, project: Path = None) -> str:
     """构建 OpenCode 修复提示词。
     
@@ -462,10 +520,60 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
         except Exception as e:
             logger.warning(f"[auto_heal]   ⚠️ 读取 CLAUDE.md 失败: {e}")
 
+    # ── 代码级诊断注入：已知问题类型的精确定位信息 ──────────────
+    code_diagnosis = ""
+    issue_type = issue.get("type", "")
+
+    if "过热漏检" in issue_type:
+        code_diagnosis = """
+## 代码诊断（精确定位）
+**已知bug**: 过热检测边界值 off-by-one，评分70分不触发任何规则。
+
+**文件**: `agents/review_scorer.py` — `OverheatDetector.detect()`
+- **RULE-2 (L91)**: `composite_score > 70` — 月涨>25%时，评分=70不触发（应 `>=`）
+- **RULE-5.5 (L142)**: `composite_score > WARN2_SCORE_FALLBACK` — WARN2_SCORE_FALLBACK=70，评分=70不触发（应 `>=`）
+
+**修复指令**：将两处的 `>` 改为 `>=`，使评分=70时也能触发过热检测。
+"""
+    elif "降级延迟" in issue_type:
+        code_diagnosis = """
+## 代码诊断（精确定位）
+**已知bug**: 低分标的（<60分）未被降级到边缘池。
+
+**审查点**:
+- `agents/review_agent.py` L917: `if sr.composite_score < 60:` — 硬性降级阈值，修正评分后降级
+- `agents/pool_manager.py`: 需检查是否有 `auto_cleanup_expired` 或类似自动降级函数
+- `agents/gate_controller.py`: 检查存量扫描逻辑是否覆盖了低分标的
+
+**修复方向**:
+1. 如果 review_agent.py 的 L917 已正确，检查 `_apply_pool_updates()` 中 demotions 是否被正确执行
+2. 检查 `pool_manager.py` 是否缺少自动降级函数（目前查无）
+"""
+    elif "质疑报告缺失" in issue_type:
+        code_diagnosis = """
+## 代码诊断（精确定位）
+**已知bug**: SkepticAgent 未产生质疑报告或报告未被正确读取。
+
+**审查点**:
+- `agents/skeptic_agent.py`: `skeptic_analysis()` 函数是否正常返回
+- `agents/decision_agent.py`: 读取质疑报告的逻辑是否有异常
+- 检查 `data/历史记录/` 目录是否有质疑报告文件
+"""
+    elif "决策越权" in issue_type:
+        code_diagnosis = """
+## 代码诊断（精确定位）
+**已知bug**: 决策执行越权，超出允许仓位或不在允许标的范围内。
+
+**审查点**:
+- `agents/decision_agent.py`: 检查 `max_position`、`position_sizing` 等仓位限制逻辑
+- `agents/gate_controller.py`: 检查S级操作池准入规则
+- `agents/pool_manager.py`: 检查池容量限制 `POOL_CAPACITY_LIMITS`
+"""
+
     prompt = f"""你正在修复天枢权衡系统的代码问题。工作目录: {worktree}
 
 ## 问题描述
-{issue['type']}: 股票 {issue['code']}
+{issue_type}: 股票 {issue['code']}
 详情: {issue.get('detail', '')}
 """
     if cgc_hint:
@@ -476,6 +584,8 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
 """
     if code_context:
         prompt += code_context
+    if code_diagnosis:
+        prompt += code_diagnosis
     prompt += """
 ## 修复指令
 1. 根据问题类型，定位相关代码
@@ -726,6 +836,19 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         for c in branch_commits[:5]:
             logger.info(f"      {c}")
 
+    # ── 自动 commit：OpenCode 经常只改文件不 commit ──────────
+    if has_worktree_changes and not has_branch_commits:
+        add_result = _run_cmd(["git", "-C", worktree, "add", "-A"])
+        if add_result.returncode == 0:
+            commit_msg = f"auto-heal: fix for {issue.get('type', 'unknown')} ({issue.get('code', '')})"
+            commit_result = _run_cmd(
+                ["git", "-C", worktree, "commit", "-m", commit_msg, "--author=Auto-Heal <auto-heal@tianshu>"],
+            )
+            if commit_result.returncode == 0:
+                logger.info(f"[auto_heal]   ✅ 自动 commit 成功: {commit_msg}")
+            else:
+                logger.warning(f"[auto_heal]   ⚠️ 自动 commit 失败: {commit_result.stderr[:200]}")
+
     logger.info(f"[auto_heal]   📊 改动统计:\n{result.stdout}")
 
     # 增量编译验证：只验证 git diff 中修改的文件
@@ -762,9 +885,9 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         # 尝试导入模块（仅验证无导入错误）
         import_result = _run_cmd(
             ["python3", "-c",
-             f"import sys; sys.path.insert(0, {shlex.quote(worktree)}); "
+             f"import sys; sys.path.insert(0, {repr(str(worktree))}); "
              f"import importlib.util; spec = importlib.util.spec_from_file_location("
-             f"'{pyfile.stem}', {shlex.quote(str(pyfile))}); "
+             f"{repr(pyfile.stem)}, {repr(str(pyfile))}); "
              f"importlib.util.module_from_spec(spec)"],
             timeout=10,
         )
@@ -947,7 +1070,7 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
         sys.exit(1)
 
     # Step 2: 提取 TOP-3 P0
-    issues = extract_p0_issues(latest_report)
+    issues = extract_p0_issues(latest_report.read_text())
     if not issues:
         logger.info("[auto_heal] ✅ 无P0问题，无需修复")
         return FixRun(
@@ -968,6 +1091,23 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     paths.worktree_base.mkdir(parents=True, exist_ok=True)
 
     run_total_start = time.time()
+
+    # Step 3.5: OpenCode 预检 — 防止 API key 缺失导致全量空跑
+    oc_ok, oc_msg = precheck_opencode_auth()
+    if not oc_ok:
+        logger.error(f"[auto_heal] ⛔ OpenCode 预检未通过: {oc_msg}")
+        for issue in issues[:3]:
+            run.results.append({"issue": issue, "status": "skipped", "reason": f"opencode_auth_failed: {oc_msg}"})
+            log_action(run, f"跳过 {issue['type']} - OpenCode 不可用")
+        run.state = FixState.SKIPPED
+        run.metrics['summary'] = {
+            'total_issues': len(issues),
+            'skipped': len(issues),
+            'fix_success_rate': 0,
+            'avg_success_elapsed': 0,
+            'total_elapsed': 0,
+        }
+        return run
 
     for i, issue in enumerate(issues[:3]):
         logger.info(f"\n{'─'*40}")
