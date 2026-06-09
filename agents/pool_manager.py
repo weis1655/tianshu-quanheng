@@ -901,7 +901,7 @@ class PoolManager:
         to_demote = []
         remaining = []
         for s in stocks:
-            score = s.get("综合分", 0)
+            score = int(s.get("综合分", 0) or 0)
             if score == 0:
                 remaining.append(s)
                 continue
