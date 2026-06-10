@@ -12,6 +12,9 @@ class PoolUpdater:
     def __init__(self, root: Path, pool_manager=None):
         self.root = root
         self.pool_manager = pool_manager
+        # 惰性导入 QualityGate（打破循环导入：decision_agent→pool_updater→quality_gate→review_scorer）
+        from agents.quality_gate import QualityGate
+        self.quality_gate = QualityGate(root)
 
     def update_s_pool(self, decision_result: str, pool_manager=None, scored_stocks: Optional[list] = None):
         """从决策报告提取【主推】标的，写入S级操作池
@@ -36,7 +39,7 @@ class PoolUpdater:
 
         new_stocks = []
         for name, code in matches[:2]:
-            # 防线一：准入分数校验
+            # 防线一：准入分数校验（含质检门）
             entry_score = None
             if scored_stocks:
                 found = [s for s in scored_stocks if str(s.get("code", s.get("代码", ""))) == code]
@@ -45,6 +48,20 @@ class PoolUpdater:
                     if entry_score < S_POOL_MIN_SCORE:
                         print(f"[PoolUpdater] 🚫 {name}({code}) 评分 {entry_score} < {S_POOL_MIN_SCORE}, 拒绝入S级操作池")
                         continue
+
+            # ═══ A+B 重构：质检门（历史表现+市场状态+过热二次检测）═══
+            market_state = self._get_market_state()
+            gate_result = self.quality_gate.check(
+                name=name, code=code, score=entry_score or S_POOL_MIN_SCORE,
+                market_state=market_state,
+                decision_result=decision_result,
+                current_price=current_prices.get(code, 0),
+            )
+            if not gate_result["passed"]:
+                print(f"[PoolUpdater] 🚫 {name}({code}) 质检门拒绝: {gate_result['reason']}")
+                continue
+            # 使用质检门调整后的评分
+            adjusted_score = gate_result["adjusted_score"]
 
             # 防线二：价格位置检查
             entry_price = current_prices.get(code, 0)
@@ -62,11 +79,11 @@ class PoolUpdater:
                 print(f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
                 continue
 
-            # 防线三：新条目必带评分
+            # 防线三：新条目必带评分（使用质检门调整后评分）
             s = {
                 "代码": code,
                 "名称": name,
-                "综合分": entry_score or S_POOL_MIN_SCORE,  # 防线三：必带评分
+                "综合分": adjusted_score,  # 质检门调整后的动态评分
                 "纳入日期": today,
                 "驱动来源": "决策主推",
                 "核心逻辑": self._extract_logic_snippet(name, decision_result),
@@ -76,6 +93,7 @@ class PoolUpdater:
                 "评价": None,
             }
             new_stocks.append(s)
+            print(f"[PoolUpdater] ✅ {name}({code}) 质检通过 → S级操作池 (评分: {adjusted_score})")
 
         self._check_s_pool_overlap(new_stocks)
 
@@ -142,6 +160,29 @@ class PoolUpdater:
         except Exception as e:
             print(f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
             return ""
+
+    def _get_market_state(self) -> dict:
+        """获取当前市场状态（从 shared_memory.json 读取，兜底默认震荡）"""
+        try:
+            import json
+            sm_file = self.root / "data" / "shared_memory.json"
+            if sm_file.exists():
+                data = json.loads(sm_file.read_text(encoding="utf-8"))
+                if data and isinstance(data, list):
+                    sh = next((s for s in data if s.get("代码") == "000001"), None)
+                    if sh:
+                        sh_chg = float(sh.get("涨跌幅", 0))
+                        if sh_chg > 1:
+                            return {"state": "偏多", "s_pool_cap": 2}
+                        elif sh_chg > 0:
+                            return {"state": "震荡偏强", "s_pool_cap": 2}
+                        elif sh_chg > -1:
+                            return {"state": "震荡偏弱", "s_pool_cap": 1}
+                        else:
+                            return {"state": "偏空", "s_pool_cap": 0}
+        except Exception:
+            pass
+        return {"state": "震荡", "s_pool_cap": 2}
 
     def _check_s_pool_overlap(self, new_stocks: list):
         """检查S级主推标的是否已在其他流转池中，若在重点观察池则移除（晋级S级=移出重点池）"""
