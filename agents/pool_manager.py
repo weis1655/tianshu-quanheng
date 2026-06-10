@@ -1020,12 +1020,13 @@ class PoolManager:
                             print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
                 refreshed.append(code)
 
+        # 更新统计（P0：即使行情刷新失败也执行降级扫描）
+        data["统计"] = data.get("统计", {})
+        data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 扫描评分<65的存量股，自动降级
+        demoted = self._scan_and_downgrade(data)
+
         if refreshed:
-            # 更新统计
-            data["统计"] = data.get("统计", {})
-            data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # 扫描评分<65的存量股，自动降级
-            demoted = self._scan_and_downgrade(data)
             # ── 止损自动降级：跌破止损且评分≥65的存量股移入边缘池 ──
             stop_loss_demoted = []
             remaining_stocks = []
@@ -1050,51 +1051,52 @@ class PoolManager:
                 self.save_pool("边缘池", edge_pool)
                 print(f"  [PoolManager] ✅ {len(stop_loss_demoted)} 只跌破止损的股票已移入边缘池")
             # ────────────────────────────────────────────────────────
-            self.save_pool("重点观察池", data)
             print(f"[PoolManager] ✅ 重点观察池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
-            # ── P1：S级操作池止损检查（根因2修复：扩展止损覆盖范围）──
-            s_pool_data = self.load_pool("S级操作池")
-            s_stocks = s_pool_data.get("stocks", [])
-            if s_stocks:
-                s_stop_loss_warnings = []
-                s_demoted = []
+        self.save_pool("重点观察池", data)
+
+        # ── P1：S级操作池止损检查（根因2修复：扩展止损覆盖范围）──
+        s_pool_data = self.load_pool("S级操作池")
+        s_stocks = s_pool_data.get("stocks", [])
+        if s_stocks:
+            s_stop_loss_warnings = []
+            s_demoted = []
+            for s in s_stocks:
+                s_code = s.get("代码", s.get("股票代码", ""))
+                s_name = s.get("名称", "?")
+                s_stop = s.get("止损触发", s.get("止损线", 0))
+                s_price = s.get("今日收盘", s.get("最新价", 0))
+                if s_stop and s_price and isinstance(s_stop, (int, float)) and s_stop > 0:
+                    if s_price < s_stop:
+                        warn = f"⚠️ [S级] {s_name}({s_code}) 现价{s_price}<止损{s_stop}"
+                        s_stop_loss_warnings.append(warn)
+                        print(f"[PoolManager] {warn}")
+                        s["操作建议"] = "⚠️ 已跌破止损，建议调出"
+                    elif s.get("操作建议") == "已跌破止损，建议调出":
+                        s["操作建议"] = "正常"
+                        print(f"[S级止损解除] {s_name}({s_code}) 现价{s_price}>止损{s_stop}")
+            if s_stop_loss_warnings:
+                s_pool_data["统计"] = s_pool_data.get("统计", {})
+                s_pool_data["统计"]["S级止损告警"] = s_stop_loss_warnings
+                self.save_pool("S级操作池", s_pool_data)
+                print(f"[PoolManager] ⚠️ S级操作池共 {len(s_stop_loss_warnings)} 只触发止损告警")
+                # 跌破止损的S级标的降级到边缘池
                 for s in s_stocks:
-                    s_code = s.get("代码", s.get("股票代码", ""))
-                    s_name = s.get("名称", "?")
-                    s_stop = s.get("止损触发", s.get("止损线", 0))
-                    s_price = s.get("今日收盘", s.get("最新价", 0))
-                    if s_stop and s_price and isinstance(s_stop, (int, float)) and s_stop > 0:
-                        if s_price < s_stop:
-                            warn = f"⚠️ [S级] {s_name}({s_code}) 现价{s_price}<止损{s_stop}"
-                            s_stop_loss_warnings.append(warn)
-                            print(f"[PoolManager] {warn}")
-                            s["操作建议"] = "⚠️ 已跌破止损，建议调出"
-                        elif s.get("操作建议") == "已跌破止损，建议调出":
-                            s["操作建议"] = "正常"
-                            print(f"[S级止损解除] {s_name}({s_code}) 现价{s_price}>止损{s_stop}")
-                if s_stop_loss_warnings:
-                    s_pool_data["统计"] = s_pool_data.get("统计", {})
-                    s_pool_data["统计"]["S级止损告警"] = s_stop_loss_warnings
+                    if s.get("操作建议") == "⚠️ 已跌破止损，建议调出":
+                        s_code = s.get("代码", s.get("股票代码", ""))
+                        s_name = s.get("名称", "?")
+                        self.add_stock("边缘池", {
+                            "代码": s_code,
+                            "名称": s_name,
+                            "综合分": 65,
+                            "纳入日期": datetime.now().strftime("%Y-%m-%d"),
+                            "驱动来源": "S级操作池止损降级",
+                            "核心逻辑": f"S级止损触发，现价{s.get('今日收盘', s.get('最新价', '?'))}<止损线{s_stop}",
+                        })
+                        s_pool_data["stocks"].remove(s)
+                if s_pool_data["stocks"]:
                     self.save_pool("S级操作池", s_pool_data)
-                    print(f"[PoolManager] ⚠️ S级操作池共 {len(s_stop_loss_warnings)} 只触发止损告警")
-                    # 跌破止损的S级标的降级到边缘池
-                    for s in s_stocks:
-                        if s.get("操作建议") == "⚠️ 已跌破止损，建议调出":
-                            s_code = s.get("代码", s.get("股票代码", ""))
-                            s_name = s.get("名称", "?")
-                            self.add_stock("边缘池", {
-                                "代码": s_code,
-                                "名称": s_name,
-                                "综合分": 65,
-                                "纳入日期": datetime.now().strftime("%Y-%m-%d"),
-                                "驱动来源": "S级操作池止损降级",
-                                "核心逻辑": f"S级止损触发，现价{s.get('今日收盘', s.get('最新价', '?'))}<止损线{s_stop}",
-                            })
-                            s_pool_data["stocks"].remove(s)
-                    if s_pool_data["stocks"]:
-                        self.save_pool("S级操作池", s_pool_data)
-            # ────────────────────────────────────────────────────────
+        # ────────────────────────────────────────────────────────
 
         return refreshed
 
