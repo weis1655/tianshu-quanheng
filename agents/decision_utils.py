@@ -51,6 +51,10 @@ def extract_scores(review_report: str) -> list[dict]:
         flow = re.search(r"→\s*(升级|通过|关注)", section)
         # 信心度
         conf = re.search(r"信心[度理].*?[:：]\s*([^\n]{2,20})", section)
+        # P1-修复: 过滤无效前缀（"关于该股票""包含***""无推荐"等伪名称）
+        invalid_prefixes = ("关于", "包含", "未包含", "无")
+        if name and any(name.startswith(p) for p in invalid_prefixes):
+            continue
         stocks.append({
             "code": code, "name": name, "score": score,
             "passed": flow is not None,

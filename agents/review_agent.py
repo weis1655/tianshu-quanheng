@@ -353,6 +353,28 @@ class ReviewAgent(BaseAgent):
                     print(f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
         # ════════════════════════════════════════════════════════════════
 
+        # ═══ P2-修复（2026-06-10）：QualityGate 上移 — 审查阶段历史表现检查 ═══
+        try:
+            from quality_gate import QualityGate
+            qg = QualityGate(self.root)
+            for sr in review_result.stocks:
+                gate_ret = qg.check(
+                    name=sr.name, code=sr.code, score=sr.composite_score,
+                    market_state=market_state,
+                )
+                if not gate_ret["passed"]:
+                    original = sr.composite_score
+                    sr.composite_score = gate_ret["adjusted_score"]
+                    sr.core_logic += f" | 🚫 历史质检: {gate_ret['reason']}"
+                    # 如果通缩后低于55分→强制降级
+                    if sr.composite_score < 55:
+                        sr.flow_direction = "降级"
+                        sr.target_pool = "边缘池"
+                    print(f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
+        except ImportError:
+            pass
+        # ═══════════════════════════════════════════════════════════════════════
+
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
         tracker = ClosedLoopTracker()

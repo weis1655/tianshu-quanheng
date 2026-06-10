@@ -337,6 +337,53 @@ class DecisionAgent(BaseAgent):
                                                    yellow_alerts=[])
         # ──────────────────────────────────────────────────────────
 
+        # ═══ P0-修复（2026-06-10）：重复推荐保护 — 最近7天推荐过的标的过滤 ═══
+        dup_codes = set()
+        dup_names = set()
+        dt_now = datetime.now()
+        from datetime import timedelta
+        try:
+            verify_file = self.root / "data" / "full_sampling_verify.json"
+            if verify_file.exists():
+                import json
+                vdata = json.loads(verify_file.read_text(encoding="utf-8"))
+                recent_dates = set()
+                for i in range(7):
+                    d = (dt_now - timedelta(days=i)).strftime("%Y-%m-%d")
+                    recent_dates.add(d)
+                for entry in vdata.get("stocks", []):
+                    if entry.get("entry_date", "") in recent_dates:
+                        code = str(entry.get("code", "")).strip()
+                        if code:
+                            dup_codes.add(code)
+                            if entry.get("name"):
+                                dup_names.add(entry["name"])
+            # 降级路径2：从历史决策报告目录扫描最近7天的推荐
+            if self.history_dir and self.history_dir.exists():
+                for i in range(7):
+                    d = (dt_now - timedelta(days=i)).strftime("%Y-%m-%d")
+                    fp = self.history_dir / f"{d}_决策报告.md"
+                    if fp.exists():
+                        content = fp.read_text(encoding="utf-8", errors="replace")
+                        for m in set(re.findall(r"[（(](\d{6})[）)]", content)):
+                            dup_codes.add(m)
+        except Exception:
+            pass
+        if dup_codes:
+            before = len(scored_stocks)
+            dup_in_picks = {s["code"] for s in scored_stocks if str(s.get("code","")) in dup_codes}
+            scored_stocks = [s for s in scored_stocks if str(s.get("code", "")) not in dup_codes]
+            for pool_name, pool_data in pools.items():
+                if pool_data.get("stocks"):
+                    pool_data["stocks"] = [
+                        s for s in pool_data["stocks"]
+                        if str(s.get("代码", s.get("股票代码", ""))) not in dup_codes
+                    ]
+            if dup_in_picks:
+                print(f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
+            # 如果过滤后为空，走正常空仓逻辑（不是硬返回，让后续逻辑决定）
+        # ═══════════════════════════════════════════════════════════════════════
+
         # ── 二审制Gate：阻塞标的计数 + 连续3次自动降级 ──
         if blocked_codes:
             # 读取重点观察池JSON（磁盘上的原始数据）
