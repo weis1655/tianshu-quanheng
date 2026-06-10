@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 
-from safe_file_utils import safe_write_file, safe_read_json
+from safe_file_utils import safe_write_file, safe_read_json, safe_read_file
 
 logger = logging.getLogger(__name__)
 

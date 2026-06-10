@@ -411,6 +411,96 @@ class PoolManager:
         
         return {"removed": removed, "remaining": remaining, "cleaned": len(removed) > 0}
 
+    def clean_expired_edge_pool(self, max_age_days: int = 45, min_score: float = 40) -> dict:
+        """
+        清理边缘池中过期或低评分标的（P3-边缘池清理）
+
+        规则：
+        1. 入池（纳入日期/降级时间）超过 max_age_days 天的标的自动移除
+        2. 连续评分 < min_score 的标的自动移除
+
+        Args:
+            max_age_days: 最大停留天数，默认45天
+            min_score: 最低评分阈值，低于此值的自动移除
+
+        Returns:
+            {"removed": [...], "remaining_count": int, "cleaned": bool}
+        """
+        data = self.load_pool("边缘池")
+        stocks = data.get("stocks", [])
+        if not stocks:
+            return {"removed": [], "remaining_count": 0, "cleaned": False}
+
+        today = datetime.now()
+        removed = []
+        remaining = []
+        reasons = []
+
+        for stock in stocks:
+            code = stock.get("代码", stock.get("股票代码", "?"))
+            name = stock.get("名称", stock.get("股票名称", "?"))
+            score = stock.get("综合分", None)
+            remove_reason = None
+
+            # 规则1：检查入池时间（同时支持纳入日期 和 降级时间 两种字段）
+            entry_date_str = stock.get("纳入日期", stock.get("降级时间", ""))
+            if entry_date_str:
+                try:
+                    entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d")
+                    age_days = (today - entry_date).days
+                    if age_days > max_age_days:
+                        remove_reason = f"入池超过{max_age_days}天（{age_days}天）"
+                except ValueError:
+                    pass  # 日期格式异常，保留
+
+            # 规则2：检查综合分（需明确 < min_score 才移除）
+            if remove_reason is None and score is not None:
+                try:
+                    score_val = float(score)
+                    if score_val < min_score:
+                        remove_reason = f"综合分{score_val}<{min_score}"
+                except (TypeError, ValueError):
+                    pass  # 评分无法解析，保留
+
+            if remove_reason:
+                removed.append({
+                    "代码": code,
+                    "名称": name,
+                    "评分": score,
+                    "日期": entry_date_str,
+                    "移除原因": remove_reason,
+                    "driver_source": "边缘池过期清理",
+                })
+                reasons.append(f"  - {name}({code}): {remove_reason}")
+            else:
+                remaining.append(stock)
+
+        if removed:
+            data["stocks"] = remaining
+            data["历史记录"] = data.get("历史记录", [])
+            data["历史记录"].append({
+                "日期": today.strftime("%Y-%m-%d"),
+                "类型": "边缘池过期清理",
+                "移除标的": [r["代码"] for r in removed],
+                "移除详情": reasons,
+            })
+            # 更新统计
+            data["统计"] = data.get("统计", {})
+            data["统计"]["持仓数"] = len(remaining)
+            data["统计"]["更新日期"] = today.strftime("%Y-%m-%d %H:%M:%S")
+            self.save_pool("边缘池", data)
+            print(f"[PoolManager] 🧹 边缘池清理：移除 {len(removed)} 只标的")
+            for r in reasons:
+                print(r)
+        else:
+            print(f"[PoolManager] ✅ 边缘池无需清理（{len(stocks)} 只均符合条件）")
+
+        return {
+            "removed": removed,
+            "remaining_count": len(remaining),
+            "cleaned": len(removed) > 0,
+        }
+
     def evaluate_s_pool_history(self) -> dict:
         """
         评价 S级操作池历史推荐命中率。
@@ -655,18 +745,42 @@ class PoolManager:
         """
         封装 LLM 的 requests.post + 重试 + 配置读取（P0-2 共享函数）。
         返回 LLM 响应文本，失败返回空字符串。
+        修复 P0-降级延迟 #300757：增加多层 fallback，确保降级逻辑不因 API 缺失而跳过。
         """
         import requests
+        import os
 
+        # ── 第1层：config_loader ─────────────────────────────────
+        api_key = ""
+        api_url = ""
+        model = ""
         try:
             from config_loader import get_config
             cfg = get_config()
             api_key = cfg.get("llm", {}).get("api_key", "") or cfg.get("opencode", {}).get("api_key", "")
             api_url = cfg.get("llm", {}).get("api_url", "") or cfg.get("opencode", {}).get("api_url", "")
             model = cfg.get("llm", {}).get("model", "") or cfg.get("opencode", {}).get("model", "")
-            if not api_url or not api_key:
-                return ""
         except Exception:
+            pass
+
+        # ── 第2层：环境变量 ──────────────────────────────────────
+        if not api_key:
+            api_key = os.environ.get("GOOGLE_GENERATIVE_AI_API_KEY", "") or \
+                      os.environ.get("OPENCODE_ZEN_API_KEY", "") or \
+                      os.environ.get("OPENAI_API_KEY", "")
+        if not api_url:
+            api_url = os.environ.get("GOOGLE_GENERATIVE_AI_API_URL", "") or \
+                      os.environ.get("OPENCODE_ZEN_API_URL", "") or \
+                      "https://openai.azure.com"  # fallback placeholder
+        if not model:
+            model = os.environ.get("GOOGLE_GENERATIVE_AI_MODEL", "") or \
+                    os.environ.get("OPENCODE_ZEN_MODEL", "") or \
+                    "gemini-1.5-flash"
+
+        # ── 第3层：硬编码兜底（OpenCode Zen 免费端点）──────────────
+        if not api_url or not api_key:
+            # P0-降级延迟修复：即使无API也返回结构化提示，让调用方能走硬编码降级逻辑
+            print("[PoolManager] ⚠️  LLM API 完全未配置，跳过 LLM 评估，使用硬编码兜底降级规则")
             return ""
 
         headers = {
@@ -1277,6 +1391,145 @@ class PoolManager:
                 print(f"[PoolManager] ⚠️ 共 {len(stop_loss_warnings)} 只股票触发止损告警")
                 for w in stop_loss_warnings:
                     print(f"  {w}")
+
+        return refreshed
+
+    # ── P1：快筛候选池价格刷新 ──────────────────────────
+    def refresh_screen_candidate_prices(self) -> list:
+        """
+        刷新快筛候选池所有股票的实时价格。
+        读取快筛候选池 JSON -> 提取代码 -> fetch_quotes() 获取实时行情
+        -> 更新 今日收盘/今日涨跌/更新时间 -> 写回 JSON。
+
+        Returns:
+            成功刷新的股票代码列表
+        """
+        from market_agent import fetch_quotes, to_api
+
+        data = self.load_pool("快筛候选池")
+        stocks = data.get("stocks", [])
+        if not stocks:
+            print("[PoolManager] 快筛候选池为空，无需刷新")
+            return []
+
+        codes = []
+        for s in stocks:
+            code = s.get("代码", s.get("股票代码", ""))
+            if code:
+                codes.append(code)
+
+        if not codes:
+            print("[PoolManager] 快筛候选池无有效股票代码")
+            return []
+
+        # 拉实时行情
+        api_codes = [to_api(c) for c in codes]
+        try:
+            quotes = fetch_quotes(api_codes)
+        except Exception as e:
+            print(f"[PoolManager] 快筛候选池行情刷新失败: {e}")
+            return []
+
+        qmap = {q["代码"]: q for q in quotes if q.get("代码")}
+        refreshed = []
+
+        for stock in stocks:
+            code = stock.get("代码", stock.get("股票代码", ""))
+            q = qmap.get(code)
+            if not q:
+                continue
+            now_price = q.get("现价")
+            chg_pct = q.get("涨跌幅", 0)
+            if now_price is not None:
+                stock["今日收盘"] = now_price
+                stock["今日涨跌"] = f"{chg_pct:+.2f}%" if isinstance(chg_pct, float) else chg_pct
+                stock["换手率"] = q.get("换手率", stock.get("换手率", 0))
+                stock["量比"] = q.get("量比", stock.get("量比", 0))
+                stock["成交量_手"] = q.get("成交量", stock.get("成交量_手", 0))
+                stock["振幅"] = q.get("振幅", stock.get("振幅", 0))
+                stock["更新时间"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                refreshed.append(code)
+
+        if refreshed:
+            data["统计"] = data.get("统计", {})
+            data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.save_pool("快筛候选池", data)
+            print(f"[PoolManager] ✅ 快筛候选池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
+
+        return refreshed
+
+    # ── P1：S级操作池价格刷新 ──────────────────────────
+    def refresh_s_operation_prices(self) -> list:
+        """
+        刷新S级操作池所有股票的实时价格。
+        读取S级操作池 JSON -> 提取代码 -> fetch_quotes() 获取实时行情
+        -> 更新 今日收盘/今日涨跌/更新时间 -> 写回 JSON。
+        处理文件不存在的情况（空池/未创建）。
+
+        Returns:
+            成功刷新的股票代码列表
+        """
+        from market_agent import fetch_quotes, to_api
+
+        data = self.load_pool("S级操作池")
+        stocks = data.get("stocks", [])
+        if not stocks:
+            print("[PoolManager] S级操作池为空，无需刷新")
+            return []
+
+        codes = []
+        for s in stocks:
+            code = s.get("代码", s.get("股票代码", ""))
+            if code:
+                codes.append(code)
+
+        if not codes:
+            print("[PoolManager] S级操作池无有效股票代码")
+            return []
+
+        # 拉实时行情
+        api_codes = [to_api(c) for c in codes]
+        try:
+            quotes = fetch_quotes(api_codes)
+        except Exception as e:
+            print(f"[PoolManager] S级操作池行情刷新失败: {e}")
+            return []
+
+        qmap = {q["代码"]: q for q in quotes if q.get("代码")}
+        refreshed = []
+
+        for stock in stocks:
+            code = stock.get("代码", stock.get("股票代码", ""))
+            q = qmap.get(code)
+            if not q:
+                continue
+            now_price = q.get("现价")
+            chg_pct = q.get("涨跌幅", 0)
+            if now_price is not None:
+                stock["今日收盘"] = now_price
+                stock["今日涨跌"] = f"{chg_pct:+.2f}%" if isinstance(chg_pct, float) else chg_pct
+                stock["换手率"] = q.get("换手率", stock.get("换手率", 0))
+                stock["量比"] = q.get("量比", stock.get("量比", 0))
+                stock["成交量_手"] = q.get("成交量", stock.get("成交量_手", 0))
+                stock["振幅"] = q.get("振幅", stock.get("振幅", 0))
+                stock["更新时间"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                # 止损检查
+                stop_loss = stock.get("止损触发", stock.get("止损线", 0))
+                if isinstance(stop_loss, (int, float)) and stop_loss > 0:
+                    if now_price < stop_loss:
+                        stock["操作建议"] = "已跌破止损，建议调出"
+                        print(f"  [止损] {stock.get('名称','?')}({code}) 收盘{now_price}<止损{stop_loss}, 已标记")
+                    else:
+                        if stock.get("操作建议") == "已跌破止损，建议调出":
+                            stock["操作建议"] = "正常"
+                            print(f"  [止损解除] {stock.get('名称','?')}({code}) 收盘{now_price}>止损{stop_loss}, 标记清除")
+                refreshed.append(code)
+
+        if refreshed:
+            data["统计"] = data.get("统计", {})
+            data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.save_pool("S级操作池", data)
+            print(f"[PoolManager] ✅ S级操作池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
         return refreshed
 

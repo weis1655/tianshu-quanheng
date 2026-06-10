@@ -316,6 +316,24 @@ def list_circuit_breakers() -> Dict[str, Dict[str, Any]]:
         return {name: cb.get_status() for name, cb in _circuit_breakers.items()}
 
 
+def check_circuit_breaker(name: str) -> bool:
+    """检查熔断器是否允许调用"""
+    breaker = get_circuit_breaker(name)
+    return breaker.is_available()
+
+
+def record_success(name: str):
+    """记录成功调用"""
+    breaker = get_circuit_breaker(name)
+    breaker._on_success()
+
+
+def record_failure(name: str):
+    """记录失败调用"""
+    breaker = get_circuit_breaker(name)
+    breaker._on_failure()
+
+
 if __name__ == "__main__":
     print("=== 熔断器测试 ===\n")
 

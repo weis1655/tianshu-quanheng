@@ -7,11 +7,32 @@ Safe File Utils — 天枢权衡安全文件读写工具
 import os
 import json
 import logging
+import functools
+import time
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Union
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+def retry(max_attempts=3, delay=2, backoff=2):
+    """重试装饰器：指数退避"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exc = None
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exc = e
+                    if attempt < max_attempts - 1:
+                        wait = delay * (backoff ** attempt)
+                        time.sleep(wait)
+            raise last_exc
+        return wrapper
+    return decorator
 
 
 class FileReadError(Exception):
@@ -24,6 +45,7 @@ class FileWriteError(Exception):
     pass
 
 
+@retry()
 def safe_read_file(
     path: Union[str, Path],
     encoding: str = "utf-8",
@@ -118,6 +140,7 @@ def safe_read_json(
         return default
 
 
+@retry()
 def safe_write_file(
     path: Union[str, Path],
     content: str,

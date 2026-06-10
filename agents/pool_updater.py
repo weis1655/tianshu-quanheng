@@ -13,10 +13,12 @@ class PoolUpdater:
         self.root = root
         self.pool_manager = pool_manager
 
-    def update_s_pool(self, decision_result: str, pool_manager=None):
+    def update_s_pool(self, decision_result: str, pool_manager=None, scored_stocks: Optional[list] = None):
         """从决策报告提取【主推】标的，写入S级操作池
         完整逻辑移植自 DecisionAgent._update_s_pool（含今日已修复的merge逻辑）
         """
+        from agents.thresholds import S_POOL_MIN_SCORE
+
         pm = pool_manager or self.pool_manager
         if not pm:
             return
@@ -33,10 +35,38 @@ class PoolUpdater:
         current_prices = self._fetch_current_prices()
 
         new_stocks = []
-        for name, code in matches[:3]:
+        for name, code in matches[:2]:
+            # 防线一：准入分数校验
+            entry_score = None
+            if scored_stocks:
+                found = [s for s in scored_stocks if str(s.get("code", s.get("代码", ""))) == code]
+                if found:
+                    entry_score = int(found[0].get("score", 0))
+                    if entry_score < S_POOL_MIN_SCORE:
+                        print(f"[PoolUpdater] 🚫 {name}({code}) 评分 {entry_score} < {S_POOL_MIN_SCORE}, 拒绝入S级操作池")
+                        continue
+
+            # 防线二：价格位置检查
+            entry_price = current_prices.get(code, 0)
+            if entry_price <= 0:
+                # 兜底：尝试单独获取该标的行情（不在现有池中的新推标的）
+                try:
+                    from market_agent import to_api, fetch_quotes
+                    q = fetch_quotes([to_api(code)])
+                    if q and len(q) > 0:
+                        entry_price = q[0].get("现价", 0)
+                except Exception:
+                    pass
+            position_warning = self._check_price_position(code, entry_price)
+            if position_warning:
+                print(f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
+                continue
+
+            # 防线三：新条目必带评分
             s = {
                 "代码": code,
                 "名称": name,
+                "综合分": entry_score or S_POOL_MIN_SCORE,  # 防线三：必带评分
                 "纳入日期": today,
                 "驱动来源": "决策主推",
                 "核心逻辑": self._extract_logic_snippet(name, decision_result),
@@ -74,8 +104,8 @@ class PoolUpdater:
 
         data = {
             "池名称": "S级操作池",
-            "池定义": "当日决策主推标的，容量≤3，T+0可追，T+1需评估",
-            "stocks": merged[:3],
+            "池定义": "当日决策主推标的，容量≤2，T+0可追，T+1需评估",
+            "stocks": merged[:2],
             "统计": {"创建日期": today, "当日进入": len(new_stocks)},
             "历史记录": old_history,
         }
@@ -91,6 +121,27 @@ class PoolUpdater:
 
         self._safe_write_json(pool_file, data)
         print(f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
+
+    def _check_price_position(self, code: str, current_price: float) -> str:
+        """检查当前价格在52周中的位置，返回空字符串表示通过，非空表示警告"""
+        try:
+            from market_agent import to_api, fetch_history
+            symbol = to_api(code)
+            # 获取月K线，12根约覆盖1年
+            history = fetch_history(symbol, "month", 12)
+            if not history:
+                return ""
+            # 找到52周最高价
+            high_52w = max(float(item.get("最高", 0)) for item in history)
+            if high_52w <= 0:
+                return ""
+            ratio = current_price / high_52w
+            if ratio > 0.85:
+                return f"追高风险: 当前价{current_price}/52周最高{high_52w}={ratio:.0%}>85%"
+            return ""
+        except Exception as e:
+            print(f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
+            return ""
 
     def _check_s_pool_overlap(self, new_stocks: list):
         """检查S级主推标的是否已在其他流转池中，若在重点观察池则移除（晋级S级=移出重点池）"""

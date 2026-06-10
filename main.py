@@ -21,6 +21,17 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
+import signal
+
+_graceful_shutdown = False
+
+def _signal_handler(sig, frame):
+    global _graceful_shutdown
+    _graceful_shutdown = True
+    print(f"\n[守护] ⚡ 收到信号 {sig}，正在优雅关闭...")
+
+signal.signal(signal.SIGTERM, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
 # 加载 .env 文件（Hermes 配置目录）
 hermes_home = os.path.expanduser("~/.hermes")
@@ -58,6 +69,7 @@ from review_agent import ReviewAgent
 from decision_agent import DecisionAgent
 from skeptic_agent import SkepticAgent
 from pool_manager import PoolManager
+from agents.error_handling import check_circuit_breaker, record_success, record_failure
 
 
 LLM_CALL_COUNT = 0  # 追踪本次运行的LLM调用次数
@@ -337,8 +349,8 @@ def main():
         return
     elif phase_arg in ["trigger", "触发", "条件"]:
         # 触发条件检测
-        from agents.trigger import check_and_notify
-        check_and_notify()
+        from agents.trigger import check_all_triggers
+        check_all_triggers()
         return
     elif phase_arg in ["feedback", "反馈", "闭环"]:
         # 反馈闭环
@@ -451,7 +463,18 @@ def main():
 
     # 执行
     if phase == "news_only":
-        results = run_phase("news_only", pools)
+        if not check_circuit_breaker("news_only"):
+            print(f"[熔断器] ⛔ news_only 熔断，跳过")
+            results = {}
+        else:
+            results = run_phase("news_only", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
+        if results.get("success"):
+            record_success("news_only")
+        else:
+            record_failure("news_only")
     elif phase == "full_cycle":
         # ── 周末守卫：新闻分析照跑，跳过交易相关阶段 ──────
         now_weekday = datetime.now().weekday()
@@ -492,7 +515,18 @@ def main():
                 else:
                     print(f"  [News] ⚠️ 本地联播文件存在但质量不足 ({len(raw)} chars)，回退实时抓取")
             # fallback：实时抓取
-            r = run_phase("news_only", pools)
+            if not check_circuit_breaker("news_only"):
+                print(f"[熔断器] ⛔ news_only 熔断，跳过")
+                r = {}
+            else:
+                r = run_phase("news_only", pools)
+            if _graceful_shutdown:
+                print("[守护] 已中断")
+                return results
+            if r.get("success"):
+                record_success("news_only")
+            else:
+                record_failure("news_only")
             return ("news", r["news"])
 
         news_result = run_news()
@@ -589,7 +623,14 @@ def main():
 
         # 然后串行：快筛→审查→决策（P0-1：失败级联终止）
         pools = orch.get_pools()
-        r_screen = run_phase("screen", pools)
+        if not check_circuit_breaker("screen"):
+            print(f"[熔断器] ⛔ screen 熔断，跳过")
+            r_screen = {}
+        else:
+            r_screen = run_phase("screen", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
         results.update(r_screen)
         if not results.get("screen", {}).get("success"):
             print("\n❌ 【级联终止】快筛失败，停止后续阶段")
@@ -597,9 +638,17 @@ def main():
             print("\n📱 飞书卡片内容预览:")
             print(json.dumps(card, ensure_ascii=False, indent=2))
             return results
+        record_success("screen")
 
         pools = orch.get_pools()
-        r_review = run_phase("review", pools)
+        if not check_circuit_breaker("review"):
+            print(f"[熔断器] ⛔ review 熔断，跳过")
+            r_review = {}
+        else:
+            r_review = run_phase("review", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
         results.update(r_review)
         if not results.get("review", {}).get("success"):
             print("\n❌ 【级联终止】审查失败，停止后续阶段")
@@ -607,6 +656,7 @@ def main():
             print("\n📱 飞书卡片内容预览:")
             print(json.dumps(card, ensure_ascii=False, indent=2))
             return results
+        record_success("review")
 
         # ── 审查报告截断检测（v5.91）──────────────────────────
         # 检查每只股票的四维表是否完整（缺失 流转方向 = 截断）
@@ -633,20 +683,94 @@ def main():
 
         # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
         pools = orch.get_pools()
-        r_skeptic = run_phase("skeptic", pools)
+        if not check_circuit_breaker("skeptic"):
+            print(f"[熔断器] ⛔ skeptic 熔断，跳过")
+            r_skeptic = {}
+        else:
+            r_skeptic = run_phase("skeptic", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
         results.update(r_skeptic)
+        record_success("skeptic") if results.get("skeptic", {}).get("success") else record_failure("skeptic")
 
         pools = orch.get_pools()
-        r_decision = run_phase("decision", pools)
+        if not check_circuit_breaker("decision"):
+            print(f"[熔断器] ⛔ decision 熔断，跳过")
+            r_decision = {}
+        else:
+            r_decision = run_phase("decision", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
         results.update(r_decision)
+        record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
+
+        # ── P3：边缘池清理（决策阶段后自动执行）────────────────────
+        print(f"\n{'='*40}")
+        print("🧹 执行边缘池清理...")
+        print(f"{'='*40}")
+        try:
+            pm = PoolManager()
+            clean_result = pm.clean_expired_edge_pool()
+            removed_count = len(clean_result.get("removed", []))
+            remaining = clean_result.get("remaining_count", 0)
+            print(f"  ✅ 边缘池清理完成：移除{removed_count}只，剩余{remaining}只")
+        except Exception as e:
+            print(f"  ⚠️ 边缘池清理异常（不影响主流程）: {e}")
+        # ── 边缘池清理结束 ──────────────────────────────────────
     elif phase == "screen":
-        results = run_phase("screen", pools)
+        if not check_circuit_breaker("screen"):
+            print(f"[熔断器] ⛔ screen 熔断，跳过")
+            results = {}
+        else:
+            results = run_phase("screen", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
+        if results.get("success"):
+            record_success("screen")
+        else:
+            record_failure("screen")
     elif phase == "review":
-        results = run_phase("review", pools)
+        if not check_circuit_breaker("review"):
+            print(f"[熔断器] ⛔ review 熔断，跳过")
+            results = {}
+        else:
+            results = run_phase("review", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
+        if results.get("success"):
+            record_success("review")
+        else:
+            record_failure("review")
     elif phase == "skeptic":
-        results = run_phase("skeptic", pools)
+        if not check_circuit_breaker("skeptic"):
+            print(f"[熔断器] ⛔ skeptic 熔断，跳过")
+            results = {}
+        else:
+            results = run_phase("skeptic", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
+        if results.get("success"):
+            record_success("skeptic")
+        else:
+            record_failure("skeptic")
     elif phase == "decision":
-        results = run_phase("decision", pools)
+        if not check_circuit_breaker("decision"):
+            print(f"[熔断器] ⛔ decision 熔断，跳过")
+            results = {}
+        else:
+            results = run_phase("decision", pools)
+        if _graceful_shutdown:
+            print("[守护] 已中断")
+            return results
+        if results.get("success"):
+            record_success("decision")
+        else:
+            record_failure("decision")
 
     # 打印结果摘要
     print(f"\n{'='*50}")

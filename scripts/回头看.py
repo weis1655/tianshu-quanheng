@@ -719,8 +719,14 @@ def calculate_fast_screen_accuracy(files, trading_days):
     }
 
 
-def calculate_review_accuracy(files, trading_days):
-    """计算审查层准确率 - 修正版"""
+def calculate_review_accuracy(files, trading_days, performance_map=None, all_review_results=None):
+    """计算审查层准确率 - 修正版
+
+    指标定义：
+    - upgrade_market_accuracy: 升级标的后3日涨跌>0的比例（真实市场验证）
+    - upgrade_persistence_rate: 升级标的在后续审查中日评分仍>=70的比例（跨日稳定性）
+    - downgrade_accuracy: 降级的股票评分应<60（自洽性检查，暂无行情验证）
+    """
     if not files['审查']:
         return None
     
@@ -757,9 +763,47 @@ def calculate_review_accuracy(files, trading_days):
             else:
                 score_distribution['较差(<60)'] += 1
     
-    # 升级准确率：升级的股票评分应>=70
-    upgrade_correct = sum(1 for r in all_results if r.get('flow') == '升级' and r.get('score', 0) >= 70)
-    upgrade_accuracy = round(upgrade_correct / upgrade_count * 100, 1) if upgrade_count > 0 else 0
+    # ── A: 升级市场准确率（真实行情验证）───────────────────────
+    # 替换原来的"升级的评分应>=70"自洽性检查
+    upgrade_market_correct = 0
+    upgrade_market_total = 0
+    for r in all_results:
+        if r.get('flow') == '升级':
+            key = f"{r['code']}_{r['date']}"
+            perf = performance_map.get(key) if performance_map else None
+            if perf and perf.get('change_pct') is not None:
+                upgrade_market_total += 1
+                if perf['change_pct'] > 0:
+                    upgrade_market_correct += 1
+    upgrade_market_accuracy = round(upgrade_market_correct / upgrade_market_total * 100, 1) if upgrade_market_total > 0 else 0
+    
+    # ── B: 升级评分稳定性（跨日维持率）────────────────────────
+    # 检查升级后的股票，在后续交易日审查中评分是否仍>=70
+    upgrade_persist_numerator = 0
+    upgrade_persist_denominator = 0
+    
+    # 建索引：code → [(date, score)]
+    code_scores = defaultdict(list)
+    for r in all_results:
+        code_scores[r['code']].append((r['date'], r.get('score', 0)))
+    # 按日期排序
+    for code in code_scores:
+        code_scores[code].sort(key=lambda x: x[0])
+    
+    for r in all_results:
+        if r.get('flow') == '升级':
+            code = r['code']
+            upgrade_date = r['date']
+            upgrade_score = r.get('score', 0)
+            # 找该标的下一次审查记录的评分
+            sorted_scores = code_scores.get(code, [])
+            for d, s in sorted_scores:
+                if d > upgrade_date:
+                    upgrade_persist_denominator += 1
+                    if s >= 70:
+                        upgrade_persist_numerator += 1
+                    break  # 只看下一次审查
+    upgrade_persistence_rate = round(upgrade_persist_numerator / upgrade_persist_denominator * 100, 1) if upgrade_persist_denominator > 0 else 0
     
     # 降级准确率：降级的股票评分应<60
     downgrade_correct = sum(1 for r in all_results if r.get('flow') == '降级' and r.get('score', 0) < 60)
@@ -768,8 +812,11 @@ def calculate_review_accuracy(files, trading_days):
     return {
         'total_reviews': len(all_results),
         'upgrades': upgrade_count,
-        'upgrade_correct': upgrade_correct,
-        'upgrade_accuracy': upgrade_accuracy,
+        'upgrade_market_correct': upgrade_market_correct,
+        'upgrade_market_accuracy': upgrade_market_accuracy,
+        'upgrade_persist_numerator': upgrade_persist_numerator,
+        'upgrade_persist_denominator': upgrade_persist_denominator,
+        'upgrade_persistence_rate': upgrade_persistence_rate,
         'downgrades': downgrade_count,
         'downgrade_correct': downgrade_correct,
         'downgrade_accuracy': downgrade_accuracy,
@@ -834,7 +881,6 @@ def generate_report(days=7, output_file=None):
     
     # 计算各层指标
     fast_screen = calculate_fast_screen_accuracy(files, trading_days)
-    review = calculate_review_accuracy(files, trading_days)
     decision = calculate_decision_accuracy(files, review_results, trading_days)
 
     # === 实战验证（策略A）===
@@ -866,6 +912,9 @@ def generate_report(days=7, output_file=None):
 
     save_price_cache()
 
+    # 审查层准确率（传入 performance_map + review_results 做真实行情验证）
+    review = calculate_review_accuracy(files, trading_days, performance_map=performance_map)
+
     # 计算实战准确率
     perf_profits = [p for p in performance_map.values() if p and p.get('is_profit')]
     perf_total = [p for p in performance_map.values() if p]
@@ -892,7 +941,8 @@ def generate_report(days=7, output_file=None):
         'date': datetime.now().strftime('%Y-%m-%d'),
         'fast_screen_count': fast_screen['total_predictions'] if fast_screen else 0,
         'review_total': review['total_reviews'] if review else 0,
-        'upgrade_accuracy': review['upgrade_accuracy'] if review else 0,
+        'upgrade_market_accuracy': review['upgrade_market_accuracy'] if review else 0,
+        'upgrade_persistence_rate': review['upgrade_persistence_rate'] if review else 0,
         'downgrade_accuracy': review['downgrade_accuracy'] if review else 0,
         'p0_count': p0_count,
         'p1_count': p1_count,
@@ -907,7 +957,7 @@ def generate_report(days=7, output_file=None):
     for key in ['p0_count', 'p1_count', 'fast_screen_count']:
         delta, val, trend = calc_trend(history, key, is_pct=False)
         trends[key] = {'delta': delta, 'trend': trend}
-    for key in ['upgrade_accuracy', 'downgrade_accuracy', 'actual_accuracy', 'avg_return']:
+    for key in ['upgrade_market_accuracy', 'upgrade_persistence_rate', 'downgrade_accuracy', 'actual_accuracy', 'avg_return']:
         delta, val, trend = calc_trend(history, key, is_pct=True)
         trends[key] = {'delta': delta, 'trend': trend}
     
@@ -955,7 +1005,8 @@ def generate_report(days=7, output_file=None):
         trend_rows = [
             ('P0问题', 'p0_count', f'{p0_count}个', True),
             ('实战准确率', 'actual_accuracy', f'{actual_accuracy}%', False),
-            ('升级准确率', 'upgrade_accuracy', f'{review["upgrade_accuracy"] if review else "N/A"}%', False),
+            ('升级市场准确率', 'upgrade_market_accuracy', f'{review["upgrade_market_accuracy"] if review else "N/A"}%', False),
+            ('升级评分维持率', 'upgrade_persistence_rate', f'{review["upgrade_persistence_rate"] if review else "N/A"}%', False),
             ('降级准确率', 'downgrade_accuracy', f'{review["downgrade_accuracy"] if review else "N/A"}%', False),
             ('快筛数量', 'fast_screen_count', f'{fast_screen["total_predictions"] if fast_screen else 0}只', True),
             ('平均收益', 'avg_return', f'{avg_return:+.2f}%', False),
@@ -1031,7 +1082,8 @@ def generate_report(days=7, output_file=None):
 |------|------|
 | 审查标的总数 | {review['total_reviews']}只 |
 | 升级标的 | {review['upgrades']}只 |
-| 升级准确率 | {review['upgrade_accuracy']}% |
+| 升级市场准确率 | {review['upgrade_market_accuracy']}% (3日涨跌) |
+| 升级评分维持率 | {review['upgrade_persistence_rate']}% (跨日评分≥70) |
 | 降级标的 | {review['downgrades']}只 |
 | 降级准确率 | {review['downgrade_accuracy']}% |
 | 保留标的 | {review['holds']}只 |
@@ -1173,7 +1225,8 @@ def generate_report(days=7, output_file=None):
 | 层级 | 关键指标 | 数值 | 评价 |
 |------|----------|------|------|
 | 快筛层 | 识别数量 | {fast_screen['total_predictions'] if fast_screen else 'N/A'}只 | {'充足' if fast_screen and fast_screen['total_predictions'] >= 15 else '偏少' if fast_screen else '无数据'} |
-| 审查层 | 升级准确率 | {review['upgrade_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_accuracy'] >= 80 else '良好' if review and review['upgrade_accuracy'] >= 60 else '待优化' if review else '无数据'} |
+| 审查层 | 升级市场准确率 | {review['upgrade_market_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_market_accuracy'] >= 60 else '良好' if review and review['upgrade_market_accuracy'] >= 40 else '待优化' if review else '无数据'} |
+| 审查层 | 升级评分维持率 | {review['upgrade_persistence_rate'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_persistence_rate'] >= 80 else '良好' if review and review['upgrade_persistence_rate'] >= 60 else '待优化' if review else '无数据'} |
 | 审查层 | 降级准确率 | {review['downgrade_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['downgrade_accuracy'] >= 80 else '良好' if review and review['downgrade_accuracy'] >= 60 else '待优化' if review else '无数据'} |
 | 决策层 | 空仓天数占比 | {decision['empty_accuracy'] if decision else 'N/A'}% | {'保守' if decision and decision['empty_accuracy'] >= 50 else '积极' if decision else '无数据'} |
 
@@ -1215,8 +1268,10 @@ def generate_report(days=7, output_file=None):
     if review and review['downgrade_accuracy'] < 80:
         suggestions.append("P1: 降级准确率偏低，建议优化降级触发条件，增加过热检测模块")
     
-    if review and review['upgrade_accuracy'] < 80:
-        suggestions.append("P1: 升级准确率偏低，建议细化升级评分标准")
+    if review and review['upgrade_market_accuracy'] < 40:
+        suggestions.append(f"P2: 升级市场准确率仅{review['upgrade_market_accuracy']}%，升级推荐的市场验证效果不佳，建议审查升级标准")
+    if review and review['upgrade_persistence_rate'] < 60:
+        suggestions.append(f"P2: 升级评分维持率仅{review['upgrade_persistence_rate']}%，升级标的评分跨日稳定性不足，建议回顾评分一致性")
     
     if fast_screen and fast_screen['total_predictions'] < 10:
         suggestions.append("P1: 快筛识别数量偏少，建议扩大扫描范围或降低阈值")
@@ -1274,6 +1329,20 @@ def generate_report(days=7, output_file=None):
 *生成工具：天枢回头看自动化模块 v3*  
 *工作目录：{cfg.root}*
 """
+    
+    # Level-3：进化闭环 — 输出结构化 P0 摘要供 auto_heal 解析
+    p0_severity = {"P0-过热漏检": 5, "P0-降级延迟": 4, "P0-实盘亏损": 3, "P0-质疑报告缺失": 4}
+    top3_p0 = sorted([i for i in p0_issues if i['type'].startswith('P0')],
+                     key=lambda x: p0_severity.get(x['type'], 1), reverse=True)[:3]
+    top3_json = json.dumps([{
+        "type": issue.get("type", ""),
+        "date": issue.get("date", ""),
+        "code": issue.get("code", ""),
+        "name": issue.get("name", ""),
+        "score": issue.get("score", 0),
+        "description": issue.get("detail", ""),
+    } for issue in top3_p0], ensure_ascii=False, indent=2)
+    report += f"\n\n<!-- EVO-ISSUES -->\n```json\n{top3_json}\n```\n<!-- /EVO-ISSUES -->\n"
     
     # 保存报告
     if output_file:

@@ -122,7 +122,7 @@ class GateController:
     @staticmethod
     def enforce_writing_rules(stock: dict, target_pool: str, pool_manager=None) -> dict:
         """校验写入规则，返回 {'allowed': bool, 'reason': str}"""
-        from pool_manager import POOL_CAPACITY_LIMITS as limits
+        from agents.thresholds import POOL_CAPACITY_LIMITS as limits
         # 1. 容量检查
         max_cap = limits.get(target_pool, 50)
         if pool_manager:

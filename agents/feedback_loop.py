@@ -56,7 +56,10 @@ class FeedbackLoopAgent(BaseAgent):
             if stats.get("total", 0) >= 5:
                 self.auto_adjust_weights(stats.get("rate", 0), stats.get("by_type", {}))
             
-            # 5. 记录状态
+            # 5. 反馈闭环：将持仓盈亏回写至决策日志
+            self._close_feedback_loop(holdings)
+
+            # 6. 记录状态
             duration = (datetime.now() - start_time).total_seconds()
             self.logger.info(f"反馈闭环执行完成", 
                           holdings_count=len(holdings or []),
@@ -231,6 +234,54 @@ class FeedbackLoopAgent(BaseAgent):
         else:
             self.logger.info(f"胜率 {win_rate:.1f}% 正常，无需调整")
 
+    def _close_feedback_loop(self, holdings_data: List[Dict]) -> None:
+        """将持仓盈亏回写至决策日志，闭合反馈闭环"""
+        from review_evo import ReviewEvo
+
+        evo = ReviewEvo(root=self.root)
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        log = safe_read_json(evo.decision_log, default={}, required=False, log_error=False)
+        if not log or "决策记录" not in log:
+            return
+
+        today_records = [r for r in log["决策记录"] if r.get("日期") == today_str]
+        if not today_records:
+            self.logger.info("[反馈闭环] 当天无决策记录")
+            return
+
+        # 持仓代码 -> 盈亏映射
+        code_to_pnl = {h.get("code", ""): h.get("pnl_pct", 0) for h in (holdings_data or [])}
+
+        # 步骤1: 回写有对应持仓的决策（update_result 自行读写磁盘）
+        matched_codes = set()
+        for r in today_records:
+            if r.get("实际结果") is not None:
+                continue
+            sc = r.get("股票代码", "")
+            if sc in code_to_pnl:
+                evo.update_result(sc, code_to_pnl[sc], pm=self.pool_manager)
+                matched_codes.add(sc)
+                self.logger.info(f"[反馈闭环] {sc} 盈亏 {code_to_pnl[sc]:+.2f}% 已回写")
+
+        # 步骤2: 标记无持仓的决策为"已观察未操作"（重新加载，避免覆盖步骤1的写入）
+        observed_codes = [
+            r.get("股票代码", "") for r in today_records
+            if r.get("实际结果") is None and r.get("股票代码", "") not in matched_codes
+        ]
+        if observed_codes:
+            log2 = safe_read_json(evo.decision_log, default={}, required=False, log_error=False)
+            if log2 and "决策记录" in log2:
+                for r in log2["决策记录"]:
+                    if (r.get("日期") == today_str and r.get("股票代码") in observed_codes
+                            and r.get("实际结果") is None):
+                        r["实际结果"] = 0
+                        r["实际涨跌"] = 0.0
+                        r["复盘日期"] = today_str
+                        r["假设验证"] = "⏳已观察未操作"
+                safe_write_file(evo.decision_log, json.dumps(log2, ensure_ascii=False, indent=2))
+                evo._sync_std_log()
+                self.logger.info(f"[反馈闭环] {len(observed_codes)}条标记为已观察未操作")
 
 
 def run_full_loop():

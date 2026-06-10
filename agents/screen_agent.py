@@ -275,10 +275,26 @@ class ScreenAgent(BaseAgent):
         return "\n".join(lines[:5]) if lines else "（见宏观分析报告）"
 
     def _extract_new_candidates(self, text: str) -> str:
-        """提取新增候选股票"""
-        stocks = re.findall(r"【?(\d{6})】?\s*[（(]?[\u4e00-\u9fa5]{2,10}[）)]?\s*[-–—]\s*[^\n]{1,50}", text)
-        if stocks:
-            return f"今日新增候选：{', '.join(stocks[:5])}"
+        """提取新增候选股票（复用 _parse_screen_result 验证过的正则）"""
+        # 格式A: 名称（代码）- 理由
+        stocks = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]\s*[-–—]", text)
+        # 格式B: 代码 名称 - 理由
+        stocks_b = re.findall(r"(\d{6})\s+([\u4e00-\u9fa5]{2,6})\s*[-–—]", text)
+        seen = set()
+        all_found = []
+        for name, code in stocks:
+            key = (name, code)
+            if key not in seen:
+                seen.add(key)
+                all_found.append((name, code))
+        for code, name in stocks_b:
+            key = (name, code)
+            if key not in seen:
+                seen.add(key)
+                all_found.append((name, code))
+        if all_found:
+            items = [f"{name}({code})" for name, code in all_found[:5]]
+            return f"今日新增候选：{'、'.join(items)}"
         return "（请人工确认候选股票）"
 
     def _update_candidate_pool(self, screen_result: str):

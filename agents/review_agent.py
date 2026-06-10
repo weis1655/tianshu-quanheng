@@ -25,6 +25,7 @@ from typing import Optional, List
 from base_agent import BaseAgent, build_agent_system_prompt
 from logger import StructuredLogger
 from pool_manager import PoolManager
+from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
 from schemas import REVIEW_SCHEMA
 
@@ -875,20 +876,16 @@ class ReviewAgent(BaseAgent):
             overheat_info = self._check_overheat(code, sr)
             if overheat_info:
                 sr.core_logic += f" | ⚠️ 过热检测: {overheat_info['reason']}"
-                if overheat_info["severity"] == "critical":
+                if overheat_info["overheat_level"] == "critical":
                     # critical：强制降级
                     sr.flow_direction = "降级"
                     sr.target_pool = "边缘池"
                     sr.action_advice = "回避"
-                    sr.composite_score = max(0, sr.composite_score - 30)  # 扣30分
+                    sr.composite_score = max(0, sr.composite_score - overheat_info["penalty"])
                     sr.driver_level = _score_to_level(sr.composite_score)
                     print(f"[ReviewAgent] 🔥 过热检测 CRITICAL: {name}({code}) - {overheat_info['reason']}")
-                elif overheat_info["severity"] == "warning":
-                    # warning：扣5分或10分
-                    if "扣10分" in overheat_info["reason"]:
-                        sr.composite_score = max(0, sr.composite_score - 10)
-                    else:
-                        sr.composite_score = max(0, sr.composite_score - 5)
+                elif overheat_info["overheat_level"] == "warning":
+                    sr.composite_score = max(0, sr.composite_score - overheat_info["penalty"])
                     sr.driver_level = _score_to_level(sr.composite_score)
                     print(f"[ReviewAgent] ⚠️ 过热检测 WARNING: {name}({code}) - {overheat_info['reason']}")
 
@@ -960,43 +957,43 @@ class ReviewAgent(BaseAgent):
     def _check_overheat(self, code: str, stock_review: StockReview) -> Optional[dict]:
         """
         过热检测：检查股票是否过热（涨幅过大+高估值+高换手+高量比）
-        
+
         规则（P0修复：放宽阈值，减少误杀）：
         - CRITICAL：涨幅>12% + (PE>80 或 换手>12%) → 强制降级
         - WARNING-1：涨幅>8% + 评分>70 → 扣10分
         - WARNING-2：涨幅>10% → 扣5分
         - WARNING-3：涨幅>5% + 量比>3 → 扣5分（高位放量）
-        
+
         Args:
             code: 股票代码
             stock_review: 当前审查结果
-        
+
         Returns:
-            {"severity": "critical"|"warning", "reason": str} 或 None
+            {"overheat_level": "critical"|"warning", "penalty": int, "reason": str} 或 None
         """
         # 从候选池获取实时数据
         candidate_pool = self.pool_manager.load_pool("快筛候选池")
         key_watch_pool = self.pool_manager.load_pool("重点观察池")
-        
+
         stock_data = None
         for s in candidate_pool.get("stocks", []) + key_watch_pool.get("stocks", []):
             s_code = str(s.get("代码", s.get("股票代码", ""))).strip()
             if s_code == code:
                 stock_data = s
                 break
-        
+
         if not stock_data:
             return None
-        
+
         # 获取实时行情
         api_code = to_api(code)
         try:
             quotes = fetch_quotes([api_code])
         except Exception:
             quotes = []
-        
+
         quote = next((q for q in quotes if q.get("代码") == code), {}) if quotes else {}
-        
+
         # 提取指标
         change_pct = 0.0
         pe_ttm = 0.0
@@ -1004,7 +1001,7 @@ class ReviewAgent(BaseAgent):
         volume_ratio = 1.0
         month_chg = 0.0  # 月涨跌
         quarter_chg = 0.0  # 季涨跌
-        
+
         if quote:
             change_pct = float(quote.get("涨跌幅", 0) or 0)
             pe_ttm = float(quote.get("市盈率_TTM", 0) or 0)
@@ -1021,62 +1018,18 @@ class ReviewAgent(BaseAgent):
                 change_pct = 0.0
             pe_ttm = float(stock_data.get("PE", 0) or 0)
             turnover = float(stock_data.get("换手率", 0) or 0)
-            volume_ratio = float(stock_data.get("量比", 1) or 1)  # P0-5修复：补上volume_ratio fallback
-        
-        # ── P0-过热漏检修复：三级检测（放宽阈值）───────────────
-        # CRITICAL：涨幅>12% + (PE>80 或 换手>12%) → 强制降级
-        is_critical = (
-            change_pct > 12 and
-            (pe_ttm > 80 or turnover > 12)
+            volume_ratio = float(stock_data.get("量比", 1) or 1)
+
+        # 委托 OverheatDetector 执行纯规则检测
+        return OverheatDetector.detect(
+            change_pct=change_pct,
+            pe_ttm=pe_ttm,
+            turnover=turnover,
+            volume_ratio=volume_ratio,
+            month_chg=month_chg,
+            quarter_chg=quarter_chg,
+            composite_score=stock_review.composite_score,
         )
-        
-        # CRITICAL（新增）：月涨跌>25% + 评分>70 → 中期过热，强制降级
-        if not is_critical and month_chg > 25 and stock_review.composite_score >= 70:
-            is_critical = True
-            return {
-                "severity": "critical",
-                "reason": f"月涨跌{month_chg:.1f}%中期过热 + 评分{stock_review.composite_score}分 → 强制降级",
-            }
-        
-        # CRITICAL（新增）：季涨跌>50% → 长期暴涨，强制降级
-        if not is_critical and quarter_chg > 50:
-            is_critical = True
-            return {
-                "severity": "critical",
-                "reason": f"季涨跌{quarter_chg:.1f}%长期暴涨 → 强制降级",
-            }
-        
-        # WARNING-1：涨幅>8% + 评分>75 → 扣10分（门槛70→75）
-        is_warning_1 = change_pct > 8 and stock_review.composite_score > 75
-        
-        # WARNING-2：涨幅>10% → 扣5分
-        is_warning_2 = change_pct > 10
-        
-        # WARNING-3（P0修复）：涨幅>5% + 量比>3 → 高位放量预警，扣5分
-        is_warning_3 = change_pct > 5 and volume_ratio > 3
-        
-        if is_critical:
-            return {
-                "severity": "critical",
-                "reason": f"涨幅{change_pct:.1f}% + PE={pe_ttm:.0f} + 换手{turnover:.1f}% → 强制降级",
-            }
-        elif is_warning_1:
-            return {
-                "severity": "warning",
-                "reason": f"涨幅{change_pct:.1f}% + 评分{stock_review.composite_score}分 → 过热预警，扣10分",
-            }
-        elif is_warning_2:
-            return {
-                "severity": "warning",
-                "reason": f"涨幅{change_pct:.1f}%过高，已扣5分",
-            }
-        elif is_warning_3:
-            return {
-                "severity": "warning",
-                "reason": f"涨幅{change_pct:.1f}% + 量比{volume_ratio:.1f} → 高位放量，扣5分",
-            }
-        
-        return None
 
     def _find_pool_of_stock(self, code: str) -> Optional[str]:
         """查找股票当前所在的池（排除持仓池），返回池名称或None"""
