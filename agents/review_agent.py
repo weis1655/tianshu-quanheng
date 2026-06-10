@@ -1031,7 +1031,7 @@ class ReviewAgent(BaseAgent):
         )
         
         # CRITICAL（新增）：月涨跌>25% + 评分>70 → 中期过热，强制降级
-        if not is_critical and month_chg > 25 and stock_review.composite_score > 70:
+        if not is_critical and month_chg > 25 and stock_review.composite_score >= 70:
             is_critical = True
             return {
                 "severity": "critical",
