@@ -35,6 +35,7 @@ from schemas import DECISION_SCHEMA
 from pool_updater import PoolUpdater
 from track_recorder import TrackRecorder
 from gate_controller import GateController
+from decision_utils import extract_scores, build_empty_decision
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -237,6 +238,42 @@ class DecisionAgent(BaseAgent):
         if review_report:
             # 匹配 ## 600547 山东黄金 或 ## 600547(山东黄金) 等多种格式
             extra_codes = re.findall(r'##\s*\[?(\d{6})\]?\s*[（(]?', review_report)
+
+        # ── P0-3：S级操作池优先读取（优先于审查报告）────────────
+        s_pool_data = pools.get("S级操作池", {})
+        s_pool_stocks = s_pool_data.get("stocks", []) if isinstance(s_pool_data, dict) else []
+        today = datetime.now().strftime("%Y-%m-%d")
+        self._active_s_stocks = []
+        s_pool_section = ""
+        if s_pool_stocks:
+            for s in s_pool_stocks:
+                s_code = str(s.get("代码", s.get("股票代码", "")))
+                s_date = str(s.get("纳入日期", ""))
+                if s_date == today and s_code:
+                    self._active_s_stocks.append(s)
+                    if s_code not in extra_codes:
+                        extra_codes.append(s_code)
+            if self._active_s_stocks:
+                s_lines = []
+                for s in self._active_s_stocks:
+                    s_name = s.get("名称", s.get("股票名称", "?"))
+                    s_code = str(s.get("代码", s.get("股票代码", "")))
+                    s_logic = s.get("核心逻辑", s.get("driver", ""))
+                    s_price = s.get("入场价", s.get("入场价格", "待确认"))
+                    s_line = f"- {s_name}({s_code}) S级主推 | 入场参考价:{s_price}"
+                    if s_logic:
+                        s_line += f" | 逻辑:{s_logic}"
+                    s_lines.append(s_line)
+                s_pool_section = (
+                    "\n\n## 🏆 S级操作池（今日有效标的 — 跳过审查，优先执行）\n"
+                    + "\n".join(s_lines)
+                    + "\n\nS级操作池今日已审查通过，直接进入决策层，无需再次审查。"
+                )
+                print(f"[S级优先] ⭐ 今日S级操作池有 {len(self._active_s_stocks)} 只有效标的, 已注入extra_codes")
+                self.logger.info("s_pool_priority",
+                               count=len(self._active_s_stocks),
+                               codes=[s.get("代码","") for s in self._active_s_stocks])
+        # ──────────────────────────────────────────────────────────────
         realtime_section = self._build_realtime_section(pools, extra_codes=extra_codes)
         if not realtime_section:
             return {
@@ -248,9 +285,33 @@ class DecisionAgent(BaseAgent):
 
         # 读取大盘环境（二审制Gate需要）
         market_env = self._get_market_env()
+        # ── Level-2: 市场状态预判（决定 S 池推荐数量）───
+        market_state = self._get_market_state()
+        # 动态覆盖 S 池容量：下跌市减少推荐
+        self._market_state = market_state
 
         # 提前提取评分（二审制Gate需要）
         scored_stocks = self._extract_scores(review_report)
+
+        # ── P0-3：将S级操作池有效标的合并入评分列表（优先于审查报告）─
+        if self._active_s_stocks:
+            existing_codes = {str(s.get("code", s.get("代码", ""))) for s in scored_stocks}
+            for s in self._active_s_stocks:
+                s_code = str(s.get("代码", s.get("股票代码", "")))
+                s_name = s.get("名称", s.get("股票名称", "?"))
+                if s_code not in existing_codes:
+                    scored_stocks.append({
+                        "code": s_code,
+                        "name": s_name,
+                        "score": 80,  # S级准入分
+                        "passed": True,
+                    })
+                    existing_codes.add(s_code)
+                    self.logger.info("s_pool_merged_into_review",
+                                   code=s_code, name=s_name, score=80)
+            if self._active_s_stocks:
+                print(f"[S级优先] 🔀 {len(self._active_s_stocks)} 只S级标的已合并入 scored_stocks（评分80分）")
+        # ──────────────────────────────────────────────────────────────
 
         # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
         if self._limit_up_excluded_codes:
@@ -325,9 +386,9 @@ class DecisionAgent(BaseAgent):
                         )
 
         # ── 二审制Gate：从候选列表中移除被质疑拦截的标的 ────
+        # 保存原始评分副本，供后续空仓决策/fallback兜底使用
+        all_scored_stocks = scored_stocks[:] if scored_stocks else []
         if blocked_codes:
-            # 保存原始评分供空仓决策的备选观察使用
-            all_scored_stocks = scored_stocks[:]
             # 过滤 pools 中的被阻塞标的
             for pool_name, pool_data in pools.items():
                 pool_data["stocks"] = [
@@ -395,10 +456,24 @@ class DecisionAgent(BaseAgent):
             header_parts.append(scored_summary)
         if evo_history:
             header_parts.append(evo_history)
+        # Level-2b：下跌市防御品种提示
+        if market_state.get("state") in ["震荡偏弱", "偏空"]:
+            header_parts.append(
+                "\n\n## ⚠️ 市场偏弱提示\n"
+                "当前市场环境偏弱，建议：\n"
+                "1. 减少开仓，控制仓位\n"
+                "2. 回避追高风险\n"
+                "3. 如要推荐，优先考虑防御型品种（高股息/公用事业/消费龙头）\n"
+                "4. S级操作池今日建议不超过1只\n"
+            )
         if skeptic_section:
             header_parts.append(skeptic_section)
         if coverage_warning:
             header_parts.append(coverage_warning)
+        # ── P0-3：S级操作池优先注入（LLM可见）───────────────
+        if s_pool_section:
+            header_parts.append(s_pool_section)
+        # ────────────────────────────────────────────────────
         header_parts.append("请基于以上数据制定执行方案。\n")
         header_parts.append(USER_PROMPT_TEMPLATE.format(
             review_report=review_report[:6000],
@@ -417,45 +492,96 @@ class DecisionAgent(BaseAgent):
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
         if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不建议"]) and scored_stocks:
             # P0-2026-06-04: 只选择审查通过（passed=True）且评分≥75的标的
-            actionable = [s for s in scored_stocks if s.get("score", 0) >= 75 and s.get("passed", False)]
+            # P0-2026-06-05: 防御性排除被SkepticGate阻塞的标的（虽然L338已过滤，兜底保护）
+            actionable = [
+                s for s in scored_stocks
+                if s.get("score", 0) >= 75 and s.get("passed", False)
+                and str(s.get("code", s.get("代码", ""))) not in blocked_codes
+            ]
             if actionable:
-                best = actionable[0]
-                override_prompt = f"""基于审查评分，强制制定执行方案：
+                # ═══ P0-修复（2026-06-10）：准确率0%根因 — 市场状态检查 ═══
+                market_state_cur = self._market_state if hasattr(self, '_market_state') else {"state": "震荡", "s_pool_cap": 2}
+                
+                # 偏空市场：尊重LLM的空仓判断，跳过兜底买入
+                if market_state_cur.get("state") in ["偏空"]:
+                    print(f"[兜底引擎] 🚫 市场状态=偏空，尊重LLM空仓判断，跳过兜底买入")
+                    # 保留LLM原始空仓结果
+                    pass
+                
+                # 震荡偏弱：改为观察建议，不生成买入执行方案
+                elif market_state_cur.get("state") == "震荡偏弱":
+                    best = actionable[0]
+                    result = (
+                        f"### 【观察】{best['name']}（{best['code']}）\n"
+                        f"━━━━━━━━━━━━━━━━\n"
+                        f"📍 审查通过（综合评分{best['score']}分）\n"
+                        f"💡 逻辑支撑：评分≥75分，驱动明确，但当前市场震荡偏弱\n"
+                        f"⏳ 建议：观察等待，不急于入场\n"
+                        f"• 观察条件：评分维持在≥75分，市场回暖确认\n"
+                        f"• 失效条件：跌破关键支撑位或评分降至74分以下\n"
+                        f"\n"
+                        f"⚠️ 免责声明：此观察建议由兜底引擎自动生成，不构成买入建议。\n"
+                    )
+                    print(f"[兜底引擎] ⏳ 震荡偏弱市场，{best['name']}({best['code']}) {best['score']}分 → 仅建议观察")
+                
+                # 偏多/震荡偏强：执行原有兜底买入（保留LLM二次尝试+模板兜底）
+                else:
+                    best = actionable[0]
+                    # 构建SkepticGate上下文块（如有阻塞标的则提示LLM）
+                    skeptic_context = ""
+                    if blocked_codes:
+                        blocked_names = []
+                        for s_code in blocked_codes:
+                            for s in all_scored_stocks:
+                                if str(s.get("code", s.get("代码", ""))) == s_code:
+                                    blocked_names.append(f"{s.get('name','?')}({s_code})")
+                                    break
+                        skeptic_context = (
+                            "\n\n**⚠️ SkepticGate 二审制提示**：\n"
+                            f"以下标的已被质疑者拦截（不可操作）：{'、'.join(blocked_names)}\n"
+                            "请仅对未拦截的标的制定方案。\n"
+                        )
+                    override_prompt = f"""基于审查评分，强制制定执行方案：
 
 {realtime_section}
 
 **大盘环境**：
 {market_env}
 
+{skeptic_context}
+
 {best['name']}（{best['code']}）综合评分：{best['score']}分
 
 请基于以上实时行情和宏观环境，为该股票制定完整的买入执行方案（含仓位/买入价/止损触发价/第一目标价/第二目标价/触发条件/失效条件）。"""
-                result = self.call_llm(
-            override_prompt,
-            system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent"),
-            max_tokens=1500
-        )
-                self.logger.info("score_override", stock=best["code"], score=best["score"])
-                # P0-2修复：如果二次LLM仍然拒绝，用模板化方案兜底（不再反复调用LLM）
-                if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不操作"]):
-                    # 从行情中获取当前价格
-                    now_price_text = "待查询"
-                    result = (
-                        f"### 【主推】{best['name']}（{best['code']}）\n"
-                        f"━━━━━━━━━━━━━━━━\n"
-                        f"📍 池子位置：审查通过（综合评分{best['score']}分）\n"
-                        f"💡 逻辑支撑：审查评分≥75分，基本面/技术面驱动明确\n"
-                        f"💰 执行方案\n"
-                        f"• 单笔仓位：10%（保守建仓，等待市场确认）\n"
-                        f"• 买入方式：分批低吸（首次1/2仓位，确认后补1/2）\n"
-                        f"• 止损线：现价下方3%（动态调整）\n"
-                        f"• 第一止盈：+8%（卖1/2）\n"
-                        f"• 第二止盈：+15%（清仓）\n"
-                        f"• 失效条件：跌破止损线或3日内无有效启动\n"
-                        f"\n"
-                        f"⚠️ 免责声明：此方案由兜底引擎自动生成，请结合个人判断使用。\n"
-                    )
-                    print(f"[模板兜底] ✅ 为 {best['name']}({best['code']}) {best['score']}分 生成模板化方案")
+                    result = self.call_llm(
+                override_prompt,
+                system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent"),
+                max_tokens=1500
+            )
+                    self.logger.info("score_override", stock=best["code"], score=best["score"])
+                    # P0-2修复：如果二次LLM仍然拒绝，用模板化方案兜底
+                    if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不操作"]):
+                        now_price_text = "待查询"
+                        blocker_note = ""
+                        if blocked_codes:
+                            blocker_note = "\n⚠️ 注意：该标的未被SkepticGate拦截，但决策时仍需谨慎。\n"
+                        result = (
+                            f"### 【主推】{best['name']}（{best['code']}）\n"
+                            f"━━━━━━━━━━━━━━━━\n"
+                            f"📍 池子位置：审查通过（综合评分{best['score']}分）\n"
+                            f"💡 逻辑支撑：审查评分≥75分，基本面/技术面驱动明确\n"
+                            f"💰 执行方案\n"
+                            f"• 单笔仓位：10%（保守建仓，等待市场确认）\n"
+                            f"• 买入方式：分批低吸（首次1/2仓位，确认后补1/2）\n"
+                            f"• 止损线：现价下方3%（动态调整）\n"
+                            f"• 第一止盈：+8%（卖1/2）\n"
+                            f"• 第二止盈：+15%（清仓）\n"
+                            f"• 失效条件：跌破止损线或3日内无有效启动\n"
+                            f"{blocker_note}"
+                            f"\n"
+                            f"⚠️ 免责声明：此方案由兜底引擎自动生成，请结合个人判断使用。\n"
+                        )
+                        print(f"[模板兜底] ✅ 为 {best['name']}({best['code']}) {best['score']}分 生成模板化方案（偏多/震荡偏强市场）")
 
         # 格式化报告
         report = f"""# 【决策报告】{today}
@@ -480,7 +606,7 @@ class DecisionAgent(BaseAgent):
         self.safe_write_text(out_file, report)
 
         # S级操作池：从决策报告中提取"【主推】"标的，写入 S级操作池
-        self._update_s_pool(result)
+        self._update_s_pool(result, scored_stocks=scored_stocks)
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
         report = self.track_recorder.record_s_pool_eval(report, out_file)
@@ -992,88 +1118,45 @@ class DecisionAgent(BaseAgent):
 - **市场状态**：分化格局，强者恒强
 - **环境评级**：震荡偏强，仓位建议单票10-20%，总仓位30%"""
 
+    # ── Level-2: 市场状态预判（结构化，决定 S 池推荐数量）───
+    def _get_market_state(self) -> dict:
+        """获取量化市场状态，返回 {state, sh_chg, s_pool_cap, suggestion}"""
+        import json
+        from pathlib import Path
+        sm_file = self.root / "data" / "shared_memory.json"
+        result = {"state": "震荡", "sh_chg": 0, "s_pool_cap": 2, "suggestion": "标准"}
+        if sm_file.exists():
+            try:
+                with open(sm_file) as f:
+                    data = json.load(f)
+                if data and isinstance(data, list):
+                    sh = next((s for s in data if s.get("代码") == "000001"), None)
+                    if sh:
+                        sh_chg = sh.get("涨跌幅", 0)
+                        result["sh_chg"] = sh_chg
+                        if sh_chg > 1:
+                            result["state"] = "偏多"
+                            result["s_pool_cap"] = 2       # 上涨市维持2只
+                            result["suggestion"] = "积极，关注科技+券商"
+                        elif sh_chg > 0:
+                            result["state"] = "震荡偏强"
+                            result["s_pool_cap"] = 2
+                            result["suggestion"] = "谨慎积极"
+                        elif sh_chg > -1:
+                            result["state"] = "震荡偏弱"
+                            result["s_pool_cap"] = 1        # 弱势减少推荐
+                            result["suggestion"] = "防御为主，关注高股息"
+                        else:
+                            result["state"] = "偏空"
+                            result["s_pool_cap"] = 0         # 跌市不推荐
+                            result["suggestion"] = "空仓观望，不推S级"
+            except Exception:
+                pass
+        return result
+
     def _extract_scores(self, review_report: str) -> list[dict]:
-        """从审查报告中提取结构化评分（正则提取，无LLM）"""
-        import re
-        stocks = []
-        # 按 ## 标题分割，每个section是一个股票
-        sections = re.split(r"(?<=\n)(?=## )", review_report)
-        for section in sections:
-            if not section.strip():
-                continue
-            # 提取标题行中的代码和名称（标题格式无括号：`## 600118 中国卫星`）
-            first = section.strip().split("\n")[0]
-            m = re.match(r"##\s*\[?(\d{6})\]?\s*[（(]?\s*([\u4e00-\u9fa5]{2,10})", first)
-            if not m:
-                continue
-            code, name = m.group(1), m.group(2)
-            if code == "000000":
-                continue
-            # 提取评分：先找含"综合评分"的行，再提取数字（兼容加粗/非加粗格式）
-            score = None
-            for line in section.split("\n"):
-                if "综合评分" in line:
-                    # 格式1：`**XX**`（加粗）
-                    sm = re.search(r"\*\*(\d{2,3})\*\*", line)
-                    if sm:
-                        score = int(sm.group(1))
-                        break
-                    # 格式2：`综合评分：75` 或 `综合评分：75分`（非加粗，P0-2修复）
-                    nm = re.search(r"综合评分[：:\s*](\d{2,3})", line)
-                    if nm:
-                        score = int(nm.group(1))
-                        break
-                    # 格式3：行内任意两位/三位数（兜底）
-                    fallback = re.search(r"\b(\d{2,3})\b", line)
-                    if fallback:
-                        s = int(fallback.group(1))
-                        if 40 <= s <= 100:  # 合理评分范围过滤
-                            score = s
-                            break
-                        break
-            if score is None or score > 100:
-                continue
-            # 流转方向
-            flow = re.search(r"→\s*(升级|通过|关注)", section)
-            # 信心度
-            conf = re.search(r"信心[度理].*?[:：]\s*([^\n]{2,20})", section)
-            stocks.append({
-                "code": code, "name": name, "score": score,
-                "passed": flow is not None,
-                "confidence": conf.group(1).strip() if conf else ""
-            })
-        stocks.sort(key=lambda x: x["score"], reverse=True)
-        # ── v5.91: 补充解析重点观察池评估表格（表中无 ## 标题的股票章节）────
-        # 兼容审查报告.md末尾追加的重点观察池评估表格
-        table_section = re.search(r"## 📋 重点观察池最新评估\n.*?(?=\n## |\Z)", review_report, re.DOTALL)
-        if table_section:
-            existing_codes = {s["code"] for s in stocks}
-            for line in table_section.group(0).split("\n"):
-                # 匹配表格行：| 股票名(CODE) | 综合分 | 信心度 | ...
-                tm = re.match(r"\|\s*([\u4e00-\u9fa5a-zA-Z]+)\s*[（(]?(\d{6})[）)]?\s*\|", line)
-                if tm:
-                    name, code = tm.group(1), tm.group(2)
-                    if code in existing_codes:
-                        continue  # 主审查已提取，跳过
-                    # 从表格列提取综合分
-                    cols = [c.strip() for c in line.split("|") if c.strip()]
-                    score = None
-                    for i, col in enumerate(cols):
-                        if col == code:
-                            # 综合分通常在第2列（code之后）
-                            if i + 1 < len(cols) and re.match(r"^\d{2,3}$", cols[i+1]):
-                                s = int(cols[i+1])
-                                if 40 <= s <= 100:
-                                    score = s
-                            break
-                    if score is not None:
-                        stocks.append({
-                            "code": code, "name": name, "score": score,
-                            "passed": True,
-                            "confidence": cols[3] if len(cols) > 3 else ""
-                        })
-        stocks.sort(key=lambda x: x["score"], reverse=True)
-        return stocks
+        """从审查报告中提取结构化评分（委托 decision_utils.extract_scores）"""
+        return extract_scores(review_report)
 
     def _extract_skeptic_covered_codes(self, skeptic_content: str) -> set:
         """从质疑审查报告中提取所有被审查的股票代码（双源提取，无LLM）
@@ -1116,57 +1199,42 @@ class DecisionAgent(BaseAgent):
             logger=self.logger,
         )
 
-    def _update_s_pool(self, decision_result: str):
-        """从决策报告提取【主推】标的，写入S级操作池（容量≤3，带入场价记录 + 历史累积）
-        通过 PoolUpdater 委托。
+    def _update_s_pool(self, decision_result: str, scored_stocks: list = None):
+        """从决策报告提取【主推】标的，写入S级操作池（容量≤2，带入场价记录 + 历史累积）
+        通过 PoolUpdater 委托。Level-2：根据市场状态动态限制推荐数量。
+        注意：截断不影响已保存到磁盘的决策报告（报告保留原始 LLM 输出作为参考）。
         """
-        self.pool_updater.update_s_pool(decision_result)
+        # Level-2：根据市场状态动态限制推荐数量
+        market_state = self._market_state if hasattr(self, '_market_state') else {"s_pool_cap": 2}
+        max_s_count = market_state.get("s_pool_cap", 2)
+        # 截断决策结果中的【主推】数量
+        import re
+        matches = re.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
+        if len(matches) > max_s_count:
+            # 只保留前 max_s_count 个【主推】，其余替换为【备选】
+            lines = decision_result.split("\n")
+            new_lines = []
+            found = 0
+            for line in lines:
+                if "【主推】" in line:
+                    if found < max_s_count:
+                        new_lines.append(line)
+                        found += 1
+                    else:
+                        # 降级为备选
+                        new_lines.append(line.replace("【主推】", "【备选】"))
+                else:
+                    new_lines.append(line)
+            decision_result = "\n".join(new_lines)
+        # 传入 scored_stocks 供防线一/三校验评分
+        self.pool_updater.update_s_pool(decision_result, scored_stocks=scored_stocks or [])
         self.logger.pool_operation("S级操作池", "sync", count=0)
 
     def _build_empty_decision(self, today: str, pools: dict,
                                market_env: str, reason: str,
                                yellow_alerts: list = None) -> dict:
-        """二审制Gate：所有标的被拦截时生成空仓决策报告"""
-        # 构建池状态文本（在f-string前完成）
-        pool_text_list = []
-        for name, data in pools.items():
-            stocks = data.get("stocks", []) if isinstance(data, dict) else []
-            pool_text_list.append(f"{name}({len(stocks)}只)")
-        pool_text = " | ".join(pool_text_list) if pool_text_list else "（无数据）"
-
-        # 构建备选观察文本
-        alert_text = ""
-        if yellow_alerts:
-            alert_lines = ["\n\n## 🟡 备选观察标的（60-74分黄色预警）\n"]
-            for s in yellow_alerts[:5]:  # 最多5只
-                alert_lines.append(f"- {s['name']}({s['code']}) {s['score']}分")
-            if len(yellow_alerts) > 5:
-                alert_lines.append(f"- ...另有{len(yellow_alerts)-5}只")
-            alert_text = "\n".join(alert_lines)
-
-        report = f"""# 【决策报告】{today}
-
-━━━━━━━━━━━━━━━━
-
-## 🔴 空仓 — 二审制Gate拦截
-
-**原因**：{reason}
-
----
-
-### 大盘环境
-{market_env}
-
----
-
-### 当前池状态
-{pool_text}
-{alert_text}
----
-
-决策执行时间：{datetime.now().strftime('%H:%M')}
-"""
-
+        """二审制Gate：所有标的被拦截时生成空仓决策报告（委托 decision_utils.build_empty_decision）"""
+        report = build_empty_decision(today, pools, market_env, reason, yellow_alerts)
         out_file = self.history_dir / f"{today}_决策报告.md"
         self.safe_write_text(out_file, report)
         self.logger.info("empty_decision_gate", reason=reason)
