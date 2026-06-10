@@ -137,13 +137,15 @@ USER_PROMPT_TEMPLATE = """请对以下候选股票池进行四维深度审查（
 
 {realtime_section}
 
-今日宏观背景（仅供风险参考，不影响你的独立判断）：
+今日宏观背景（请在评分时考虑市场环境影响）：
 {market_context}
 
 请对每只股票独立评分，并给出流转建议。注意：
+- 当前市场状态：{market_state} — 请据此调整评分尺度
 - S级驱动的股票可适当加分（但不超过100分）
 - B级或C级驱动的股票应适当扣分
-- 评分≥75分才升级，65-74分保留，55-64分降级，<55分淘汰"""
+- 评分≥75分才升级，65-74分保留，55-64分降级，<55分淘汰
+- 重要：弱市环境下（震荡偏弱/偏空）评分应比牛市时系统性降低5-8分"""
 
 
 class ReviewAgent(BaseAgent):
@@ -221,12 +223,15 @@ class ReviewAgent(BaseAgent):
         if not candidate_stocks.strip() or candidate_stocks == "（无候选股票）":
             return {"success": False, "error": "候选池为空"}
 
-        # LLM 审查
+        # LLM 审查（含市场状态上下文）
         self.logger.llm_call("review_stocks", tokens=len(candidate_stocks))
+        market_state = self._get_market_state()
+        market_state_label = f"{market_state.get('state','震荡')}（上证{market_state.get('sh_chg',0):+.2f}%）"
         user_prompt = USER_PROMPT_TEMPLATE.format(
             candidate_stocks=candidate_stocks,
             realtime_section=realtime_section,
-            market_context=macro_context[:500]
+            market_context=macro_context[:500],
+            market_state=market_state_label,
         )
         result = self.call_llm(
             user_prompt,
@@ -320,6 +325,33 @@ class ReviewAgent(BaseAgent):
                     sr.composite_score = min(sr.composite_score + bonus, 100)
                     sr.core_logic += f" | 📈 因子信号{sig}/6，加{bonus:.0f}分"
                     print(f"[ReviewAgent] 📈 因子信号加分: {sr.name}({sr.code}) {sig}/6 → +{bonus:.0f}分")
+
+        # ═══ P0-修复（2026-06-10）：评分膨胀 — 市场状态评分通缩 ═══
+        market_state = self._get_market_state()
+        DEFLATION_MAP = {"偏空": 8, "震荡偏弱": 5, "震荡": 3, "震荡偏强": 0, "偏多": 0}
+        deflation = DEFLATION_MAP.get(market_state.get("state", "震荡"), 3)
+        if deflation > 0:
+            deflated_count = 0
+            for sr in review_result.stocks:
+                original = sr.composite_score
+                sr.composite_score = max(40, sr.composite_score - deflation)
+                sr.core_logic += f" | 📉 市场{market_state.get('state','?')}通缩-{deflation}分({original}→{sr.composite_score})"
+                deflated_count += 1
+            print(f"[ReviewAgent] 📉 市场状态[{market_state.get('state','?')}] 评分通缩: {deflated_count}只各减{deflation}分")
+        # 因子信号加分在弱市中减半
+        if market_state.get("state") in ["偏空", "震荡偏弱"] and factor_map and review_result.stocks:
+            for sr in review_result.stocks:
+                sig = factor_map.get(sr.code, 0)
+                if sig >= 3 and sr.composite_score > 0:
+                    original_bonus = min(round(sig * 0.5, 0), 3)
+                    # 弱市减半加分
+                    half_bonus = max(0, original_bonus // 2)
+                    diff = original_bonus - half_bonus
+                    sr.composite_score = max(40, sr.composite_score - diff)
+                    sr.core_logic = sr.core_logic.replace(f"因子信号{sig}/6，加{original_bonus:.0f}分",
+                                                           f"因子信号{sig}/6，弱市减半加{half_bonus:.0f}分")
+                    print(f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
+        # ════════════════════════════════════════════════════════════════
 
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
@@ -635,6 +667,22 @@ class ReviewAgent(BaseAgent):
 
     def _count_stocks(self, text: str) -> int:
         return len(re.findall(r"\d{6}", text))
+
+    def _get_market_state(self) -> dict:
+        """获取市场状态（用于评分通缩和prompt上下文）"""
+        try:
+            import json
+            sm_file = self.root / "data" / "shared_memory.json"
+            if sm_file.exists():
+                data = json.loads(sm_file.read_text(encoding="utf-8"))
+                if data and isinstance(data, list):
+                    sh = next((s for s in data if s.get("代码") == "000001"), None)
+                    if sh:
+                        sh_chg = float(sh.get("涨跌幅", 0))
+                        return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -1 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
+        except Exception:
+            pass
+        return {"state": "震荡", "s_pool_cap": 2, "sh_chg": 0}
 
 
     # ─────────────────────────────────────────
