@@ -386,6 +386,7 @@ class PoolManager:
                     removed.append({
                         "代码": stock.get("代码", stock.get("股票代码", "?")),
                         "名称": stock.get("名称", stock.get("股票名称", "?")),
+                        "综合分": stock.get("综合分", stock.get("综合评分", None)),
                         "纳入日期": entry_date_str,
                         "停留天数": age_days,
                         "driver_source": "S级过期降级",

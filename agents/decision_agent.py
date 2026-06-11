@@ -151,13 +151,22 @@ class DecisionAgent(BaseAgent):
         # ── P0-2: S级过期标的→重点观察池（保留回流机会）─────
         if expired_result.get("removed"):
             for r in expired_result["removed"]:
+                # P0: S级过期回流—等比衰减而非硬编码70分
+                original_score = r.get("综合分", 80)
+                if original_score is not None:
+                    try:
+                        decay_score = max(65, int(float(original_score) * 0.85))
+                    except (TypeError, ValueError):
+                        decay_score = 70
+                else:
+                    decay_score = 70
                 key_stock = {
                     "代码": r.get("代码", ""),
                     "名称": r.get("名称", ""),
-                    "综合分": 70,  # S级过期给70分（重点池门槛），自然衰减
+                    "综合分": decay_score,  # 等比衰减，不硬编码70
                     "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                     "驱动来源": r.get("driver_source", "S级过期降级"),
-                    "核心逻辑": f"源自S级操作池过期降级（停留{r.get('停留天数', 1)}天）",
+                    "核心逻辑": f"源自S级操作池过期降级（原始{r.get('综合分', '?')}分→衰减{decay_score}分，停留{r.get('停留天数', 1)}天）",
                 }
                 # Gate守卫检查：跨池重复
                 dup = GateController.check_cross_pool_duplicate(r['代码'], exclude_pool="重点观察池", pool_manager=self.pool_manager)

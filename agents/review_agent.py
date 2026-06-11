@@ -890,6 +890,12 @@ class ReviewAgent(BaseAgent):
             # 流转方向
             flow_dir, target_pool = _extract_flow(block)
 
+            # ═══ P0: 硬阈值 — 分数<75即使LLM说升级也拒绝 ═══
+            if flow_dir == "升级" and score < 75:
+                flow_dir = "保留"
+                target_pool = ""
+            # ═══════════════════════════════════════════════════
+
             # 四维评分
             dims = _extract_dimensions(block)
 

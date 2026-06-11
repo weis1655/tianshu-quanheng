@@ -48,6 +48,10 @@ class PoolUpdater:
                     if entry_score < S_POOL_MIN_SCORE:
                         print(f"[PoolUpdater] 🚫 {name}({code}) 评分 {entry_score} < {S_POOL_MIN_SCORE}, 拒绝入S级操作池")
                         continue
+                else:
+                    # P0: 未在审查评分列表中→硬拒绝, 防LLM自行生成推荐绕过准入分检查
+                    print(f"[PoolUpdater] 🚫 {name}({code}) 未在审查评分列表中, 拒绝入S级操作池")
+                    continue
 
             # ═══ A+B 重构：质检门（历史表现+市场状态+过热二次检测）═══
             market_state = self._get_market_state()
