@@ -1,0 +1,447 @@
+{
+  "total_stocks": 42,
+  "total_records": 44,
+  "actual_records": 44,
+  "records": [
+    {
+      "code": "600118",
+      "name": "中国卫星",
+      "date": "2026-04-28",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600585",
+      "name": "海螺水泥",
+      "date": "2026-04-29",
+      "score": 73,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600585",
+      "name": "海螺水泥",
+      "date": "2026-04-30",
+      "score": 66,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300342",
+      "name": "天银机电",
+      "date": "2026-05-06",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600941",
+      "name": "中国移动",
+      "date": "2026-05-15",
+      "score": 62,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "603019",
+      "name": "中科曙光",
+      "date": "2026-05-15",
+      "score": 61,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "002984",
+      "name": "森麒麟",
+      "date": "2026-05-15",
+      "score": 61,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "603026",
+      "name": "胜华新材",
+      "date": "2026-05-15",
+      "score": 60,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600455",
+      "name": "电科蓝天",
+      "date": "2026-05-15",
+      "score": 59,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "603162",
+      "name": "海通发展",
+      "date": "2026-05-15",
+      "score": 58,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "002108",
+      "name": "沧州明珠",
+      "date": "2026-05-15",
+      "score": 56,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300880",
+      "name": "迦南智能",
+      "date": "2026-05-15",
+      "score": 56,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "301123",
+      "name": "奕东电子",
+      "date": "2026-05-15",
+      "score": 41,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "002422",
+      "name": "科伦药业",
+      "date": "2026-05-19",
+      "score": 78,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300136",
+      "name": "信维通信",
+      "date": "2026-05-19",
+      "score": 68,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600760",
+      "name": "中航沈飞",
+      "date": "2026-05-19",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600760",
+      "name": "中航沈飞",
+      "date": "2026-06-10",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600276",
+      "name": "恒瑞医药",
+      "date": "2026-05-19",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601225",
+      "name": "陕西煤业",
+      "date": "2026-05-19",
+      "score": 64,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601088",
+      "name": "中国神华",
+      "date": "2026-05-19",
+      "score": 63,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "002352",
+      "name": "顺丰控股",
+      "date": "2026-05-19",
+      "score": 63,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601975",
+      "name": "招商南油",
+      "date": "2026-05-21",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300705",
+      "name": "新诺威",
+      "date": "2026-05-29",
+      "score": 79,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601138",
+      "name": "工业富联",
+      "date": "2026-06-04",
+      "score": 81,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601899",
+      "name": "紫金矿业",
+      "date": "2026-06-04",
+      "score": 77,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300502",
+      "name": "新易盛",
+      "date": "2026-06-04",
+      "score": 77,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600489",
+      "name": "中金黄金",
+      "date": "2026-06-04",
+      "score": 76,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600406",
+      "name": "国电南瑞",
+      "date": "2026-06-04",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "000977",
+      "name": "浪潮信息",
+      "date": "2026-06-04",
+      "score": 72,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "000400",
+      "name": "许继电气",
+      "date": "2026-06-04",
+      "score": 68,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600030",
+      "name": "中信证券",
+      "date": "2026-06-04",
+      "score": 68,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600150",
+      "name": "中国船舶",
+      "date": "2026-06-08",
+      "score": 80,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600685",
+      "name": "中船防务",
+      "date": "2026-06-08",
+      "score": 78,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "000099",
+      "name": "中信海直",
+      "date": "2026-06-08",
+      "score": 76,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600487",
+      "name": "亨通光电",
+      "date": "2026-06-08",
+      "score": 72,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600570",
+      "name": "恒生电子",
+      "date": "2026-06-08",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601600",
+      "name": "中国铝业",
+      "date": "2026-06-10",
+      "score": 72,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "000807",
+      "name": "云铝股份",
+      "date": "2026-06-10",
+      "score": 72,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "002371",
+      "name": "北方华创",
+      "date": "2026-06-10",
+      "score": 70,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601288",
+      "name": "农业银行",
+      "date": "2026-06-10",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600875",
+      "name": "东方电气",
+      "date": "2026-06-10",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "601988",
+      "name": "中国银行",
+      "date": "2026-06-10",
+      "score": 65,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "600054",
+      "name": "黄山旅游",
+      "date": "2026-06-10",
+      "score": 82,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    },
+    {
+      "code": "300638",
+      "name": "广和通",
+      "date": "2026-06-11",
+      "score": 68,
+      "source": "review",
+      "r3": null,
+      "r5": null,
+      "r10": null
+    }
+  ]
+}

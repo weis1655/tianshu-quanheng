@@ -651,6 +651,13 @@ def calculate_qlib_factors(stock: dict) -> dict:
             "factor_turn": turn,
         }
 
+        # ML额外因子: 振幅 + 相对20日线位置
+        high = float(hist[-1].get("最高", closes[-1]))
+        low = float(hist[-1].get("最低", closes[-1]))
+        factors["day_range"] = round((high - low) / closes[-1] * 100, 2) if closes[-1] else 0
+        ma20_avg = float(np.mean(closes[-20:])) if len(closes) >= 20 else closes[-1]
+        factors["ma20_pos"] = round((closes[-1] - ma20_avg) / ma20_avg * 100, 2) if ma20_avg else 0
+
         return {
             "factor_signal": signals,        # 0-6, 综合信号
             "factor_details": factors,        # 各因子原始值

@@ -201,14 +201,13 @@ class ReviewAgent(BaseAgent):
                     code = str(s.get("代码") or s.get("股票代码", "")).strip()
                     if code:
                         factors = calculate_qlib_factors(s)
+                        factor_map[code] = factors  # 存全量因子, 供ML评分使用
                         sig = factors.get("factor_signal", 0)
-                        if sig >= 3:  # 仅预存中等以上信号
-                            factor_map[code] = sig
+                        if sig >= 3:
+                            print(f"[ReviewAgent] 📈 因子信号: {s.get('名称','?')}({code}) {sig}/6")
                 if factor_map:
-                    codes_str = ", ".join(f"{c}({s})" for s in raw 
-                                          for c in [str(s.get('代码') or '')] 
-                                          if c in factor_map)
-                    print(f"[ReviewAgent] 📈 因子信号预计算: {len(factor_map)} 只达标(≥3/6)")
+                    good = sum(1 for v in factor_map.values() if v.get("factor_signal", 0) >= 3)
+                    print(f"[ReviewAgent] 📈 因子信号预计算: {len(factor_map)} 只, {good} 只达标(≥3/6)")
             except Exception as e:
                 print(f"[ReviewAgent] ⚠️ 因子计算异常: {e}")
 
@@ -319,7 +318,8 @@ class ReviewAgent(BaseAgent):
         # ── P1-3: 因子信号后处理加分（第5维）──────────────────
         if factor_map and review_result.stocks:
             for sr in review_result.stocks:
-                sig = factor_map.get(sr.code, 0)
+                fd = factor_map.get(sr.code, {})
+                sig = fd.get("factor_signal", 0) if isinstance(fd, dict) else 0
                 if sig >= 3:
                     bonus = min(round(sig * 0.5, 0), 3)
                     sr.composite_score = min(sr.composite_score + bonus, 100)
@@ -341,7 +341,8 @@ class ReviewAgent(BaseAgent):
         # 因子信号加分在弱市中减半
         if market_state.get("state") in ["偏空", "震荡偏弱"] and factor_map and review_result.stocks:
             for sr in review_result.stocks:
-                sig = factor_map.get(sr.code, 0)
+                fd = factor_map.get(sr.code, {})
+                sig = fd.get("factor_signal", 0) if isinstance(fd, dict) else 0
                 if sig >= 3 and sr.composite_score > 0:
                     original_bonus = min(round(sig * 0.5, 0), 3)
                     # 弱市减半加分
@@ -374,6 +375,32 @@ class ReviewAgent(BaseAgent):
         except ImportError:
             pass
         # ═══════════════════════════════════════════════════════════════════════
+
+        # ═══ ML评分模型 — 并列显示（2026-06-11）═══════════════════════════
+        try:
+            from scripts.ml_scorer import predict_ml_score
+            for sr in review_result.stocks:
+                fd = factor_map.get(sr.code, {})
+                detail = fd.get("factor_details", {}) if isinstance(fd, dict) else {}
+                if detail and isinstance(detail, dict):
+                    ml_factors = {
+                        "ma5_div": round((detail.get("factor_ma5", 1) - 1) * 100, 2),
+                        "ma10_div": round((detail.get("factor_ma10", 1) - 1) * 100, 2),
+                        "ret5": round(detail.get("factor_ret5", 0) * 100, 2),
+                        "ret20": round(detail.get("factor_ret20", 0) * 100, 2),
+                        "vol20": detail.get("factor_vol20", 0),
+                        "vol_ratio": detail.get("factor_turn", 1),
+                        "day_range": detail.get("day_range", 0),
+                        "ma20_pos": detail.get("ma20_pos", 0),
+                    }
+                    ml_result = predict_ml_score(ml_factors, llm_score=sr.composite_score)
+                    ml_score = ml_result["ml_score"]
+                    win_prob = ml_result["win_prob"]
+                    sr.core_logic += f" | 🤖 ML{ml_score}分(胜{win_prob*100:.0f}%)"
+                    print(f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{ml_score}分 胜率{win_prob*100:.0f}%")
+        except Exception as e:
+            print(f"[ReviewAgent] ⚠️ ML评分异常: {e}")
+        # ════════════════════════════════════════════════════════════════════
 
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
