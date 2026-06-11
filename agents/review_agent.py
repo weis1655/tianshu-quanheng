@@ -402,6 +402,36 @@ class ReviewAgent(BaseAgent):
             print(f"[ReviewAgent] ⚠️ ML评分异常: {e}")
         # ════════════════════════════════════════════════════════════════════
 
+        # ML评分附录 — 追加到审查报告（2026-06-11）
+        try:
+            import re as _re
+            ml_lines = ["\n---\n## 🤖 ML评分 vs LLM评分对比\n",
+                         "| 股票 | LLM综合分 | ML评分 | 上涨概率 | 核心因子 |\n",
+                         "|------|:--------:|:-----:|:-------:|----------|\n"]
+            for sr in review_result.stocks:
+                fd = factor_map.get(sr.code, {})
+                detail = fd.get("factor_details", {}) if isinstance(fd, dict) else {}
+                feat_parts = []
+                if detail and isinstance(detail, dict):
+                    for mk, mv in [("factor_vol20","波动"), ("day_range","振幅"), ("factor_ret20","20日涨")]:
+                        val = detail.get(mk, 0)
+                        if val:
+                            feat_parts.append(f"{mv}{val:.1f}")
+                feat_str = " ".join(feat_parts[:3]) if feat_parts else "—"
+                m = _re.search(r'ML(\d+)分\(胜(\d+)%\)', sr.core_logic)
+                ml_score = m.group(1) if m else "—"
+                win_pct = m.group(2) if m else "—"
+                ml_lines.append(f"| {sr.name}({sr.code}) | {sr.composite_score} | {ml_score} | {win_pct}% | {feat_str} |\n")
+            if len(ml_lines) > 3:
+                ml_appendix = "".join(ml_lines)
+                from safe_file_utils import safe_append_file
+                success = safe_append_file(str(out_file), ml_appendix)
+                if success:
+                    print(f"[ReviewAgent] 🤖 ML评分对比表已追加到审查报告（{len(ml_lines)-3} 只）")
+                report += ml_appendix
+        except Exception as e:
+            print(f"[ReviewAgent] ⚠️ ML评分附录异常: {e}")
+
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
         tracker = ClosedLoopTracker()
