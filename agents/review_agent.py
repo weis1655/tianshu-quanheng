@@ -402,6 +402,22 @@ class ReviewAgent(BaseAgent):
             print(f"[ReviewAgent] ⚠️ ML评分异常: {e}")
         # ════════════════════════════════════════════════════════════════════
 
+        # ═══ P0-降级延迟修复：评分调整后重新检查硬性降级阈值 ═══
+        # 因子加分/市场通缩/质检调整后，部分标的评分可能降至60以下
+        # 但原始flow_direction未同步更新，导致低分标的未降级
+        _extra_demotions = []
+        for sr in review_result.stocks:
+            if sr.composite_score < 60 and sr.flow_direction != "降级":
+                sr.flow_direction = "降级"
+                sr.target_pool = "边缘池"
+                sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<60分阈值"
+                _extra_demotions.append(sr)
+                print(f"[ReviewAgent] 🔴 评分调整后硬性降级: {sr.name}({sr.code}) {sr.composite_score}分<60分 → 边缘池")
+        if _extra_demotions:
+            parsed_result.demotions.extend(_extra_demotions)
+            self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
+        # ═══════════════════════════════════════════════════════════════════════
+
         # ML评分附录 — 追加到审查报告（2026-06-11）
         try:
             import re as _re
