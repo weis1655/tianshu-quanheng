@@ -1451,12 +1451,16 @@ class PoolManager:
                 stock["更新时间"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 refreshed.append(code)
 
+        # 更新统计（P0：即使行情刷新失败也执行降级扫描）
+        data["统计"] = data.get("统计", {})
+        data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 扫描评分<65的存量股，自动降级
+        self._scan_and_downgrade(data, "快筛候选池")
+
         if refreshed:
-            data["统计"] = data.get("统计", {})
-            data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.save_pool("快筛候选池", data)
             print(f"[PoolManager] ✅ 快筛候选池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
+        self.save_pool("快筛候选池", data)
         return refreshed
 
     # ── P1：S级操作池价格刷新 ──────────────────────────
