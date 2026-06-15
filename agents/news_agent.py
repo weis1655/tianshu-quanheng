@@ -369,15 +369,15 @@ class NewsAgent(BaseAgent):
         self.history_dir = self.root / "data" / "历史记录"
         self.logger = StructuredLogger("NewsAgent")
 
-    def run(self, source: str = "news_broadcast", news_content: Optional[str] = None) -> dict:
+    def run(self, source: str = "news_broadcast", news_content: Optional[str] = None, wake_ctx: str = "") -> dict:
         """
         执行新闻分析。
         核心原则：无有效新闻直接返回失败，不往后走。
         """
         with self.logger.agent_action("run", source=source):
-            return self._run_impl(source, news_content)
+            return self._run_impl(source, news_content, wake_ctx)
 
-    def _run_impl(self, source: str, news_content: Optional[str]) -> dict:
+    def _run_impl(self, source: str, news_content: Optional[str], wake_ctx: str = "") -> dict:
         # 1. 获取新闻（若无外部传入）
         with self.logger.agent_action("fetch_news"):
             if news_content is None:
@@ -406,7 +406,7 @@ class NewsAgent(BaseAgent):
         # P0-3: 用智能截断，保护传导链分析不被切断
         display_content = self._smart_truncate(news_content)
         user_prompt = USER_PROMPT_TEMPLATE.format(news_content=display_content)
-        result = self.call_llm(user_prompt, system=build_agent_system_prompt(ROLE_PROMPT, "NewsAgent"), max_tokens=1800)
+        result = self.call_llm(user_prompt, system=build_agent_system_prompt(ROLE_PROMPT, "NewsAgent", extra_context=wake_ctx), max_tokens=1800)
 
         # 3. 格式化报告（P0-1: 去冗余元信息，P0-2: 去HTML标签）
         today = datetime.now().strftime("%Y-%m-%d")

@@ -162,12 +162,12 @@ class ReviewAgent(BaseAgent):
         self.pool_manager = PoolManager(self.pool_dir)
         self.logger = StructuredLogger("ReviewAgent")
 
-    def run(self, screen_report: Optional[str] = None) -> dict:
+    def run(self, screen_report: Optional[str] = None, wake_ctx: str = "") -> dict:
         """执行审查"""
         with self.logger.agent_action("run"):
-            return self._run_impl(screen_report)
+            return self._run_impl(screen_report, wake_ctx)
 
-    def _run_impl(self, screen_report: Optional[str]) -> dict:
+    def _run_impl(self, screen_report: Optional[str] = None, wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
         # 读取快筛报告获取候选股票
@@ -238,7 +238,7 @@ class ReviewAgent(BaseAgent):
         )
         result = self.call_llm(
             user_prompt,
-            system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent"),
+            system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx),
             max_tokens=4000
         )
 

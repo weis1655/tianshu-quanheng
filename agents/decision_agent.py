@@ -132,10 +132,10 @@ class DecisionAgent(BaseAgent):
         # 涨停/跌停排除集（_build_realtime_section 填充，_run_impl 消费）
         self._limit_up_excluded_codes = set()
 
-    def run(self, review_report: Optional[str] = None, pools: Optional[dict] = None) -> dict:
+    def run(self, review_report: Optional[str] = None, pools: Optional[dict] = None, wake_ctx: str = "") -> dict:
         """执行决策"""
         with self.logger.agent_action("run"):
-            return self._run_impl(review_report, pools)
+            return self._run_impl(review_report, pools, wake_ctx)
 
     def _inject_evo_history(self, scored_stocks: list) -> str:
         """注入候选股的历史决策摘要（记忆闭环一部分）。
@@ -143,7 +143,7 @@ class DecisionAgent(BaseAgent):
         """
         return self.track_recorder.inject_evo_history(scored_stocks)
 
-    def _run_impl(self, review_report: Optional[str], pools: Optional[dict]) -> dict:
+    def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
         # ── P0-2：S级操作池 T+1 过期清理 ────────────────────────
@@ -540,7 +540,7 @@ class DecisionAgent(BaseAgent):
         user_prompt = "\n\n".join(header_parts)
         result = self.call_llm(
             user_prompt,
-            system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent"),
+            system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
             max_tokens=1500
         )
 
@@ -610,7 +610,7 @@ class DecisionAgent(BaseAgent):
 请基于以上实时行情和宏观环境，为该股票制定完整的买入执行方案（含仓位/买入价/止损触发价/第一目标价/第二目标价/触发条件/失效条件）。"""
                     result = self.call_llm(
                 override_prompt,
-                system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent"),
+                system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
                 max_tokens=1500
             )
                     self.logger.info("score_override", stock=best["code"], score=best["score"])

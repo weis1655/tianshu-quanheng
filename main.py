@@ -75,7 +75,7 @@ from agents.error_handling import check_circuit_breaker, record_success, record_
 LLM_CALL_COUNT = 0  # 追踪本次运行的LLM调用次数
 
 
-def run_phase(phase: str, pools: dict) -> dict:
+def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
     """执行单个阶段"""
     global LLM_CALL_COUNT
     results = {}
@@ -87,7 +87,7 @@ def run_phase(phase: str, pools: dict) -> dict:
     if phase == "news_only":
         print("📰 执行新闻分析...")
         agent = NewsAgent()
-        r = agent.run()
+        r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["news"] = r
         ok = "✅" if r.get("success") else "❌"
@@ -96,7 +96,7 @@ def run_phase(phase: str, pools: dict) -> dict:
     elif phase == "screen":
         print("🔍 执行快筛...")
         agent = ScreenAgent()
-        r = agent.run()
+        r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["screen"] = r
         print(f"  ✅ 完成（LLM调用: {LLM_CALL_COUNT}次）")
@@ -104,7 +104,7 @@ def run_phase(phase: str, pools: dict) -> dict:
     elif phase == "review":
         print("🔎 执行审查...")
         agent = ReviewAgent()
-        r = agent.run()
+        r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["review"] = r
         print(f"  ✅ 完成（LLM调用: {LLM_CALL_COUNT}次）")
@@ -184,7 +184,7 @@ def run_phase(phase: str, pools: dict) -> dict:
     elif phase == "decision":
         print("💡 执行决策...")
         agent = DecisionAgent()
-        r = agent.run(pools=pools)
+        r = agent.run(pools=pools, wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["decision"] = r
         print(f"  ✅ 完成（LLM调用: {LLM_CALL_COUNT}次）")
@@ -455,7 +455,13 @@ def main():
     # ── MemPalace 唤醒：加载跨天记忆到上下文 ──────────────────────
     try:
         wake_ctx = MEMORY.wake_up()
-        print(f"\n📚 MemPalace 唤醒: {len(wake_ctx)} chars")
+        if wake_ctx:
+            print(f"\n{'='*50}")
+            print(f"📚 MemPalace 唤醒 → {len(wake_ctx)} chars → 已注入 agents system prompt")
+            print(f"{'='*50}")
+        else:
+            wake_ctx = ""
+            print(f"\n📚 MemPalace 唤醒：空上下文（无跨天记忆）")
     except Exception as e:
         wake_ctx = ""
         print(f"\n⚠️  MemPalace 唤醒失败（不影响运行）: {e}")
@@ -505,7 +511,7 @@ def main():
                         print(f"  [News] 📂 复用本地新闻联播分析 ({len(raw)} chars → {len(news_text)} chars, {len(items)}条)")
                         from news_agent import NewsAgent
                         agent = NewsAgent()
-                        r = agent.run(news_content=news_text)
+                        r = agent.run(news_content=news_text, wake_ctx=wake_ctx)
                         global LLM_CALL_COUNT
                         LLM_CALL_COUNT += 1
                         ok = "✅" if r.get("success") else "❌"
@@ -520,7 +526,7 @@ def main():
                 print(f"[熔断器] ⛔ news_only 熔断，跳过")
                 r = {}
             else:
-                r = run_phase("news_only", pools)
+                r = run_phase("news_only", pools, wake_ctx=wake_ctx)
             if _graceful_shutdown:
                 print("[守护] 已中断")
                 return results
@@ -628,7 +634,7 @@ def main():
             print(f"[熔断器] ⛔ screen 熔断，跳过")
             r_screen = {}
         else:
-            r_screen = run_phase("screen", pools)
+            r_screen = run_phase("screen", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -646,7 +652,7 @@ def main():
             print(f"[熔断器] ⛔ review 熔断，跳过")
             r_review = {}
         else:
-            r_review = run_phase("review", pools)
+            r_review = run_phase("review", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -688,7 +694,7 @@ def main():
             print(f"[熔断器] ⛔ skeptic 熔断，跳过")
             r_skeptic = {}
         else:
-            r_skeptic = run_phase("skeptic", pools)
+            r_skeptic = run_phase("skeptic", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -700,7 +706,7 @@ def main():
             print(f"[熔断器] ⛔ decision 熔断，跳过")
             r_decision = {}
         else:
-            r_decision = run_phase("decision", pools)
+            r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -725,7 +731,7 @@ def main():
             print(f"[熔断器] ⛔ screen 熔断，跳过")
             results = {}
         else:
-            results = run_phase("screen", pools)
+            results = run_phase("screen", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -738,7 +744,7 @@ def main():
             print(f"[熔断器] ⛔ review 熔断，跳过")
             results = {}
         else:
-            results = run_phase("review", pools)
+            results = run_phase("review", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -751,7 +757,7 @@ def main():
             print(f"[熔断器] ⛔ skeptic 熔断，跳过")
             results = {}
         else:
-            results = run_phase("skeptic", pools)
+            results = run_phase("skeptic", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
@@ -764,7 +770,7 @@ def main():
             print(f"[熔断器] ⛔ decision 熔断，跳过")
             results = {}
         else:
-            results = run_phase("decision", pools)
+            results = run_phase("decision", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results

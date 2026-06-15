@@ -84,12 +84,12 @@ class ScreenAgent(BaseAgent):
         self.history_dir = self.root / "data" / "历史记录"
         self.logger = StructuredLogger("ScreenAgent")
 
-    def run(self, news_report: Optional[str] = None) -> dict:
+    def run(self, news_report: Optional[str] = None, wake_ctx: str = "") -> dict:
         """执行快筛"""
         with self.logger.agent_action("run"):
-            return self._run_impl(news_report)
+            return self._run_impl(news_report, wake_ctx)
 
-    def _run_impl(self, news_report: Optional[str]) -> dict:
+    def _run_impl(self, news_report: Optional[str], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
         # 读取新闻分析报告（如果没有传入）
@@ -117,7 +117,7 @@ class ScreenAgent(BaseAgent):
         )
         result = self.call_llm(
             user_prompt,
-            system=build_agent_system_prompt(ROLE_PROMPT, "ScreenAgent"),
+            system=build_agent_system_prompt(ROLE_PROMPT, "ScreenAgent", extra_context=wake_ctx),
             max_tokens=3000,
         )
 

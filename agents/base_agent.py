@@ -660,8 +660,8 @@ def load_tianshu_soul(agent_name: str = "") -> str:
     return ""
 
 
-def build_agent_system_prompt(role_prompt: str, agent_name: str = "") -> str:
-    """构建 Agent system prompt：SOUL（优先Agent专属） + 角色定义"""
+def build_agent_system_prompt(role_prompt: str, agent_name: str = "", extra_context: str = "") -> str:
+    """构建 Agent system prompt：SOUL（优先Agent专属） + 角色定义 + 额外记忆上下文"""
     soul = load_tianshu_soul(agent_name) if agent_name else ""
     header = f"【天枢宪法 | {agent_name}】\n\n" if agent_name else ""
     
@@ -670,6 +670,8 @@ def build_agent_system_prompt(role_prompt: str, agent_name: str = "") -> str:
         parts.append(header + soul)
     if role_prompt:
         parts.append(f"【角色定义】\n{role_prompt}")
+    if extra_context:
+        parts.append(f"【跨天记忆上下文】\n{extra_context.strip()}")
     parts.append(
         "【全局约束】\n"
         "- 只输出事实和分析，不编造数据\n"
