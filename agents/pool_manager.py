@@ -1036,6 +1036,7 @@ class PoolManager:
                 edge_stocks.append({
                     "代码": item.get("代码", ""),
                     "名称": item.get("名称", ""),
+                    "综合分": float(item.get("综合分", 0)) if isinstance(item.get("综合分"), (int, float)) else 0,
                     "降级时间": datetime.now().strftime("%Y-%m-%d"),
                     "降级原因": f"存量扫描：综合分{item.get('综合分','?')} < 65，自动降级"
                 })
@@ -1347,6 +1348,12 @@ class PoolManager:
             data["统计"] = data.get("统计", {})
             data["统计"]["持仓数"] = len(stocks)
             data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # 同时更新总盈亏（从历史持仓计算）
+            history = data.get("历史持仓", [])
+            total_pnl = sum(h.get("盈亏额", 0) or 0 for h in history)
+            data["统计"]["总盈亏"] = round(total_pnl, 2)
+            data["统计"]["盈利次数"] = sum(1 for h in history if (h.get("盈亏额", 0) or 0) > 0)
+            data["统计"]["亏损次数"] = sum(1 for h in history if (h.get("盈亏额", 0) or 0) < 0)
             # 同时更新资金配置中的持仓市值
             cfg = data.get("资金配置", {})
             if cfg:
@@ -1379,6 +1386,26 @@ class PoolManager:
                         "驱动来源": "持仓池止损降级",
                         "核心逻辑": f"持仓池止损触发，收盘价跌破止损线{s.get('止损线', 0)}",
                     }
+                    # 止损降级时记录到历史持仓（防止交易数据丢失）
+                    history_record = {
+                        "代码": s.get("代码", ""),
+                        "名称": s.get("名称", ""),
+                        "市场": s.get("市场", ""),
+                        "建仓日期": s.get("建仓日期", ""),
+                        "建仓价": s.get("建仓价", s.get("成本价", 0)),
+                        "卖出日期": datetime.now().strftime("%Y-%m-%d"),
+                        "卖出价": s.get("今日收盘", 0),
+                        "持仓股数": s.get("买入股数", s.get("持仓股数", 0)),
+                        "买入金额": s.get("买入金额", 0),
+                        "卖出金额": round(s.get("今日收盘", 0) * s.get("买入股数", s.get("持仓股数", 0)), 2),
+                        "盈亏额": s.get("盈亏额", 0),
+                        "盈亏比例": s.get("盈亏比例", 0),
+                        "止损原因": "跌破止损线" + str(s.get("止损线", "")),
+                        "卖出时间": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    }
+                    if "历史持仓" not in data:
+                        data["历史持仓"] = []
+                    data["历史持仓"].append(history_record)
                     self.add_stock("边缘池", edge_stock)
                     stocks.remove(s)
                     demoted.append(f"{name}({code})")

@@ -422,6 +422,7 @@ class ReviewAgent(BaseAgent):
         try:
             import re as _re
             ml_lines = ["\n---\n## 🤖 ML评分 vs LLM评分对比\n",
+                         "注：LLM综合分可能因过热检测（大涨>8%扣分）等规则进行了调整，与审查报告正文的原始评分可能不一致。\n",
                          "| 股票 | LLM综合分 | ML评分 | 上涨概率 | 核心因子 |\n",
                          "|------|:--------:|:-----:|:-------:|----------|\n"]
             for sr in review_result.stocks:
@@ -1034,8 +1035,18 @@ class ReviewAgent(BaseAgent):
                     sr.driver_level = _score_to_level(sr.composite_score)
                     print(f"[ReviewAgent] 🔥 过热检测 CRITICAL: {name}({code}) - {overheat_info['reason']}")
                 elif overheat_info["overheat_level"] == "warning":
-                    sr.composite_score = max(0, sr.composite_score - overheat_info["penalty"])
+                    original_score = sr.composite_score
+                    sr.composite_score = max(0, original_score - overheat_info["penalty"])
                     sr.driver_level = _score_to_level(sr.composite_score)
+                    # 过热WARNING降级：原评分70-74区间触发过热→自动降级
+                    # 解决RULE5.5(涨幅>8%+评分≥70)扣5分后70-73分不触发降级的漏检盲区
+                    if sr.composite_score <= 65 or (70 <= original_score < 75):
+                        sr.flow_direction = "降级"
+                        sr.target_pool = "边缘池"
+                        if not sr.action_advice:
+                            sr.action_advice = "过热降级"
+                        sr.core_logic += f" | ⚠️ 过热WARNING降级: 原分{original_score}扣{sr.composite_score}>降级区"
+                        print(f"[ReviewAgent] ⚠️ 过热WARNING降级: {name}({code}) 原{original_score}→{sr.composite_score}分 → 边缘池")
                     print(f"[ReviewAgent] ⚠️ 过热检测 WARNING: {name}({code}) - {overheat_info['reason']}")
 
             # ── P1-2：一票否决强制降级（解决沪硅产业降级延迟问题）──────
@@ -1070,6 +1081,20 @@ class ReviewAgent(BaseAgent):
                     sr.action_advice = "低分淘汰"
                 sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<60分阈值"
                 print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<60分 → 边缘池")
+
+            # ── 黄色预警标记：60-74分且未降级的标的标记观察 ──
+            # 25天悬空修复：代码级强制黄色预警，不依赖LLM诚实度
+            if sr.flow_direction != "降级" and 60 <= sr.composite_score < 75:
+                adv = f"黄色预警({sr.composite_score}分)"
+                if sr.action_advice:
+                    sr.action_advice += " | " + adv
+                else:
+                    sr.action_advice = adv
+                sr.core_logic += f" | 🟡 {adv}"
+                if sr.flow_direction == "":
+                    sr.flow_direction = "保留"
+                if not sr.target_pool:
+                    sr.target_pool = "候选池"
 
             stocks.append(sr)
             if sr.flow_direction == "升级":
