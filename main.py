@@ -135,7 +135,8 @@ def run_phase(phase: str, pools: dict) -> dict:
             stocks = data.get("stocks", [])
         else:
             stocks = []
-        r = skeptic.run(stock_list=stocks, review_report=review_report, market_context={})
+        _ms = ReviewAgent()._get_market_state()
+        r = skeptic.run(stock_list=stocks, review_report=review_report, market_context={"市场状态": _ms.get("state", "震荡"), "上证涨跌": f"{_ms.get('sh_chg',0):+.2f}%"})
         LLM_CALL_COUNT += 1
         results["skeptic"] = r
         # 写质疑结果供 DecisionAgent 注入（文件名与 DecisionAgent 读取一致）

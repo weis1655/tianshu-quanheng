@@ -48,6 +48,7 @@ class OverheatDetector:
         month_chg: float,
         quarter_chg: float,
         composite_score: int,
+        market_state: str = "震荡",
     ) -> Optional[dict]:
         """过热检测（纯函数，不入池不调LLM）
 
@@ -59,6 +60,7 @@ class OverheatDetector:
             month_chg: 月涨跌幅(%)
             quarter_chg: 季涨跌幅(%)
             composite_score: 综合评分(0-100)
+            market_state: 市场状态（偏多/震荡偏强时豁免WARNING规则）
 
         Returns:
             {
@@ -68,6 +70,9 @@ class OverheatDetector:
             }
             或 None（未触发任何规则）
         """
+
+        # 强市状态下（偏多/震荡偏强）豁免WARNING规则，仅保留CRITICAL
+        strong_market = market_state in ("偏多", "震荡偏强")
         # ── RULE 1: CRITICAL — 日涨幅>12% + (PE>80 或 换手>12%) ──
         if (
             change_pct > OverheatDetector.CRITICAL_GAIN_PCT
@@ -109,8 +114,8 @@ class OverheatDetector:
                 ),
             }
 
-        # ── RULE 4: WARNING-1 — 涨幅>8% + 评分>75 ────────────────
-        if (
+        # ── RULE 4: WARNING-1 — 涨幅>8% + 评分>75（强市豁免）────
+        if not strong_market and (
             change_pct > OverheatDetector.WARN1_GAIN_PCT
             and composite_score > OverheatDetector.WARN1_SCORE
         ):
@@ -123,8 +128,8 @@ class OverheatDetector:
                 ),
             }
 
-        # ── RULE 5: WARNING-2 — 涨幅>=10%（边界修复：>= 而非 >）──────────────────
-        if change_pct >= OverheatDetector.WARN2_GAIN_PCT:
+        # ── RULE 5: WARNING-2 — 涨幅>=10%（强市豁免）─────────────
+        if not strong_market and change_pct >= OverheatDetector.WARN2_GAIN_PCT:
             return {
                 "overheat_level": OverheatDetector.LEVEL_WARNING,
                 "penalty": OverheatDetector.PENALTY_WARN2,
@@ -134,10 +139,10 @@ class OverheatDetector:
                 ),
             }
 
-        # ── RULE 5.5: WARNING-2  fallback — 涨幅>8%且评分>=70（P0-过热漏检修复）──
+        # ── RULE 5.5: WARNING-fallback — 涨幅>8%且评分>=70（强市豁免）──
         # 解决：涨幅>10%但PE≤80、换手≤12%、评分≤75、量比≤3时的漏检盲区
         # 放宽条件：涨幅>8%且评分>=70即可触发（修复：>= 而非 > 防止70分漏检）
-        if (
+        if not strong_market and (
             change_pct > 8
             and composite_score >= OverheatDetector.WARN2_SCORE_FALLBACK
         ):
@@ -151,7 +156,7 @@ class OverheatDetector:
             }
 
         # ── RULE 6: WARNING-3 — 涨幅>5% + 量比>3（高位放量）────────
-        if (
+        if not strong_market and (
             change_pct > OverheatDetector.WARN3_GAIN_PCT
             and volume_ratio > OverheatDetector.WARN3_VOLUME_RATIO
         ):

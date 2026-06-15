@@ -141,11 +141,15 @@ USER_PROMPT_TEMPLATE = """请对以下候选股票池进行四维深度审查（
 {market_context}
 
 请对每只股票独立评分，并给出流转建议。注意：
-- 当前市场状态：{market_state} — 请据此调整评分尺度
-- S级驱动的股票可适当加分（但不超过100分）
-- B级或C级驱动的股票应适当扣分
-- 评分≥75分才升级，65-74分保留，55-64分降级，<55分淘汰
-- 重要：弱市环境下（震荡偏弱/偏空）评分应比牛市时系统性降低5-8分"""
+|- 当前市场状态：{market_state}
+|- 市场状态决定了评分尺度，请遵循以下指导：
+|   · 偏多/震荡偏强（强市）：位置评分可适当放宽（趋势延续性优先，不因短期高位扣太多分），驱动逻辑可信度加分
+|   · 震荡：中性评分
+|   · 震荡偏弱/偏空（弱市）：严格执行位置风险扣分，驱动逻辑必须可证伪
+|- S级驱动的股票可适当加分（但不超过100分）
+|- B级或C级驱动的股票应适当扣分
+|- 评分≥75分才升级，65-74分保留，55-64分降级，<55分淘汰
+|- 重要：弱市环境下（震荡偏弱/偏空）评分应比牛市时系统性降低5-8分"""
 
 
 class ReviewAgent(BaseAgent):
@@ -1195,6 +1199,7 @@ class ReviewAgent(BaseAgent):
             volume_ratio = float(stock_data.get("量比", 1) or 1)
 
         # 委托 OverheatDetector 执行纯规则检测
+        mkt_state = self._get_market_state().get("state", "震荡")
         return OverheatDetector.detect(
             change_pct=change_pct,
             pe_ttm=pe_ttm,
@@ -1203,6 +1208,7 @@ class ReviewAgent(BaseAgent):
             month_chg=month_chg,
             quarter_chg=quarter_chg,
             composite_score=stock_review.composite_score,
+            market_state=mkt_state,
         )
 
     def _find_pool_of_stock(self, code: str) -> Optional[str]:
