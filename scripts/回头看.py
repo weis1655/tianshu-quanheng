@@ -803,7 +803,7 @@ def calculate_review_accuracy(files, trading_days, performance_map=None, all_rev
                     if s >= 70:
                         upgrade_persist_numerator += 1
                     break  # 只看下一次审查
-    upgrade_persistence_rate = round(upgrade_persist_numerator / upgrade_persist_denominator * 100, 1) if upgrade_persist_denominator > 0 else 0
+    upgrade_persistence_rate = round(upgrade_persist_numerator / upgrade_persist_denominator * 100, 1) if upgrade_persist_denominator > 0 else None
     
     # 降级准确率：降级的股票评分应<60
     downgrade_correct = sum(1 for r in all_results if r.get('flow') == '降级' and r.get('score', 0) < 60)
@@ -1006,7 +1006,7 @@ def generate_report(days=7, output_file=None):
             ('P0问题', 'p0_count', f'{p0_count}个', True),
             ('实战准确率', 'actual_accuracy', f'{actual_accuracy}%', False),
             ('升级市场准确率', 'upgrade_market_accuracy', f'{review["upgrade_market_accuracy"] if review else "N/A"}%', False),
-            ('升级评分维持率', 'upgrade_persistence_rate', f'{review["upgrade_persistence_rate"] if review else "N/A"}%', False),
+            ('升级评分维持率', 'upgrade_persistence_rate', f'{review["upgrade_persistence_rate"]}%' if review and review["upgrade_persistence_rate"] is not None else 'N/A', False),
             ('降级准确率', 'downgrade_accuracy', f'{review["downgrade_accuracy"] if review else "N/A"}%', False),
             ('快筛数量', 'fast_screen_count', f'{fast_screen["total_predictions"] if fast_screen else 0}只', True),
             ('平均收益', 'avg_return', f'{avg_return:+.2f}%', False),
@@ -1078,12 +1078,12 @@ def generate_report(days=7, output_file=None):
 """
     
     if review:
-        report += f"""| 指标 | 数值 |
+        persist_str = f"{review['upgrade_persistence_rate']}%" if review['upgrade_persistence_rate'] is not None else "N/A"
 |------|------|
 | 审查标的总数 | {review['total_reviews']}只 |
 | 升级标的 | {review['upgrades']}只 |
 | 升级市场准确率 | {review['upgrade_market_accuracy']}% (3日涨跌) |
-| 升级评分维持率 | {review['upgrade_persistence_rate']}% (跨日评分≥70) |
+| 升级评分维持率 | {persist_str} (跨日评分>=70) |
 | 降级标的 | {review['downgrades']}只 |
 | 降级准确率 | {review['downgrade_accuracy']}% |
 | 保留标的 | {review['holds']}只 |
