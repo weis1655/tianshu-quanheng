@@ -24,6 +24,10 @@ data/*.json
 !data/权重配置.json
 !data/trigger_config.json
 
+# 自动生成报告
+data/reports/
+data/闭环追踪/
+
 # 日志
 logs/
 *.log

@@ -456,9 +456,8 @@ class DecisionAgent(BaseAgent):
                              if str(s.get("code", s.get("代码", ""))) not in blocked_codes]
             if not scored_stocks:
                 print("[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
-                # 提取备选观察：60-74分黄色预警标的
-                yellow_alerts = [s for s in all_scored_stocks
-                                 if 60 <= s["score"] < 75]
+                # 提取备选观察：60-74分黄色预警标的（调用GateController）
+                yellow_alerts = GateController.get_yellow_alerts(all_scored_stocks)
                 return self._build_empty_decision(today, pools, market_env,
                                                    "二审制Gate：所有候选标的均未通过质疑审查",
                                                    yellow_alerts=yellow_alerts)
@@ -725,8 +724,7 @@ class DecisionAgent(BaseAgent):
         if any(k in raw_text for k in ["暂无", "空仓", "等待", "观望", "建议空仓"]):
             no_action_reason = "无审查通过≥75分的股票，建议空仓等待"
             # 备选策略：检查是否有60-74分的"黄色预警"股票可观察
-            # 注：scored_stocks 来自 _extract_scores，键名为 code/name/score（非中文）
-            yellow_watch = [s for s in scored_stocks if 60 <= s.get("score", 0) < 75]
+            yellow_watch = GateController.get_yellow_alerts(scored_stocks)
             if yellow_watch:
                 # P0-2026-06-04: 备选观察阈值扩为60-74（与≥75决策阈值对齐）
                 no_action_reason += f"\n🟡 备选观察（{len(yellow_watch)}只黄色预警标的，60-74分）："

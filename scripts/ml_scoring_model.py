@@ -3,9 +3,10 @@
 ML评分模型 v2 — 全量历史数据提取
 修复: 决策报告表格格式 + K线日期排序 + 收益率计算
 """
-import json, re, time, sys
+import json, re, time, sys, random
 from pathlib import Path
 import urllib.request
+import urllib.error
 
 BASE = Path(__file__).parent.parent
 HISTORY = BASE / "data" / "历史记录"
@@ -13,6 +14,7 @@ OUT_DIR = BASE / "data" / "ml_model"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PRICE_CACHE = {}
+_LAST_FETCH_TIME = 0
 
 # ── 新浪财经行情 ──────────────────────────────────────────
 
@@ -20,35 +22,82 @@ def get_prefix(code):
     c = str(code).strip()
     return 'sh' if c.startswith('6') else 'sz' if c.startswith(('0','3')) else 'sh'
 
-def fetch_kline(code, days=90):
-    """拉取日K线并解析, 返回按日期升序排列"""
+def _rate_limit(min_interval=1.2):
+    """确保两次API调用间隔至少min_interval秒"""
+    global _LAST_FETCH_TIME
+    elapsed = time.time() - _LAST_FETCH_TIME
+    if elapsed < min_interval:
+        sleep_time = min_interval - elapsed + random.uniform(0.1, 0.3)
+        time.sleep(sleep_time)
+    _LAST_FETCH_TIME = time.time()
+
+def fetch_kline(code, days=90, max_retries=2):
+    """拉取日K线并解析, 返回按日期升序排列（含反爬重试）"""
     if code in PRICE_CACHE:
         return PRICE_CACHE[code]
     prefix = get_prefix(code)
     url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={prefix}{code}&scale=240&ma=no&datalen={days}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read().decode("gbk", errors="replace")
-        data = json.loads(raw)
-        # API返回是降序(最新在前), 转成升序
-        data.sort(key=lambda x: x.get("day", ""))
-        PRICE_CACHE[code] = data
-        return data
-    except Exception as e:
-        # fallback to http
+    
+    for attempt in range(max_retries + 1):
+        _rate_limit()
         try:
-            url2 = url.replace("https://", "http://")
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("gbk", errors="replace")
+            data = json.loads(raw)
+            if not data:
+                raise ValueError("empty response")
+            data.sort(key=lambda x: x.get("day", ""))
+            PRICE_CACHE[code] = data
+            return data
+        except (urllib.error.HTTPError, urllib.error.URLError) as e:
+            code_str = str(e)
+            if "456" in code_str and attempt < max_retries:
+                backoff = 3 * (attempt + 1) + random.uniform(0.5, 1.5)
+                print(f"  ⚠️ {code} 反爬限制(attempt {attempt+1}), 等待{backoff:.0f}s...")
+                time.sleep(backoff)
+                continue
+            elif attempt < max_retries:
+                backoff = 2 * (attempt + 1)
+                print(f"  ⚠️ {code} 请求异常(attempt {attempt+1}), 重试...")
+                time.sleep(backoff)
+                continue
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"  ⚠️ {code} 解析异常(attempt {attempt+1}), 重试...")
+                time.sleep(2)
+                continue
+            print(f"  ⚠️ {code} 行情获取失败: {e}")
+            return []
+    
+    # Fallback to http
+    url2 = url.replace("https://", "http://")
+    for attempt in range(max_retries + 1):
+        _rate_limit()
+        try:
             req = urllib.request.Request(url2, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=15) as resp:
                 raw = resp.read().decode("gbk", errors="replace")
             data = json.loads(raw)
+            if not data:
+                raise ValueError("empty response")
             data.sort(key=lambda x: x.get("day", ""))
             PRICE_CACHE[code] = data
             return data
+        except (urllib.error.HTTPError, urllib.error.URLError) as e:
+            code_str = str(e)
+            if "456" in code_str and attempt < max_retries:
+                backoff = 3 * (attempt + 1) + random.uniform(0.5, 1.5)
+                time.sleep(backoff)
+                continue
         except Exception as e2:
-            print(f"  ⚠️ {code} 行情获取失败: {e2}")
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+            print(f"  ⚠️ {code} 行情获取失败(含fallback): {e2}")
             return []
+    print(f"  ⚠️ {code} 所有重试均失败")
+    return []
 
 def get_price_returns(kline, entry_date: str, hold_days=3):
     """计算持有N日的收益率"""

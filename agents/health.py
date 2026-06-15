@@ -314,6 +314,12 @@ def save_health_report(filepath: Optional[Path] = None):
     if filepath is None:
         reports_dir = PROJECT_ROOT / "data" / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
+        # 清理超过14天的旧报告
+        import time
+        now = time.time()
+        for f in reports_dir.glob("health_check_*.json"):
+            if now - f.stat().st_mtime > 14 * 86400:
+                f.unlink(missing_ok=True)
         filepath = reports_dir / f"health_check_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
     # 使用 safe_write_file 替代裸 open()

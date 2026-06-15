@@ -57,6 +57,13 @@ try:
 except Exception as e:
     results.append(f"重点池❌:{e}")
 
+# ── 快筛候选池（含存量降级扫描） ──
+try:
+    r3 = pm.refresh_screen_candidate_prices()
+    results.append(f"候选池:{len(r3)}只")
+except Exception as e:
+    results.append(f"候选池❌:{e}")
+
 # ── 持仓池 ──
 try:
     r2 = pm.refresh_holdings_prices()

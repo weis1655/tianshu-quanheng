@@ -49,6 +49,13 @@ def extract_scores(review_report: str) -> list[dict]:
             continue
         # 流转方向
         flow = re.search(r"→\s*(升级|通过|关注)", section)
+        # 操作建议/黄色预警
+        advice = ""
+        for line in section.split("\n"):
+            am = re.search(r"操作建议.*?[:：]\s*([^\n]{2,30})", line)
+            if am:
+                advice = am.group(1).strip()
+                break
         # 信心度
         conf = re.search(r"信心[度理].*?[:：]\s*([^\n]{2,20})", section)
         # P1-修复: 过滤无效前缀（"关于该股票""包含***""无推荐"等伪名称）
@@ -58,7 +65,8 @@ def extract_scores(review_report: str) -> list[dict]:
         stocks.append({
             "code": code, "name": name, "score": score,
             "passed": flow is not None,
-            "confidence": conf.group(1).strip() if conf else ""
+            "confidence": conf.group(1).strip() if conf else "",
+            "action_advice": advice
         })
     stocks.sort(key=lambda x: x["score"], reverse=True)
     # ── v5.91: 补充解析重点观察池评估表格（表中无 ## 标题的股票章节）────
