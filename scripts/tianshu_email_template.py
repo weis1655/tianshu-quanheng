@@ -56,7 +56,7 @@ def main():
     parser.add_argument("--type", required=True,
                         choices=["早盘", "盘中复盘", "临盘决策", "反馈闭环"],
                         help="报告类型")
-    parser.add_argument("--to", default="sjj139@139.com",
+    parser.add_argument("--to", default="user@example.com",
                         help="收件人邮箱")
     parser.add_argument("--data-dir",
                         default="~/hermes-data/tianshu-quanheng/data/历史记录",

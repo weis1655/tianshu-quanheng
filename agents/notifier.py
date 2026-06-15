@@ -245,7 +245,7 @@ if __name__ == "__main__":
     test_card = build_alert_card("info", "测试通知 | 天枢看板", [
         "✅ 飞书推送通道正常",
         "📊 天枢权衡看板已上线",
-        "🔗 http://192.168.197.109:8765"
+        "🔗 http://localhost:8765"
     ])
     result = send_card(FEISHU_HOME_CHANNEL, test_card)
     print(f"{'✅' if result else '❌'} 推送结果: {'成功' if result else '失败'}")

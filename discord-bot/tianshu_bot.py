@@ -23,8 +23,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', '1104052812599533783'))
-PROXY_URL = os.getenv('PROXY_URL', 'http://192.168.197.109:7897')
+CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', '0'))
+PROXY_URL = os.getenv('PROXY_URL', '')
 PUSH_INTERVAL_MINUTES = int(os.getenv('PUSH_INTERVAL_MINUTES', '15'))
 ALERT_THRESHOLD = float(os.getenv('ALERT_THRESHOLD', '-3.0'))
 BOT_NAME = os.getenv('BOT_NAME', '天枢智能助手')
