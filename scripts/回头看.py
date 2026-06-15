@@ -605,7 +605,7 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
     
     # 1. 过热漏检检测
     for r in review_results:
-        if r.get('flow') == '保留' and r.get('score', 0) >= 70:
+        if r.get('flow') == '保留' and r.get('score', 0) >= 75:
             issues.append({
                 'type': 'P0-过热漏检',
                 'date': r['date'],
@@ -643,7 +643,7 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
     for d in decision_results:
         if not d['is_empty'] and d['main_stocks']:
             decision_codes = {s['code'] for s in d['main_stocks']}
-            review_passed_codes = {r['code'] for r in review_results if r.get('score', 0) >= 70}
+            review_passed_codes = {r['code'] for r in review_results if r.get('score', 0) >= 75}
             for stock in d['main_stocks']:
                 if stock['code'] not in review_passed_codes:
                     issues.append({

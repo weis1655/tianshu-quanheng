@@ -376,6 +376,12 @@ class ReviewAgent(BaseAgent):
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
                     print(f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
+
+            # ML评分低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
+            for sr in review_result.stocks:
+                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= 75:
+                    sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
+                    print(f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
         except ImportError:
             pass
         # ═══════════════════════════════════════════════════════════════════════
@@ -400,6 +406,8 @@ class ReviewAgent(BaseAgent):
                     ml_result = predict_ml_score(ml_factors, llm_score=sr.composite_score)
                     ml_score = ml_result["ml_score"]
                     win_prob = ml_result["win_prob"]
+                    sr.ml_score = ml_score
+                    sr.ml_win_prob = win_prob
                     sr.core_logic += f" | 🤖 ML{ml_score}分(胜{win_prob*100:.0f}%)"
                     print(f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{ml_score}分 胜率{win_prob*100:.0f}%")
         except Exception as e:

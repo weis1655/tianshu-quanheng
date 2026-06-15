@@ -90,6 +90,9 @@ class StockReview:
     flow_direction: str = ""      # 流转方向：升级/保留/降级
     target_pool: str = ""        # 目标池名称
     entry_date: str = ""         # 纳入日期
+    # ML评分（review_agent注入，用于质检门控）
+    ml_score: Optional[int] = None
+    ml_win_prob: Optional[float] = None
     # 重点观察池额外字段
     recommended_buy: Optional[float] = None   # 推荐买入价
     stop_loss: Optional[float] = None        # 止损触发价
