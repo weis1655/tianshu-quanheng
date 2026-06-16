@@ -39,22 +39,93 @@ class TianshuMemory:
     # 内部：子进程调用 MemPalace API
     # ────────────────────────────────────────────
 
-    def _kg_run(self, code: str) -> str:
-        """通过子进程调用 MemPalace KnowledgeGraph"""
-        full = "\n".join([
-            "import sys",
-            f"sys.path.insert(0, '{_MEMPALACE_PKG}')",
-            "from mempalace.knowledge_graph import KnowledgeGraph",
-            f"kg = KnowledgeGraph(db_path='{self._pp}/knowledge_graph.sqlite3')",
-            code,
-        ])
-        r = subprocess.run(
-            [_MEMPALACE_PY, "-c", full],
-            capture_output=True, text=True, timeout=30,
+    def _kg_run_ops(self, ops: list, timeout: int = 30) -> str:
+        """通过子进程安全地调用 MemPalace：使用 stdin 传入 JSON 操作列表。
+
+        ops: 列表形式的操作，每项为 dict，例如 {"op": "add_triple", "args": [...]}
+        返回子进程 stdout（若有）。
+        """
+        payload = {
+            "db_path": f"{self._pp}/knowledge_graph.sqlite3",
+            "ops": ops,
+        }
+
+        # 内联脚本：从 stdin 读取 JSON，初始化 KnowledgeGraph 并执行操作
+        inline = (
+            "import sys, json\n"
+            f"sys.path.insert(0, '{_MEMPALACE_PKG}')\n"
+            "from mempalace.knowledge_graph import KnowledgeGraph\n"
+            "data = json.load(sys.stdin)\n"
+            "kg = KnowledgeGraph(db_path=data.get('db_path'))\n"
+            "out = []\n"
+            "for o in data.get('ops', []):\n"
+            "    name = o.get('op')\n"
+            "    args = o.get('args', [])\n"
+            "    # 支持带命名参数的特殊操作\n"
+            "    if name == 'add_triple_kw':\n"
+            "        # args: code, pred, obj, valid_from\n"
+            "        try:\n"
+            "            kg.add_triple(args[0], args[1], args[2], valid_from=args[3])\n"
+            "            out.append({'op': name, 'res': True})\n"
+            "            continue\n"
+            "        except Exception as e:\n"
+            "            out.append({'op': name, 'error': str(e)})\n"
+            "            continue\n"
+            "    func = getattr(kg, name, None)\n"
+            "    if not func:\n"
+            "        out.append({'error': f'no op {name}'})\n"
+            "        continue\n"
+            "    res = func(*args)\n"
+            "    out.append({'op': name, 'res': res})\n"
+            "sys.stdout.write(json.dumps(out, ensure_ascii=False))\n"
         )
+
+        try:
+            r = subprocess.run(
+                [_MEMPALACE_PY, "-c", inline],
+                input=json.dumps(payload, ensure_ascii=False),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except Exception as e:
+            raise RuntimeError(f"MemPalace subprocess failed: {e}")
+
         if r.returncode != 0:
-            raise RuntimeError("MemPalace KG 错误: " + r.stderr[:200])
+            raise RuntimeError("MemPalace KG 错误: " + (r.stderr or r.stdout)[:400])
+
         return r.stdout
+
+    def _kg_query_relationship(self, rel: str, limit: int = 10, timeout: int = 30) -> list:
+        """使用子进程安全查询 relationship 并返回解析后的结果列表"""
+        payload = {"db_path": f"{self._pp}/knowledge_graph.sqlite3", "rel": rel, "limit": limit}
+
+        inline = (
+            "import sys, json\n"
+            f"sys.path.insert(0, '{_MEMPALACE_PKG}')\n"
+            "from mempalace.knowledge_graph import KnowledgeGraph\n"
+            "data = json.load(sys.stdin)\n"
+            "kg = KnowledgeGraph(db_path=data.get('db_path'))\n"
+            "res = kg.query_relationship(data.get('rel'))\n"
+            "# 仅返回前 limit 项\n"
+            "res = res[: data.get('limit', 10)]\n"
+            "sys.stdout.write(json.dumps(res, ensure_ascii=False))\n"
+        )
+
+        try:
+            r = subprocess.run(
+                [_MEMPALACE_PY, "-c", inline],
+                input=json.dumps(payload, ensure_ascii=False),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except Exception as e:
+            raise RuntimeError(f"MemPalace query subprocess failed: {e}")
+
+        if r.returncode != 0:
+            raise RuntimeError("MemPalace KG 查询错误: " + (r.stderr or r.stdout)[:400])
+
+        try:
+            return json.loads(r.stdout) if r.stdout else []
+        except Exception:
+            return []
 
     # ────────────────────────────────────────────
     # 公开 API：唤醒上下文
@@ -76,16 +147,13 @@ class TianshuMemory:
             "",
         ]
 
-        # L1：最近进入各池的股票
+        # L1：最近进入各池的股票（使用安全查询接口）
         try:
-            code = 'triples = kg.query_relationship("进入")\n'
-            code += 'for t in triples[:10]: print(t)'
-            raw = self._kg_run(code)
-            if raw.strip():
+            triples = self._kg_query_relationship("进入", limit=10)
+            if triples:
                 lines.append("## 近期五池记录（L1）")
-                for line in raw.strip().split("\n"):
-                    if line.strip():
-                        lines.append("  " + line)
+                for t in triples:
+                    lines.append("  " + str(t))
                 lines.append("")
         except Exception:
             pass
@@ -121,8 +189,7 @@ class TianshuMemory:
 
         try:
             triple_count = 0
-
-            # ① 五池状态 → 知识图谱三元组
+            # ① 五池状态 → 知识图谱三元组（使用安全 ops 接口）
             for pool_name, pool_data in pools.items():
                 stocks = pool_data.get("stocks", [])
                 for stock in (stocks or []):
@@ -131,19 +198,24 @@ class TianshuMemory:
                     rating = stock.get("评级", "")
                     entry_date = stock.get("进入日期", stock.get("date", today))
 
-                    # 写入：股票代码 → 进入 → 池名
-                    code_block = '\n'.join([
-                        f'kg.add_entity("{code}", "stock")',
-                        f'kg.add_triple("{code}", "进入", "{pool_name}", valid_from="{entry_date}")',
-                    ])
-                    self._kg_run(code_block)
-                    triple_count += 1
+                    ops = []
+                    ops.append({"op": "add_entity", "args": [code, "stock"]})
+                    # 使用带命名参数的特殊 op，后端 inline 会映射为 valid_from
+                    ops.append({"op": "add_triple_kw", "args": [code, "进入", pool_name, entry_date]})
+                    try:
+                        out = self._kg_run_ops(ops)
+                        triple_count += len(ops)
+                    except Exception:
+                        # 单条写入失败则继续，不中断整个保存流程
+                        pass
 
                     # 写入评级
                     if rating:
-                        rating_block = f'kg.add_triple("{code}", "评级", "{rating}@{today}")'
-                        self._kg_run(rating_block)
-                        triple_count += 1
+                        try:
+                            self._kg_run_ops([{"op": "add_triple", "args": [code, "评级", f"{rating}@{today}"]}])
+                            triple_count += 1
+                        except Exception:
+                            pass
 
             stats["triples"] = triple_count
 
@@ -174,9 +246,15 @@ class TianshuMemory:
     def query_stock(self, stock_code: str) -> str:
         """查询某只股票的全部记忆"""
         try:
-            code = f'result = kg.query_entity("{stock_code}")\n'
-            code += 'for r in result: print(r)'
-            return self._kg_run(code)
+            # 使用安全查询接口
+            # 返回值尝试解析为 JSON 字符串
+            inline_res = self._kg_run_ops([{"op": "query_entity", "args": [stock_code]}])
+            # _kg_run_ops 会返回 JSON 输出列表（或空），尝试解析
+            try:
+                parsed = json.loads(inline_res) if inline_res else []
+                return "\n".join(str(r) for r in parsed)
+            except Exception:
+                return inline_res
         except Exception as e:
             return f"查询失败: {e}"
 
@@ -189,11 +267,7 @@ class TianshuMemory:
         返回在池中停留过久的股票（用于周复盘池卫生）。
         """
         try:
-            code = 'results = kg.query_relationship("进入")\n'
-            code += 'print(results)'
-            raw = self._kg_run(code)
-            import ast
-            all_rels = ast.literal_eval(raw.strip()) if raw.strip() else []
+            all_rels = self._kg_query_relationship("进入", limit=100)
             filtered = [
                 r for r in all_rels
                 if pool_name is None or pool_name in r.get("obj", "")
