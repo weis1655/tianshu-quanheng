@@ -1084,8 +1084,8 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] 重点观察池行情刷新失败: {e}")
-            return []
+            print(f"[PoolManager] 重点观察池行情刷新失败: {e}，继续执行降级扫描")
+            quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
         refreshed = []
@@ -1457,8 +1457,8 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] 快筛候选池行情刷新失败: {e}")
-            return []
+            print(f"[PoolManager] 快筛候选池行情刷新失败: {e}，继续执行降级扫描")
+            quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
         refreshed = []
