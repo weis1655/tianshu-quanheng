@@ -64,6 +64,7 @@ class GateController:
             if s_code in blocked_codes:
                 s["blocked_count"] = s.get("blocked_count", 0) + 1
                 if s["blocked_count"] >= 3:
+                    s["_to_remove"] = True
                     demotions.append({
                         "代码": s_code,
                         "名称": s.get("名称", ""),
@@ -79,6 +80,23 @@ class GateController:
                 modified = True
         
         return demotions, resets, modified
+
+    @staticmethod
+    def process_focus_pool_blocked_counts(key_pool_data: dict, blocked_codes: Set[str]) -> tuple[dict, list, list, bool]:
+        """处理重点观察池的阻塞计数并返回更新后的数据。
+
+        返回 (updated_key_pool_data, demotions, resets, modified)。
+        demotions: 需要降级到边缘池的标的
+        resets: 已通过质疑、阻塞计数重置的标的
+        modified: 是否对数据进行了修改
+        """
+        demotions, resets, modified = GateController.check_blocked_count(key_pool_data, blocked_codes)
+        if modified:
+            key_pool_data["stocks"] = [
+                s for s in key_pool_data.get("stocks", [])
+                if not s.get("_to_remove")
+            ]
+        return key_pool_data, demotions, resets, modified
 
     @staticmethod
     def get_yellow_alerts(scored_stocks: list) -> list:

@@ -143,6 +143,45 @@ class DecisionAgent(BaseAgent):
         """
         return self.track_recorder.inject_evo_history(scored_stocks)
 
+    def _load_skeptic_context(self, today: str):
+        """加载 Skeptic 质疑上下文，并返回注入 LLM 的文本与阻塞代码。"""
+        skeptic_file = self.history_dir / f"{today}_质疑审查报告.md"
+        verdict_file = self.history_dir / f"{today}_质疑审查裁决.json"
+        skeptic_section = ""
+        blocked_codes = set()
+        skeptic_missing = False
+        skeptic_empty = False
+        skeptic_content = ""
+
+        # 二审制Gate：先读取结构化裁决 JSON
+        if verdict_file.exists():
+            verdict_data = self.safe_read_json(verdict_file, {})
+            blocked_list = verdict_data.get("blocked", [])
+            blocked_codes = {s.get("code", "") for s in blocked_list}
+            if blocked_codes:
+                self.logger.info("skeptic_gate_blocked",
+                               count=len(blocked_codes),
+                               codes=list(blocked_codes))
+                print(f"[二审制Gate] 🔴 质疑裁决阻塞 {len(blocked_codes)} 只标的: {blocked_codes}")
+
+        if skeptic_file.exists():
+            skeptic_content = self.safe_read_text(skeptic_file)
+            if len(skeptic_content.strip()) < 50:
+                skeptic_empty = True
+                skeptic_section = ""
+            else:
+                skeptic_section = (
+                    "\n\n## 📋 质疑审查报告（供参考）\n"
+                    "以下为 SkepticAgent 对重点观察池标的的质疑分析：\n\n"
+                    + skeptic_content + "\n"
+                )
+        else:
+            skeptic_missing = True
+            print("[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
+            skeptic_section = ""
+
+        return skeptic_section, blocked_codes, skeptic_missing, skeptic_empty, skeptic_content
+
     def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -193,44 +232,8 @@ class DecisionAgent(BaseAgent):
                 return {"success": False, "error": "没有找到今日审查报告"}
 
         # ── 记忆闭环：注入 SkepticAgent 质疑结果（二审制 Gate）───
-        skeptic_file = self.history_dir / f"{today}_质疑审查报告.md"
-        verdict_file = self.history_dir / f"{today}_质疑审查裁决.json"
-        skeptic_section = ""
-        blocked_codes = set()
-        skeptic_missing = False
-        skeptic_empty = False
-
-        # 二审制Gate：先读取结构化裁决 JSON
-        if verdict_file.exists():
-            verdict_data = self.safe_read_json(verdict_file, {})
-            blocked_list = verdict_data.get("blocked", [])
-            blocked_codes = {s.get("code", "") for s in blocked_list}
-            if blocked_codes:
-                self.logger.info("skeptic_gate_blocked",
-                               count=len(blocked_codes),
-                               codes=list(blocked_codes))
-                print(f"[二审制Gate] 🔴 质疑裁决阻塞 {len(blocked_codes)} 只标的: {blocked_codes}")
-        else:
-            pass  # 裁决 JSON 不存在：回退到 Markdown 报告
-
-        if skeptic_file.exists():
-            skeptic_content = self.safe_read_text(skeptic_file)
-            if len(skeptic_content.strip()) < 50:
-                skeptic_empty = True
-                skeptic_section = ""  # 空报告不注入LLM，代码自行处理
-            else:
-                # P0-2修复：只注入质疑报告数据，不下达「必须回应high severity」的宪法指令
-                # 由代码层处理门控逻辑，不让LLM角色扮演宪法法官
-                skeptic_section = (
-                    "\n\n## 📋 质疑审查报告（供参考）\n"
-                    "以下为 SkepticAgent 对重点观察池标的的质疑分析：\n\n"
-                    + skeptic_content + "\n"
-                )
-        else:
-            # 二审制Gate：SkeptiAgent跳过了（无升级标的），不阻塞
-            skeptic_missing = True
-            print("[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
-            skeptic_section = ""
+        skeptic_section, blocked_codes, skeptic_missing, skeptic_empty, skeptic_content = \
+            self._load_skeptic_context(today)
         # ────────────────────────────────────────────────────────
 
         if len(review_report) < 50:
@@ -398,65 +401,39 @@ class DecisionAgent(BaseAgent):
             # 读取重点观察池JSON（磁盘上的原始数据）
             key_pool_file = self.root / "五池管理" / "重点观察池.json"
             if key_pool_file.exists():
-                import json
                 key_pool_data = self.safe_read_json(key_pool_file, {})
                 if key_pool_data.get("stocks"):
-                    modified = False
-                    for s in key_pool_data["stocks"]:
+                    key_pool_data, demotions, resets, modified = GateController.process_focus_pool_blocked_counts(
+                        key_pool_data, blocked_codes
+                    )
+                    for dm in demotions:
+                        edge = {
+                            "代码": dm["代码"],
+                            "名称": dm["名称"],
+                            "综合分": 60,  # 连续质疑不过，保守给60
+                            "纳入日期": datetime.now().strftime("%Y-%m-%d"),
+                            "驱动来源": "连续质疑阻塞降级",
+                            "核心逻辑": f"被Skeptic连续质疑阻塞{dm['count']}次",
+                        }
+                        self.pool_manager.add_stock("边缘池", edge)
+                        print(f"[二审制Gate] ⬇️ {dm['名称']}({dm['代码']}) → 边缘池（连续{dm['count']}次阻塞）")
+                    for s in key_pool_data.get("stocks", []):
                         s_code = str(s.get("代码", s.get("股票代码", "")))
-                        if s_code in blocked_codes:
-                            # 递增阻塞计数
-                            s["blocked_count"] = s.get("blocked_count", 0) + 1
+                        if s_code in blocked_codes and s.get("blocked_count", 0) > 0:
                             print(f"[二审制Gate] 🔴 {s.get('名称','?')}({s_code}) 被阻塞第{s['blocked_count']}次")
-                            # 连续3次阻塞→自动降级边缘池
-                            if s["blocked_count"] >= 3:
-                                # 从重点池移除，加边缘池
-                                edge = {
-                                    "代码": s_code,
-                                    "名称": s.get("名称", ""),
-                                    "综合分": 60,  # 连续质疑不过，保守给60
-                                    "纳入日期": datetime.now().strftime("%Y-%m-%d"),
-                                    "驱动来源": "连续质疑阻塞降级",
-                                    "核心逻辑": f"被Skeptic连续质疑阻塞{s['blocked_count']}次",
-                                }
-                                self.pool_manager.add_stock("边缘池", edge)
-                                # 标记待删除
-                                s["_to_remove"] = True
-                                print(f"[二审制Gate] ⬇️ {s.get('名称','?')}({s_code}) → 边缘池（连续{s['blocked_count']}次阻塞）")
-                            modified = True
-                        elif s.get("blocked_count", 0) > 0 and s_code not in blocked_codes:
-                            # 这次没被阻塞，重置计数
-                            s["blocked_count"] = 0
+                        elif s.get("blocked_count", 0) == 0:
                             print(f"[二审制Gate] ✅ {s.get('名称','?')}({s_code}) 质疑通过，重置阻塞计数")
-                            modified = True
                     if modified:
-                        # 移除标记待删除的
-                        key_pool_data["stocks"] = [
-                            s for s in key_pool_data["stocks"]
-                            if not s.get("_to_remove")
-                        ]
-                        # 写回磁盘
-                        key_pool_file.write_text(
-                            json.dumps(key_pool_data, ensure_ascii=False, indent=2),
-                            encoding="utf-8"
-                        )
+                        self.safe_write_json(key_pool_file, key_pool_data)
 
         # ── 二审制Gate：从候选列表中移除被质疑拦截的标的 ────
         # 保存原始评分副本，供后续空仓决策/fallback兜底使用
         all_scored_stocks = scored_stocks[:] if scored_stocks else []
         if blocked_codes:
-            # 过滤 pools 中的被阻塞标的
-            for pool_name, pool_data in pools.items():
-                pool_data["stocks"] = [
-                    s for s in pool_data.get("stocks", [])
-                    if (s.get("代码") or s.get("股票代码", "")) not in blocked_codes
-                ]
-            # 过滤被质疑拦截的标的
-            scored_stocks = [s for s in scored_stocks
-                             if str(s.get("code", s.get("代码", ""))) not in blocked_codes]
-            if not scored_stocks:
+            pools = GateController.filter_pools(pools, blocked_codes)
+            scored_stocks = GateController.filter_scored_stocks(scored_stocks, blocked_codes)
+            if GateController.is_all_blocked(all_scored_stocks, blocked_codes):
                 print("[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
-                # 提取备选观察：60-74分黄色预警标的（调用GateController）
                 yellow_alerts = GateController.get_yellow_alerts(all_scored_stocks)
                 return self._build_empty_decision(today, pools, market_env,
                                                    "二审制Gate：所有候选标的均未通过质疑审查",
