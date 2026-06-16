@@ -1187,6 +1187,7 @@ class ReviewAgent(BaseAgent):
         volume_ratio = 1.0
         month_chg = 0.0  # 月涨跌
         quarter_chg = 0.0  # 季涨跌
+        amplitude = 0.0  # 振幅
 
         if quote:
             change_pct = float(quote.get("涨跌幅", 0) or 0)
@@ -1195,6 +1196,7 @@ class ReviewAgent(BaseAgent):
             volume_ratio = float(quote.get("量比", 1) or 1)
             month_chg = float(quote.get("月涨跌", 0) or 0)
             quarter_chg = float(quote.get("季涨跌", 0) or 0)
+            amplitude = float(quote.get("振幅", 0) or 0)
         else:
             # 从池数据中获取
             change_str = stock_data.get("今日涨跌", "0%")
@@ -1216,6 +1218,7 @@ class ReviewAgent(BaseAgent):
             month_chg=month_chg,
             quarter_chg=quarter_chg,
             composite_score=stock_review.composite_score,
+            amplitude=amplitude,
             market_state=mkt_state,
         )
 

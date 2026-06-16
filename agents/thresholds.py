@@ -84,6 +84,11 @@ OVERHEAT_W2_DAY_CHG = 10           # 日涨幅 >10%
 OVERHEAT_W3_DAY_CHG = 5            # 日涨幅 >5%
 OVERHEAT_W3_VOL_RATIO = 3          # 量比 >3
 
+# WARNING-4 — 扣10分（高波动+月涨>15%+评分>=70，新增RULE-7）
+OVERHEAT_W4_AMPLITUDE = 7          # 振幅 >7% 高波动
+OVERHEAT_W4_MONTH_CHG = 15         # 月涨幅 >15%
+OVERHEAT_W4_SCORE = 70             # 评分 >=70
+
 
 # ═══════════════════════════════════════════════════════════════
 # 池容量

@@ -28,12 +28,16 @@ class OverheatDetector:
     WARN2_SCORE_FALLBACK = 70     # 新增：涨幅>8%且评分>70的独立WARNING（P0-过热漏检修复）
     WARN3_GAIN_PCT = 5            # 涨幅 > 5% 触发warn-3
     WARN3_VOLUME_RATIO = 3        # 量比 > 3 视为高位放量
+    WARN4_AMPLITUDE_PCT = 7       # 振幅 > 7% 高波动（RULE-7新增）
+    WARN4_MONTH_CHG_PCT = 15      # 月涨幅 > 15% 配合高波动
+    WARN4_SCORE = 70              # 评分 >= 70 才触发
 
     # ── 惩罚分值 ─────────────────────────────────────────────
     PENALTY_CRITICAL = 30         # CRITICAL 扣30分
     PENALTY_WARN1 = 10            # WARNING-1 扣10分
     PENALTY_WARN2 = 5             # WARNING-2 扣5分
     PENALTY_WARN3 = 5             # WARNING-3 扣5分
+    PENALTY_WARN4 = 10            # WARNING-4 扣10分（高波动过热）
 
     # ── 严重程度标识 ─────────────────────────────────────────
     LEVEL_CRITICAL = "critical"
@@ -48,6 +52,7 @@ class OverheatDetector:
         month_chg: float,
         quarter_chg: float,
         composite_score: int,
+        amplitude: float = 0,       # 振幅（日内高波动指标）
         market_state: str = "震荡",
     ) -> Optional[dict]:
         """过热检测（纯函数，不入池不调LLM）
@@ -166,6 +171,23 @@ class OverheatDetector:
                 "reason": (
                     f"涨幅{change_pct:.1f}% + 量比{volume_ratio:.1f} "
                     f"→ 高位放量，扣{OverheatDetector.PENALTY_WARN3}分"
+                ),
+            }
+
+        # ── RULE 7: WARNING-4 — 振幅>7% + 月涨>15% + 评分>=70（高波动过热）──
+        # 解决：月涨>15%不足25%CRITICAL阈值、但振幅>7%高波动的漏检
+        # 典型：300604长川科技（20日涨+15.31% + 振幅7.74 + 评分70）
+        if not strong_market and (
+            amplitude > OverheatDetector.WARN4_AMPLITUDE_PCT
+            and month_chg > OverheatDetector.WARN4_MONTH_CHG_PCT
+            and composite_score >= OverheatDetector.WARN4_SCORE
+        ):
+            return {
+                "overheat_level": OverheatDetector.LEVEL_WARNING,
+                "penalty": OverheatDetector.PENALTY_WARN4,
+                "reason": (
+                    f"振幅{amplitude:.1f}%高波动 + 月涨{month_chg:.1f}% + "
+                    f"评分{composite_score}分 → 高波动过热，扣{OverheatDetector.PENALTY_WARN4}分"
                 ),
             }
 
