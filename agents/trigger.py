@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import logging
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -67,8 +68,11 @@ def check_limit_up() -> list:
     # 获取涨幅榜
     cmd = 'curl -sL --max-time 10 "https://qt.gtimg.cn/q=flashing_china"'
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
-        content = r.stdout.decode("gbk", errors="replace")
+        resp = requests.get("https://qt.gtimg.cn/q=flashing_china", timeout=10)
+        if resp.status_code != 200:
+            print(f"请求涨停数据失败，状态码: {resp.status_code}")
+            return []
+        content = resp.content.decode("gbk", errors="replace")
         
         # 解析涨停股
         limit_ups = []
@@ -112,8 +116,11 @@ def check_volume_surge() -> list:
     codes = ["sh000001", "sz399001"]
     cmd = 'curl -sL --max-time 10 "https://qt.gtimg.cn/q=sh000001,sz399001"'
     try:
-        r = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
-        content = r.stdout.decode("gbk", errors="replace")
+        resp = requests.get("https://qt.gtimg.cn/q=sh000001,sz399001", timeout=10)
+        if resp.status_code != 200:
+            print(f"请求量能数据失败，状态码: {resp.status_code}")
+            return []
+        content = resp.content.decode("gbk", errors="replace")
         
         surges = []
         for line in content.strip().split("\n"):
