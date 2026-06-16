@@ -1115,28 +1115,27 @@ class PoolManager:
                         # 价格已回升至止损线上，清除过期标记
                         if stock.get("操作建议") == "已跌破止损，建议调出":
                             stock["操作建议"] = "正常"
-                            print(f"  [止损解除] {stock.get('名称','?')}({code}) 收盘{now_price}>止损{stop_loss}, 标记清除")
-                # ── 评分时间衰减：入池>7天且评分未更新的存量股 ⭐ v5.92 ──
-                entry_date = stock.get("纳入日期", "")
-                orig_score = stock.get("综合分", 0)
-                if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
-                    try:
-                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
-                    except ValueError:
-                        days_in_pool = 999  # 日期格式异常，强制衰减
-                    if days_in_pool > 7:
-                        # 基础衰减：0.5分/天，上限15分
-                        decay = min(days_in_pool * 0.5, 15)
-                        # 今日上涨则衰减减半（趋势向好）
-                        chg_str = stock.get("今日涨跌", "")
-                        if chg_str and "+" in str(chg_str):
-                            decay *= 0.5
-                        new_score = max(round(orig_score - decay), 40)
-                        if new_score != orig_score:
-                            stock["综合分"] = new_score
-                            stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                            print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
-                refreshed.append(code)
+
+        # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
+        for stock in stocks:
+            code = stock.get("代码", stock.get("股票代码", ""))
+            entry_date = stock.get("纳入日期", "")
+            orig_score = stock.get("综合分", 0)
+            if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
+                try:
+                    days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                except ValueError:
+                    days_in_pool = 999
+                if days_in_pool > 7:
+                    decay = min(days_in_pool * 0.5, 15)
+                    chg_str = stock.get("今日涨跌", "")
+                    if chg_str and "+" in str(chg_str):
+                        decay *= 0.5
+                    new_score = max(round(orig_score - decay), 40)
+                    if new_score != orig_score:
+                        stock["综合分"] = new_score
+                        stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
+                        print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
 
         # 更新统计（P0：即使行情刷新失败也执行降级扫描）
         data["统计"] = data.get("统计", {})
