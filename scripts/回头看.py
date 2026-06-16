@@ -860,6 +860,24 @@ def calculate_decision_accuracy(files, review_results, trading_days):
     }
 
 
+def load_skeptic_blocked_codes(trading_days):
+    """读取各交易日 SkepticGate 裁决，返回 {date: set(blocked_codes)}"""
+    blocked_map = {}
+    for date in trading_days:
+        verdict_file = HISTORY_DIR / f"{date}_质疑审查裁决.json"
+        if verdict_file.exists():
+            try:
+                data = safe_read_json(verdict_file, default={})
+                blocked_list = data.get("blocked", [])
+                if blocked_list:
+                    blocked_map[date] = {
+                        s.get("code", "") for s in blocked_list if s.get("code")
+                    }
+            except Exception:
+                pass
+    return blocked_map
+
+
 def generate_report(days=7, output_file=None):
     """生成回头看报告"""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -899,16 +917,22 @@ def generate_report(days=7, output_file=None):
                 key = f"{r['code']}_{r['date']}"
                 performance_map[key] = perf
 
-    # 验证决策层主推标的
+    # 加载 SkepticGate 阻塞数据（过滤 LLM 文本推荐中被质疑拦截的标的）
+    blocked_map = load_skeptic_blocked_codes(trading_days)
+
+    # 验证决策层主推标的（过滤被 SkepticGate 阻塞的标的）
     for d in decision_results:
         if not d['is_empty'] and d.get('date'):
+            date = d['date']
+            blocked_today = blocked_map.get(date, set())
             for s in d.get('main_stocks', []):
                 code = s.get('code', '')
-                if code:
-                    perf = verify_recommendation(code, d['date'], hold_days=3)
-                    if perf:
-                        key = f"{code}_{d['date']}"
-                        performance_map.setdefault(key, perf)
+                if not code or code in blocked_today:
+                    continue  # 被 SkepticGate 阻塞 → 不计为有效决策
+                perf = verify_recommendation(code, date, hold_days=3)
+                if perf:
+                    key = f"{code}_{date}"
+                    performance_map.setdefault(key, perf)
 
     save_price_cache()
 
@@ -1079,6 +1103,7 @@ def generate_report(days=7, output_file=None):
     
     if review:
         persist_str = f"{review['upgrade_persistence_rate']}%" if review['upgrade_persistence_rate'] is not None else "N/A"
+        report += f"""| 指标 | 数值 |
 |------|------|
 | 审查标的总数 | {review['total_reviews']}只 |
 | 升级标的 | {review['upgrades']}只 |
@@ -1143,7 +1168,18 @@ def generate_report(days=7, output_file=None):
             decision_type = "空仓" if d['is_empty'] else "执行"
             main_str = ", ".join([f"{s['name']}({s['position']}%)" for s in d['main_stocks']]) or "无"
             backup_str = ", ".join([f"{s['name']}({s['position']}%)" for s in d['backup_stocks']]) or "无"
-            report += f"| {d['date']} | {decision_type} | {main_str} | - | {backup_str} |\n"
+            # 标记被 SkepticGate 阻塞的主推标的
+            date = d.get('date', '')
+            blocked_today = blocked_map.get(date, set())
+            main_str_filtered = []
+            for s in d.get('main_stocks', []):
+                code = s.get('code', '')
+                if code in blocked_today:
+                    main_str_filtered.append(f"{s['name']}({s['position']}%)🔒")
+                else:
+                    main_str_filtered.append(f"{s['name']}({s['position']}%)")
+            main_display = ", ".join(main_str_filtered) or "无"
+            report += f"| {d['date']} | {decision_type} | {main_display} | - | {backup_str} |\n"
     else:
         report += "⚠️ 未找到决策报告数据\n"
     
@@ -1184,7 +1220,7 @@ def generate_report(days=7, output_file=None):
 | 验证推荐总数 | {len(perf_total)}只 |
 | 盈利标的 | {len(perf_profits)}只 |
 | 亏损标的 | {len(perf_total) - len(perf_profits)}只 |
-| 实战准确率（3日后涨） | {actual_accuracy}% |
+|| 实战准确率(3日后涨) | {actual_accuracy}% |
 | 平均收益 | {avg_return:+.2f}% |
 | 上证指数同期均值 | {avg_index_return:+.2f}% |
 | 平均相对收益 | {avg_relative:+.2f}% |
