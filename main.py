@@ -588,6 +588,11 @@ def main():
             print(f"  ✅ 持仓池: {len(refreshed_holdings)} 只已刷新")
         except Exception as e:
             print(f"  ⚠️ 持仓池刷新失败: {e}")
+        try:
+            refreshed_candidate = pm.refresh_screen_candidate_prices()
+            print(f"  ✅ 快筛候选池: {len(refreshed_candidate)} 只已刷新（含存量降级扫描）")
+        except Exception as e:
+            print(f"  ⚠️ 快筛候选池刷新失败: {e}")
         # ── 池价格刷新结束 ─────────────────────────────────
 
         # ── T+1 追踪数据采集 ─────────────────────────────
