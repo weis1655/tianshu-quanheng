@@ -62,7 +62,12 @@ class GateController:
         for s in stocks:
             s_code = str(s.get("代码", s.get("股票代码", "")))
             if s_code in blocked_codes:
-                s["blocked_count"] = s.get("blocked_count", 0) + 1
+                # P0-三振出局bug修复：同一天阻塞多次只计1次（防非幂等）
+                today_str = datetime.now().strftime("%Y-%m-%d")
+                last_blocked = s.get("last_blocked_date", "")
+                if last_blocked != today_str:
+                    s["blocked_count"] = s.get("blocked_count", 0) + 1
+                    s["last_blocked_date"] = today_str
                 if s["blocked_count"] >= 3:
                     s["_to_remove"] = True
                     demotions.append({
@@ -73,6 +78,7 @@ class GateController:
                 modified = True
             elif s.get("blocked_count", 0) > 0:
                 s["blocked_count"] = 0
+                s["last_blocked_date"] = ""  # 同步清除日期标记
                 resets.append({
                     "代码": s_code,
                     "名称": s.get("名称", ""),
