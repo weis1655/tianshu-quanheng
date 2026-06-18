@@ -165,13 +165,39 @@ def main():
         action="store_true",
         help="输出详细决策列表",
     )
+    parser.add_argument(
+        "--multi", "-m",
+        action="store_true",
+        help="多窗口胜率对比（近7天/近30天/全量）",
+    )
     args = parser.parse_args()
 
     entries = load_decision_log(args.path)
     print(f"📂 加载 {len(entries)} 条决策记录")
 
-    stats = calc_win_rate(entries, show_detail=args.detail)
-    print_report(stats)
+    if args.multi:
+        from datetime import datetime, timedelta
+        windows = [(7, "近7天"), (30, "近30天"), (0, "全量")]
+        print(f"\n{'='*50}")
+        print(f"📊 多窗口胜率对比")
+        print(f"{'='*50}")
+        print(f"🕐 统计时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print()
+        now = datetime.now()
+        for days, label in windows:
+            if days > 0:
+                cutoff = (now - timedelta(days=days)).strftime("%Y-%m-%d")
+                window_entries = [r for r in entries if r.get("date") and r.get("date") >= cutoff]
+            else:
+                window_entries = entries
+            stats = calc_win_rate(window_entries, show_detail=False)
+            marker = "▶" if days == 30 else " "
+            print(f"{marker} {label}: 总{stats['effective']}笔 盈利{stats['profit']} 亏损{stats['loss']} 观望{stats['watch']} 胜率{stats['win_rate']}%")
+        print()
+        print(f"{'='*50}")
+    else:
+        stats = calc_win_rate(entries, show_detail=args.detail)
+        print_report(stats)
 
 
 if __name__ == "__main__":

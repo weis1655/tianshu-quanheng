@@ -48,32 +48,55 @@ class FeedbackLoopAgent(BaseAgent):
             holdings = self.analyze_holdings()
             results["holdings"] = holdings
             
-            # 3. 计算胜率
-            stats = self.calculate_win_rate()
+            # 3. 计算胜率（多窗口对比）
+            stats = self.calculate_multi_window_stats()
             results["stats"] = stats
             
             # 4. 自动调整权重（如果决策足够多）
-            if stats.get("total", 0) >= 5:
-                self.auto_adjust_weights(stats.get("rate", 0), stats.get("by_type", {}))
+            primary = stats.get("primary", {})
+            if primary.get("total", 0) >= 5:
+                self.auto_adjust_weights(primary.get("rate", 0), {})
             
             # 5. 反馈闭环：将持仓盈亏回写至决策日志
             self._close_feedback_loop(holdings)
 
             # 6. 记录状态
             duration = (datetime.now() - start_time).total_seconds()
+            primary = stats.get("primary", {})
             self.logger.info(f"反馈闭环执行完成", 
                           holdings_count=len(holdings or []),
-                          total_decisions=stats.get("total", 0),
+                          total_decisions=primary.get("total", 0),
+                          win_rate=f"{primary.get('rate', 0):.1f}%",
                           duration_s=round(duration, 2))
             
             # 6. 生成反馈闭环报告
             report_path = PathConfig().data_dir.parent / "data" / "历史记录" / f"{datetime.now().strftime('%Y-%m-%d')}_反馈闭环报告.md"
             try:
-                lines = ["# 反馈闭环报告", f"**日期**: {datetime.now().strftime('%Y-%m-%d')}", ""]
+                today = datetime.now().strftime('%Y-%m-%d')
+                lines = ["# 反馈闭环报告", f"**日期**: {today}", ""]
                 if circuit_triggered:
                     lines.append("## 🔴 市场熔断触发")
                 lines.append(f"## 持仓分析: {len(holdings or [])}只")
-                lines.append(f"## 决策统计: 总{stats.get('total',0)} 盈利{stats.get('wins',0)} 胜率{stats.get('rate',0):.1f}%")
+                
+                # 多窗口胜率对比
+                windows = stats.get("windows", [])
+                lines.append("## 多窗口胜率对比")
+                for w in windows:
+                    marker = "▶ " if w == stats.get("primary") else "  "
+                    lines.append(f"{marker}{w['label']}: 总{w['total']} 盈利{w['wins']} 胜率{w['rate']:.1f}%")
+                
+                # 待复盘数量
+                try:
+                    from review_evo import ReviewEvo
+                    evo = ReviewEvo(root=self.root)
+                    all_records = evo.get_decisions(days=30)
+                    open_count = sum(1 for r in all_records if r.get("actual_pnl") is None and r.get("实际结果") is None)
+                    if open_count > 0:
+                        lines.append(f"")
+                        lines.append(f"⏳ 近30天待复盘: {open_count}笔")
+                except Exception:
+                    pass
+                
                 report_text = "\n".join(lines)
                 safe_write_file(report_path, report_text)
                 self.logger.info(f"反馈闭环报告已保存: {report_path}")
@@ -190,7 +213,10 @@ class FeedbackLoopAgent(BaseAgent):
         
         return results
     
-    def calculate_win_rate(self, days: int = 0) -> Dict[str, Any]:
+    # 多窗口配置：近7天、近30天、全量
+    _MULTI_WINDOWS = [("近7天", 7), ("近30天", 30), ("全量", 0)]
+
+    def calculate_win_rate(self, days: int = 30) -> Dict[str, Any]:
         """计算决策胜率，支持时间窗口过滤
 
         委托给 ReviewEvo 计算（避免重复逻辑），只补充 by_type 字段。
@@ -224,6 +250,29 @@ class FeedbackLoopAgent(BaseAgent):
             "by_type": by_type,
             "window": window_label,
         }
+
+    def calculate_multi_window_stats(self) -> Dict[str, Any]:
+        """计算多窗口胜率对比（近7天 / 近30天 / 全量）"""
+        from review_evo import ReviewEvo
+        evo = ReviewEvo(root=self.root)
+
+        windows = []
+        for label, days in self._MULTI_WINDOWS:
+            stats = evo.calculate_win_rate(days=days if days > 0 else None)
+            windows.append({
+                "label": label,
+                "total": stats.get("总数", 0),
+                "wins": stats.get("盈利数", 0),
+                "rate": stats.get("胜率", 0),
+            })
+
+        self.logger.info(
+            "多窗口胜率: " + " | ".join(
+                f"{w['label']}: {w['total']}笔 胜率{w['rate']:.1f}%" for w in windows
+            )
+        )
+
+        return {"windows": windows, "primary": windows[1]}  # primary = 近30天
     
     def auto_adjust_weights(self, win_rate: float, by_type: Dict) -> None:
         """根据胜率自动调整权重"""
@@ -275,10 +324,8 @@ class FeedbackLoopAgent(BaseAgent):
                 for r in log2["决策记录"]:
                     if (r.get("日期") == today_str and r.get("股票代码") in observed_codes
                             and r.get("实际结果") is None):
-                        r["实际结果"] = 0
-                        r["实际涨跌"] = 0.0
                         r["复盘日期"] = today_str
-                        r["假设验证"] = "⏳已观察未操作"
+                        r["假设验证"] = "⏳已观察未操作（未执行，不计入盈亏）"
                 safe_write_file(evo.decision_log, json.dumps(log2, ensure_ascii=False, indent=2))
                 evo._sync_std_log()
                 self.logger.info(f"[反馈闭环] {len(observed_codes)}条标记为已观察未操作")

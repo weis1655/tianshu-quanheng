@@ -909,7 +909,7 @@ def generate_report(days=7, output_file=None):
 
     # 验证审查层升级/保留标的
     for r in review_results:
-        if r.get('flow') in ('升级', '保留') and r.get('date'):
+        if r.get('flow') == '升级' and r.get('date'):
             perf = verify_recommendation(r['code'], r['date'], hold_days=3)
             if perf:
                 r['_performance'] = perf

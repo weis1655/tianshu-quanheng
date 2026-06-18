@@ -317,6 +317,7 @@ class DecisionAgent(BaseAgent):
                         "name": s_name,
                         "score": 80,  # S级准入分
                         "passed": True,
+                        "ml_score": None,
                     })
                     existing_codes.add(s_code)
                     self.logger.info("s_pool_merged_into_review",
@@ -558,6 +559,21 @@ class DecisionAgent(BaseAgent):
                 
                 # 偏多/震荡偏强：执行原有兜底买入（保留LLM二次尝试+模板兜底）
                 else:
+                    # P0-实盘亏损修复：LLM-ML背离标的禁止兜底买入
+                    _filtered_actionable = []
+                    for a in actionable:
+                        ml_score = a.get("ml_score", None)
+                        llm_name = a.get("name", "?")
+                        llm_code = a.get("code", "?")
+                        if ml_score is not None and ml_score < 50:
+                            print(f"[兜底引擎] 🚫 LLM-ML背离: {llm_name}({llm_code}) "
+                                  f"LLM={a['score']} ML={ml_score} 跳过兜底买入")
+                            continue
+                        _filtered_actionable.append(a)
+                    actionable = _filtered_actionable
+                    if not actionable:
+                        print(f"[兜底引擎] ⏭ 全部标的被LLM-ML背离过滤，跳过兜底买入")
+                        return None
                     best = actionable[0]
                     # 构建SkepticGate上下文块（如有阻塞标的则提示LLM）
                     skeptic_context = ""

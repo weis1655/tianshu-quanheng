@@ -188,6 +188,15 @@ class ReviewAgent(BaseAgent):
         if pool_file.exists():
             data = self.safe_read_json(pool_file, {})
             raw = data.get("stocks", [])
+            # P0-快筛漏检修复：过滤未覆盖的快筛历史滞留股
+            fs_hist = data.get("_fast_screen_history", {})
+            if fs_hist:
+                _before = len(raw)
+                raw = [s for s in raw if fs_hist.get(
+                    str(s.get("代码") or s.get("股票代码", ""))
+                ) == today]
+                if len(raw) < _before:
+                    print(f"[ReviewAgent] ⏭ 过滤 {_before - len(raw)} 只快筛未覆盖滞留股（近次快筛非今日）")
         else:
             raw = []
 
@@ -429,6 +438,21 @@ class ReviewAgent(BaseAgent):
             parsed_result.demotions.extend(_extra_demotions)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
         # ═══════════════════════════════════════════════════════════════════════
+
+        # ═══ P0-降级延迟修复：候选池残留低分股清理 ═══
+        # 扫描候选池中仍存在且评分<60的标的，强制迁入边缘池
+        _pool_cleanup = []
+        for sr in review_result.stocks:
+            if sr.composite_score is not None and sr.composite_score < 60 and sr.flow_direction not in ("降级", "淘汰"):
+                sr.flow_direction = "降级"
+                sr.target_pool = "边缘池"
+                sr.core_logic += f" | 🔴 残留低分清理：{sr.composite_score}分<60分阈值"
+                _pool_cleanup.append(sr)
+                print(f"[ReviewAgent] 🔴 残留低分清理: {sr.name}({sr.code}) {sr.composite_score}分<60分 → 边缘池")
+        if _pool_cleanup:
+            parsed_result.demotions.extend(_pool_cleanup)
+            self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
+            print(f"[ReviewAgent] 🧹 候选池清理: {len(_pool_cleanup)} 只低分股已降级")
 
         # ML评分附录 — 追加到审查报告（2026-06-11）
         try:

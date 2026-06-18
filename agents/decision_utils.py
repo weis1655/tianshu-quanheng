@@ -58,6 +58,11 @@ def extract_scores(review_report: str) -> list[dict]:
                 break
         # 信心度
         conf = re.search(r"信心[度理].*?[:：]\s*([^\n]{2,20})", section)
+        # P0-实盘亏损修复: 提取ML评分（格式：🤖 ML45分）
+        ml_score = None
+        mlm = re.search(r"🤖\s*ML(\d+)分", section)
+        if mlm:
+            ml_score = int(mlm.group(1))
         # P1-修复: 过滤无效前缀（"关于该股票""包含***""无推荐"等伪名称）
         invalid_prefixes = ("关于", "包含", "未包含", "无")
         if name and any(name.startswith(p) for p in invalid_prefixes):
@@ -66,7 +71,8 @@ def extract_scores(review_report: str) -> list[dict]:
             "code": code, "name": name, "score": score,
             "passed": flow is not None,
             "confidence": conf.group(1).strip() if conf else "",
-            "action_advice": advice
+            "action_advice": advice,
+            "ml_score": ml_score
         })
     stocks.sort(key=lambda x: x["score"], reverse=True)
     # ── v5.91: 补充解析重点观察池评估表格（表中无 ## 标题的股票章节）────
@@ -96,7 +102,8 @@ def extract_scores(review_report: str) -> list[dict]:
                     stocks.append({
                         "code": code, "name": name, "score": score,
                         "passed": True,
-                        "confidence": cols[3] if len(cols) > 3 else ""
+                        "confidence": cols[3] if len(cols) > 3 else "",
+                        "ml_score": None
                     })
     stocks.sort(key=lambda x: x["score"], reverse=True)
     return stocks
