@@ -469,6 +469,14 @@ class DecisionAgent(BaseAgent):
                 self.logger.info("skeptic_coverage_gap",
                                uncovered=names, count=len(uncovered))
                 print(f"[Skeptic覆盖度] ⚠️ {len(uncovered)} 只标的未质疑覆盖: {names}")
+                # ── P1-3升级：否决式阻断 — 未覆盖标的从scored_stocks移除 ────
+                # 避免"LLM自行评估风险"这种自欺欺人的处理
+                # 既然Skeptic没审，那就不能进入决策候选
+                self.logger.info("skeptic_block_uncovered",
+                               removed=names, count=len(uncovered))
+                print(f"[Skeptic阻断] 🚫 从决策候选移除 {len(uncovered)} 只未审查标的: {names}")
+                for u in uncovered:
+                    scored_stocks = [s for s in scored_stocks if s["code"] != u["code"]]
         # ────────────────────────────────────────────────────────────
 
         # LLM 决策

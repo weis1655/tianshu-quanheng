@@ -135,6 +135,25 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             stocks = data.get("stocks", [])
         else:
             stocks = []
+        
+        # P1-3升级：扩大Skeptic覆盖范围——同时纳入S级操作池标的
+        s_pool_file = PROJECT_ROOT / "五池管理" / "S级操作池.json"
+        if s_pool_file.exists():
+            try:
+                s_data = json.loads(s_pool_file.read_text(encoding="utf-8"))
+                s_stocks = s_data.get("stocks", [])
+                if s_stocks:
+                    # 按股票代码去重（避免与重点池重复）
+                    focus_codes = {s.get("代码", s.get("股票代码", "")) for s in stocks}
+                    for s in s_stocks:
+                        code = s.get("代码", s.get("股票代码", ""))
+                        if code and code not in focus_codes:
+                            stocks.append(s)
+                            focus_codes.add(code)
+                    print(f"  🎭 Skeptic覆盖扩展: S级操作池+{len(s_stocks)}只, "
+                          f"去重后共{len(stocks)}只")
+            except Exception as e:
+                print(f"  ⚠️ S级操作池读取失败: {e}")
         _ms = ReviewAgent()._get_market_state()
         r = skeptic.run(stock_list=stocks, review_report=review_report, market_context={"市场状态": _ms.get("state", "震荡"), "上证涨跌": f"{_ms.get('sh_chg',0):+.2f}%"})
         LLM_CALL_COUNT += 1
