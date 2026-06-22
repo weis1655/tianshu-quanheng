@@ -1017,11 +1017,7 @@ class PoolManager:
         remaining = []
         for s in stocks:
             raw_score = s.get("综合分")
-            # None/空值 = 未评分候选，保持原状不降级
-            if raw_score is None:
-                remaining.append(s)
-                continue
-            score = float(raw_score)
+            score = float(raw_score) if raw_score is not None else 0
             level = self._score_to_level(score) if hasattr(self, '_score_to_level') else None
             if score < 65:  # C级(55-64) + D级(<55) 需降级
                 to_demote.append(s)
