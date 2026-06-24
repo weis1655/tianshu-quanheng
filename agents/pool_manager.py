@@ -1414,6 +1414,9 @@ class PoolManager:
             if demoted:
                 print(f"[PoolManager] 🧹 持仓池止损降级：移除 {len(demoted)} 只")
 
+            # ── P0：低评分持仓股自动降级 ──────────────────
+            self._scan_and_downgrade(data)
+
             self.save_pool("持仓池", data)
             print(f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
             if stop_loss_warnings:
