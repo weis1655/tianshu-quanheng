@@ -122,6 +122,26 @@ class ScreenAgent(BaseAgent):
             max_tokens=3000,
         )
 
+        # ── 技术面补位扫描：捕获新闻未覆盖但有量价异动的标的 ──
+        tech_candidates = self._scan_technical_signals()
+        if tech_candidates:
+            tech_section = "\n\n".join([
+                "## 📊 量价异动补位（非新闻驱动，基于实时行情）",
+                "| 代码 | 名称 | 涨幅 | 换手率 | 量比 | 振幅 | 说明 |",
+                "|------|------|:----:|:-----:|:----:|:----:|------|",
+            ] + [
+                f"| {s['code']} | {s['name']} | +{s['chg_pct']:.1f}% | {s['turnover']:.1f}% | {s['vol_ratio']:.1f} | {s['amplitude']:.1f}% | {s['reason']} |"
+                for s in tech_candidates
+            ] + [
+                "",
+                "⚠️ 量价异动标的未经过新闻驱动审查，仅供技术面参考，需经审查评估后方可执行。",
+            ])
+            result = result + "\n\n" + tech_section if result else tech_section
+            # 技术面标的也加入候选池更新
+            for s in tech_candidates:
+                result += f"\n- {s['name']}（{s['code']}）- {s['reason']} [驱动级别:B]"
+            print(f"[技术面补位] 📊 发现 {len(tech_candidates)} 只量价异动标的: {[s['name'] for s in tech_candidates]}")
+
         # 格式化报告
         report = f"""# 【快筛报告】{today}
 
@@ -190,6 +210,73 @@ class ScreenAgent(BaseAgent):
             "screen_result": screen_result,  # 新增：结构化结果
             "candidates": candidates,          # 新增：候选股列表
         }
+
+    def _scan_technical_signals(self) -> list:
+        """技术面补位扫描：从东方财富获取涨幅榜，筛选量价异动但未在池中的标的"""
+        try:
+            import json, urllib.request
+            today = datetime.now().strftime("%Y-%m-%d")
+
+            # 获取涨幅前50
+            url = "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=1&np=1&fields=f2,f3,f5,f6,f8,f12,f14,f15,f20&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            resp = urllib.request.urlopen(req, timeout=8)
+            data = json.loads(resp.read().decode("utf-8"))
+            items = data.get("data", {}).get("diff", [])
+
+            if not items:
+                return []
+
+            # 加载现有池中标的（去重）
+            pooled_codes = set()
+            for pname in ["快筛候选池", "重点观察池", "S级操作池", "持仓池", "边缘池"]:
+                pf = self.root / "五池管理" / f"{pname}.json"
+                if pf.exists():
+                    try:
+                        pd = json.loads(pf.read_text(encoding="utf-8"))
+                        for s in pd.get("stocks", []):
+                            pooled_codes.add(s.get("代码", ""))
+                    except Exception:
+                        pass
+
+            # 筛选：涨幅>5% + 换手>8% + 量比>1.5 + 振幅>5% + 市值>50亿 + 不在现有池中
+            candidates = []
+            for s in items:
+                code = str(s.get("f12", ""))
+                f3 = s.get("f3", 0)
+                chg_pct = f3 / 100.0 if abs(f3) > 100 else f3  # 东方财富有时返回乘100的值
+                # 无需过滤的：收盘后涨幅数据可能异常，盘中才准确
+                if chg_pct < 5.0:
+                    continue
+                name = s.get("f14", "")
+                turnover = s.get("f6", 0) / 100.0 if abs(s.get("f6", 0)) > 100 else s.get("f6", 0)
+                if turnover < 8.0:
+                    continue
+                vol_ratio = s.get("f8", 0) / 100.0 if abs(s.get("f8", 0)) > 100 else s.get("f8", 0)
+                if vol_ratio < 1.5:
+                    continue
+                amplitude = s.get("f15", 0) / 100.0 if abs(s.get("f15", 0)) > 100 else s.get("f15", 0)
+                if amplitude < 5.0:
+                    continue
+                mcap = s.get("f20", 0) / 10000.0 if abs(s.get("f20", 0) or 0) > 1e6 else (s.get("f20", 0) or 0)
+                if mcap < 50:
+                    continue
+                if code in pooled_codes:
+                    continue
+                # 构建说明
+                reason = f"量价异动: 涨{chg_pct:.1f}%+换手{turnover:.1f}%+量比{vol_ratio:.1f}"
+                candidates.append({
+                    "code": code, "name": name or "?",
+                    "chg_pct": chg_pct, "turnover": turnover,
+                    "vol_ratio": vol_ratio, "amplitude": amplitude,
+                    "reason": reason,
+                })
+
+            return candidates[:5]  # 最多5只，减少干扰
+
+        except Exception as e:
+            print(f"[技术面补位] ⚠️ 扫描失败: {e}")
+            return []
 
     def _parse_screen_result(self, raw_text: str) -> List[StockCandidate]:
         """
