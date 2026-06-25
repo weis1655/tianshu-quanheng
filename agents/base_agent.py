@@ -453,6 +453,8 @@ class BaseAgent(ABC):
         api_key = os.environ.get("SENSENOVA_API_KEY") or os.environ.get("SN_API_KEY") or os.environ.get("SN_CHAT_API_KEY")
         base_url = os.environ.get("SN_CHAT_BASE_URL") or os.environ.get("SN_BASE_URL") or "https://token.sensenova.cn/v1"
         model = os.environ.get("SN_CHAT_MODEL") or "sensenova-6.7-flash-lite"
+        # 降级模型：主模型超时/限流失败后尝试
+        fallback_model = "sensenova-6.7-flash-lite"
 
         if not api_key:
             return "[SenseNova: API Key 未配置]"
@@ -479,6 +481,12 @@ class BaseAgent(ABC):
         timeout = self.get_llm_timeout()
 
         for attempt in range(max_retries + 1):
+            # 第1次重试用降级模型（主模型的所有重试都失败后）
+            use_fallback = attempt > 0 and attempt == max_retries and model != fallback_model
+            current_model = fallback_model if use_fallback else model
+            if use_fallback:
+                print(f"[LLM降级] ⚠️ {model} 重试{max_retries}次均失败，降级至 {fallback_model}")
+            payload["model"] = current_model
             try:
                 start_time = time.time()
                 r = requests.post(
