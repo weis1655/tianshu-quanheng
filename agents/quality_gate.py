@@ -137,13 +137,14 @@ class QualityGate:
             except (json.JSONDecodeError, IOError):
                 pass
 
-        # 源2：从历史决策报告解析（兜底）
+        # 源2：从历史决策报告解析（兜底）— 只统计实际以【主推】入池的日期
         if self.history_dir.exists():
             records = []
             for fp in sorted(self.history_dir.glob("*_决策报告.md")):
                 content = fp.read_text(encoding="utf-8", errors="replace")
-                if code in content:
-                    # 提取买入日期
+                # 只匹配该股作为【主推】出现的情况，排除分析文本/备选中的提及
+                push_pattern = rf'【主推】\s*[\u4e00-\u9fa5]{{2,6}}\s*[（(]{re.escape(code)}[）)]'
+                if re.search(push_pattern, content):
                     m = re.search(r'(\d{4}-\d{2}-\d{2})', fp.name)
                     if m:
                         records.append({"date": m.group(1)})

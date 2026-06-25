@@ -344,10 +344,13 @@ class DecisionAgent(BaseAgent):
                 print(f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
                 self.logger.info("limit_up_filtered", removed=removed, codes=list(excluded))
             if not scored_stocks:
-                print("[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
-                return self._build_empty_decision(today, pools, market_env,
-                                                   "涨停/跌停排除：所有候选标的已封板",
-                                                   yellow_alerts=[])
+                if before_count > 0:
+                    # scored_stocks 本来有标的，但全被涨停排除过滤掉了
+                    print("[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
+                    return self._build_empty_decision(today, pools, market_env,
+                                                       "涨停/跌停排除：所有候选标的已封板",
+                                                       yellow_alerts=[])
+                # scored_stocks 本来就空（如无审查结果），不归咎于涨停——让后续流程继续评估池内标的
         # ──────────────────────────────────────────────────────────
 
         # ═══ P0-修复（2026-06-10）：重复推荐保护 — 最近7天推荐过的标的过滤 ═══
@@ -433,7 +436,7 @@ class DecisionAgent(BaseAgent):
         if blocked_codes:
             pools = GateController.filter_pools(pools, blocked_codes)
             scored_stocks = GateController.filter_scored_stocks(scored_stocks, blocked_codes)
-            if GateController.is_all_blocked(all_scored_stocks, blocked_codes):
+            if all_scored_stocks and GateController.is_all_blocked(all_scored_stocks, blocked_codes):
                 print("[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
                 yellow_alerts = GateController.get_yellow_alerts(all_scored_stocks)
                 return self._build_empty_decision(today, pools, market_env,
@@ -481,14 +484,6 @@ class DecisionAgent(BaseAgent):
 
         # LLM 决策
         self.logger.llm_call("make_decision", tokens=len(review_report))
-        # P0-3: 截断从4000提升到6000，保留更多审查报告明细
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            review_report=review_report[:6000],
-            market_env=market_env,
-            candidate_pool=candidate_pool,
-            history_dir=str(self.history_dir),
-            today=today,
-        )
         # 把评分结构注入prompt前端（加实时行情刷新 + 记忆闭环历史）
         header_parts = []
         if realtime_section:
@@ -527,7 +522,7 @@ class DecisionAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-            max_tokens=1500
+            max_tokens=3000
         )
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）

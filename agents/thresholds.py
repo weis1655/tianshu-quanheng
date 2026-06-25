@@ -37,7 +37,8 @@ YELLOW_ALERT_MAX = 74     # 黄色预警上界
 # 决策准入阈值
 # ═══════════════════════════════════════════════════════════════
 DECISION_MIN_SCORE = 75   # 决策执行最低分（≥75 → 可制定执行方案），动态调整见 DYNAMIC_THRESHOLDS
-S_POOL_MIN_SCORE = 80     # S级操作池准入分（≥80 → 可入S池），弱市时由 QualityGate 动态提升
+S_POOL_MIN_SCORE = 75     # S级操作池准入分（≥75 → 可入S池），弱市时由 QualityGate 动态提升
+# 注：震荡偏强/偏多市场时与QualityGate阈值对齐(75)，弱市时QualityGate自动提升至80/85
 KEY_WATCH_MIN_SCORE = 50  # 重点观察池准入分（gate_controller 准入规则）
 
 

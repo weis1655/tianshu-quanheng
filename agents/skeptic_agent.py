@@ -466,7 +466,13 @@ class SkepticAgent(BaseAgent):
         - ≥3 个维度 severity=high → 自动 challenge_required（多中等风险叠加=高风险）
         - 输出 veto_count 字段供日志排查
         """
+        # 获取市场状态，动态调整自动阻塞阈值
+        market_state = self._get_market_state_from_index()
+        # 偏强/偏多市场：≥4个high才自动阻塞；震荡/偏弱市场：≥3个high自动阻塞
+        auto_block_threshold = 4 if market_state in ("偏强",) else 3
+
         self.history_dir.mkdir(parents=True, exist_ok=True)
+
         blocked = []
         passed = []
         for s in challenges:
@@ -481,12 +487,12 @@ class SkepticAgent(BaseAgent):
             # P0升级：veto一票否决
             if has_veto:
                 verdict = "challenge_required"
-            # P0升级：≥3个high叠加=高风险
-            elif high_count >= 3 and verdict == "pass":
+            # 市场状态动态阈值：偏强市场容错更高
+            elif high_count >= auto_block_threshold and verdict == "pass":
                 verdict = "challenge_required"
 
             item = {"code": code, "name": name, "verdict": verdict, "has_high_risk": has_high, "veto_count": sum(1 for c in challenges_list if c.get("severity") == "veto"), "high_count": high_count}
-            if verdict == "challenge_required" or has_high:
+            if verdict == "challenge_required":
                 blocked.append(item)
             else:
                 passed.append(item)
