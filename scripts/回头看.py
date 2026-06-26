@@ -232,13 +232,13 @@ def calc_trend(history, key, is_pct=False):
         return 0, None, 'stable'
 
     if is_pct and len(history) >= 6:
-        recent = [h.get(key, 0) for h in history[-3:]]
-        prev = [h.get(key, 0) for h in history[-6:-3]]
+        recent = [h.get(key) or 0 for h in history[-3:]]
+        prev = [h.get(key) or 0 for h in history[-6:-3]]
         cur_val = sum(recent) / 3
         pre_val = sum(prev) / 3
     else:
-        cur_val = history[-1].get(key, 0)
-        pre_val = history[-2].get(key, 0)
+        cur_val = history[-1].get(key) or 0
+        pre_val = history[-2].get(key) or 0
 
     delta = cur_val - pre_val
     threshold = 0.5 if is_pct else 1
@@ -942,8 +942,19 @@ def generate_report(days=7, output_file=None):
     # 计算实战准确率
     perf_profits = [p for p in performance_map.values() if p and p.get('is_profit')]
     perf_total = [p for p in performance_map.values() if p]
-    actual_accuracy = round(len(perf_profits) / len(perf_total) * 100, 1) if perf_total else 0
-    avg_return = round(sum(p['change_pct'] for p in perf_total) / len(perf_total), 2) if perf_total else 0
+
+    # 检查本期是否空仓主导：决策结果中过半数为空仓
+    total_decisions = len([d for d in decision_results if d])
+    empty_decisions = len([d for d in decision_results if d and d.get('is_empty')])
+    is_empty_majority = empty_decisions > 0 and empty_decisions / max(total_decisions, 1) >= 0.5
+
+    if is_empty_majority:
+        # 空仓主导期，模拟持有收益冒充实绩 → 归零
+        actual_accuracy = 0.0
+        avg_return = 0.0
+    else:
+        actual_accuracy = round(len(perf_profits) / len(perf_total) * 100, 1) if perf_total else 0
+        avg_return = round(sum(p['change_pct'] for p in perf_total) / len(perf_total), 2) if perf_total else 0
 
     # 检测P0级问题
     p0_issues = detect_p0_issues(review_results, decision_results, fast_screen_stocks,
@@ -1210,6 +1221,10 @@ def generate_report(days=7, output_file=None):
     all_idx_chgs = [v for v in index_changes.values() if v is not None]
     avg_index_return = round(sum(all_idx_chgs) / len(all_idx_chgs), 2) if all_idx_chgs else 0
 
+    # 空仓主导期：avg_return已归零，重算相对收益
+    if is_empty_majority:
+        avg_relative = round(0 - avg_index_return, 2)
+
     report += f"""
 |---
 
@@ -1261,10 +1276,10 @@ def generate_report(days=7, output_file=None):
 | 层级 | 关键指标 | 数值 | 评价 |
 |------|----------|------|------|
 | 快筛层 | 识别数量 | {fast_screen['total_predictions'] if fast_screen else 'N/A'}只 | {'充足' if fast_screen and fast_screen['total_predictions'] >= 15 else '偏少' if fast_screen else '无数据'} |
-| 审查层 | 升级市场准确率 | {review['upgrade_market_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_market_accuracy'] >= 60 else '良好' if review and review['upgrade_market_accuracy'] >= 40 else '待优化' if review else '无数据'} |
-| 审查层 | 升级评分维持率 | {review['upgrade_persistence_rate'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_persistence_rate'] >= 80 else '良好' if review and review['upgrade_persistence_rate'] >= 60 else '待优化' if review else '无数据'} |
-| 审查层 | 降级准确率 | {review['downgrade_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['downgrade_accuracy'] >= 80 else '良好' if review and review['downgrade_accuracy'] >= 60 else '待优化' if review else '无数据'} |
-| 决策层 | 空仓天数占比 | {decision['empty_accuracy'] if decision else 'N/A'}% | {'保守' if decision and decision['empty_accuracy'] >= 50 else '积极' if decision else '无数据'} |
+|| 审查层 | 升级市场准确率 | {review['upgrade_market_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_market_accuracy'] is not None and review['upgrade_market_accuracy'] >= 60 else '良好' if review and review['upgrade_market_accuracy'] is not None and review['upgrade_market_accuracy'] >= 40 else '待优化' if review else '无数据'} |
+|| 审查层 | 升级评分维持率 | {review['upgrade_persistence_rate'] if review else 'N/A'}% | {'优秀' if review and review['upgrade_persistence_rate'] is not None and review['upgrade_persistence_rate'] >= 80 else '良好' if review and review['upgrade_persistence_rate'] is not None and review['upgrade_persistence_rate'] >= 60 else '待优化' if review else '无数据'} |
+|| 审查层 | 降级准确率 | {review['downgrade_accuracy'] if review else 'N/A'}% | {'优秀' if review and review['downgrade_accuracy'] is not None and review['downgrade_accuracy'] >= 80 else '良好' if review and review['downgrade_accuracy'] is not None and review['downgrade_accuracy'] >= 60 else '待优化' if review else '无数据'} |
+|| 决策层 | 空仓天数占比 | {decision['empty_accuracy'] if decision else 'N/A'}% | {'保守' if decision and decision['empty_accuracy'] is not None and decision['empty_accuracy'] >= 50 else '积极' if decision else '无数据'} |
 
 ### P0级问题统计
 
@@ -1301,12 +1316,12 @@ def generate_report(days=7, output_file=None):
     if p0_count > 0:
         suggestions.append(f"P0: 发现{p0_count}个P0级问题，需立即处理（过热漏检/降级延迟等）")
     
-    if review and review['downgrade_accuracy'] < 80:
+    if review and review['downgrade_accuracy'] is not None and review['downgrade_accuracy'] < 80:
         suggestions.append("P1: 降级准确率偏低，建议优化降级触发条件，增加过热检测模块")
     
-    if review and review['upgrade_market_accuracy'] < 40:
+    if review and review['upgrade_market_accuracy'] is not None and review['upgrade_market_accuracy'] < 40:
         suggestions.append(f"P2: 升级市场准确率仅{review['upgrade_market_accuracy']}%，升级推荐的市场验证效果不佳，建议审查升级标准")
-    if review and review['upgrade_persistence_rate'] < 60:
+    if review and review['upgrade_persistence_rate'] is not None and review['upgrade_persistence_rate'] < 60:
         suggestions.append(f"P2: 升级评分维持率仅{review['upgrade_persistence_rate']}%，升级标的评分跨日稳定性不足，建议回顾评分一致性")
     
     if fast_screen and fast_screen['total_predictions'] < 10:
