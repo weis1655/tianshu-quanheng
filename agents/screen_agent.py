@@ -239,18 +239,19 @@ class ScreenAgent(BaseAgent):
                     except Exception:
                         pass
 
-            # 筛选：涨幅>5% + 换手>8% + 量比>1.5 + 振幅>5% + 市值>50亿 + 不在现有池中
+            # 筛选：涨幅>5% + 换手>8%(涨停股放宽到>3%) + 量比>1.5 + 振幅>5% + 市值>50亿 + 不在现有池中
             candidates = []
             for s in items:
                 code = str(s.get("f12", ""))
                 f3 = s.get("f3", 0)
-                chg_pct = f3 / 100.0 if abs(f3) > 100 else f3  # 东方财富有时返回乘100的值
-                # 无需过滤的：收盘后涨幅数据可能异常，盘中才准确
+                chg_pct = f3 / 100.0 if abs(f3) > 100 else f3
                 if chg_pct < 5.0:
                     continue
                 name = s.get("f14", "")
                 turnover = s.get("f6", 0) / 100.0 if abs(s.get("f6", 0)) > 100 else s.get("f6", 0)
-                if turnover < 8.0:
+                # 涨停/近涨停票换手可能很低但价值高，放宽到>3%
+                turn_threshold = 3.0 if chg_pct >= 9.5 else 8.0
+                if turnover < turn_threshold:
                     continue
                 vol_ratio = s.get("f8", 0) / 100.0 if abs(s.get("f8", 0)) > 100 else s.get("f8", 0)
                 if vol_ratio < 1.5:
