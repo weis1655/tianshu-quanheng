@@ -523,7 +523,7 @@ def extract_decision_results(filepath):
             if stock_tag in sec:
                 main_section = sec[:500]
                 break
-        pos_match = re.search(r'(?:单笔仓位|仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', main_section)
+        pos_match = re.search(r'(?:单笔仓位|(?<!总)仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', main_section)
         if pos_match:
             # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
             match_start = max(0, pos_match.start() - 10)
@@ -553,7 +553,7 @@ def extract_decision_results(filepath):
             if stock_tag in sec:
                 backup_section = sec[:500]
                 break
-        pos_match = re.search(r'(?:单笔仓位|仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', backup_section)
+        pos_match = re.search(r'(?:单笔仓位|(?<!总)仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', backup_section)
         if pos_match:
             # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
             match_start = max(0, pos_match.start() - 10)
