@@ -428,7 +428,7 @@ class ReviewAgent(BaseAgent):
         # 但原始flow_direction未同步更新，导致低分标的未降级
         _extra_demotions = []
         for sr in review_result.stocks:
-            if sr.composite_score < 60 and sr.flow_direction != "降级":
+            if sr.composite_score < 60:
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<60分阈值"
@@ -453,6 +453,43 @@ class ReviewAgent(BaseAgent):
             parsed_result.demotions.extend(_pool_cleanup)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
             print(f"[ReviewAgent] 🧹 候选池清理: {len(_pool_cleanup)} 只低分股已降级")
+
+        # ═══ P0-降级延迟修复：快筛候选池存量低分清扫（兜底）═══
+        # 因过滤/LLM遗漏仍未进入demotions的低分标的，直接扫描池文件降级
+        try:
+            cdata = self.pool_manager.load_pool("快筛候选池")
+            cstocks = cdata.get("stocks", [])
+            _keep = []
+            _to_demote = []
+            for s in cstocks:
+                raw_score = s.get("综合分")
+                score = float(raw_score) if raw_score is not None else 0
+                if 0 < score < 60:
+                    _to_demote.append(s)
+                else:
+                    _keep.append(s)
+            if _to_demote:
+                cdata["stocks"] = _keep
+                cdata["统计"]["持仓数"] = len(_keep)
+                cdata["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.pool_manager.save_pool("快筛候选池", cdata)
+                epool = self.pool_manager.load_pool("边缘池")
+                estocks = epool.get("stocks", [])
+                for item in _to_demote:
+                    estocks.append({
+                        "代码": item.get("代码", ""),
+                        "名称": item.get("名称", ""),
+                        "综合分": float(item.get("综合分", 0)) if isinstance(item.get("综合分"), (int, float)) else 0,
+                        "降级时间": datetime.now().strftime("%Y-%m-%d"),
+                        "降级原因": f"候选池存量清扫：综合分{item.get('综合分','?')} < 60",
+                    })
+                    print(f"[ReviewAgent] 🧹 候选池存量清扫: {item.get('名称','?')}({item.get('代码','?')}) {score}分<60 → 边缘池")
+                epool["stocks"] = estocks
+                epool["统计"]["累计进入"] = epool.get("统计", {}).get("累计进入", 0) + len(_to_demote)
+                self.pool_manager.save_pool("边缘池", epool)
+                print(f"[ReviewAgent] 🧹 候选池存量清扫: {len(_to_demote)} 只低分股已降级至边缘池")
+        except Exception:
+            pass
 
         # ML评分附录 — 追加到审查报告（2026-06-11）
         try:
