@@ -39,38 +39,12 @@ class PoolUpdater:
 
         new_stocks = []
         for name, code in matches[:2]:
-            # 防线一：准入分数校验（含质检门）
-            entry_score = None
-            if scored_stocks:
-                found = [s for s in scored_stocks if str(s.get("code", s.get("代码", ""))) == code]
-                if found:
-                    entry_score = int(found[0].get("score", 0))
-                    if entry_score < S_POOL_MIN_SCORE:
-                        print(f"[PoolUpdater] 🚫 {name}({code}) 评分 {entry_score} < {S_POOL_MIN_SCORE}, 拒绝入S级操作池")
-                        continue
-                else:
-                    # P0: 未在审查评分列表中→硬拒绝, 防LLM自行生成推荐绕过准入分检查
-                    print(f"[PoolUpdater] 🚫 {name}({code}) 未在审查评分列表中, 拒绝入S级操作池")
-                    continue
+            # 记事本模式：决策agent已跑完全流程审查，S池只做记录+价格检查
+            # 不再二次审查已通过的标的（防线一+质检门已下沉到决策agent+SkepticGate）
 
-            # ═══ A+B 重构：质检门（历史表现+市场状态+过热二次检测）═══
-            market_state = self._get_market_state()
-            gate_result = self.quality_gate.check(
-                name=name, code=code, score=entry_score or S_POOL_MIN_SCORE,
-                market_state=market_state,
-                decision_result=decision_result,
-                current_price=current_prices.get(code, 0),
-            )
-            if not gate_result["passed"]:
-                print(f"[PoolUpdater] 🚫 {name}({code}) 质检门拒绝: {gate_result['reason']}")
-                continue
-            # 使用质检门调整后的评分
-            adjusted_score = gate_result["adjusted_score"]
-
-            # 防线二：价格位置检查
+            # 价格位置检查（唯一保留的防线：防52周高位追涨）
             entry_price = current_prices.get(code, 0)
             if entry_price <= 0:
-                # 兜底：尝试单独获取该标的行情（不在现有池中的新推标的）
                 try:
                     from market_agent import to_api, fetch_quotes
                     q = fetch_quotes([to_api(code)])
@@ -83,21 +57,21 @@ class PoolUpdater:
                 print(f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
                 continue
 
-            # 防线三：新条目必带评分（使用质检门调整后评分）
+            # 新条目
             s = {
                 "代码": code,
                 "名称": name,
-                "综合分": adjusted_score,  # 质检门调整后的动态评分
+                "综合分": 0,  # 由决策agent确定，S池不再重复评分
                 "纳入日期": today,
                 "驱动来源": "决策主推",
                 "核心逻辑": self._extract_logic_snippet(name, decision_result),
-                "入场价": current_prices.get(code, 0),
+                "入场价": entry_price,
                 "t1_验证": None,
                 "t3_验证": None,
                 "评价": None,
             }
             new_stocks.append(s)
-            print(f"[PoolUpdater] ✅ {name}({code}) 质检通过 → S级操作池 (评分: {adjusted_score})")
+            print(f"[PoolUpdater] ✅ {name}({code}) → S级操作池 (记事本模式)")
 
         self._check_s_pool_overlap(new_stocks)
 

@@ -68,7 +68,8 @@ class GateController:
                 if last_blocked != today_str:
                     s["blocked_count"] = s.get("blocked_count", 0) + 1
                     s["last_blocked_date"] = today_str
-                if s["blocked_count"] >= 3:
+                # 三振出局：阻塞≥2次 → 自动移入边缘池（无新催化事件的票不再重复审查）
+                if s["blocked_count"] >= 2:
                     s["_to_remove"] = True
                     demotions.append({
                         "代码": s_code,

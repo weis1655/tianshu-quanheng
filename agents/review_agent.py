@@ -391,8 +391,29 @@ class ReviewAgent(BaseAgent):
                 if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= 75:
                     sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
                     print(f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+                    # ML评分降级：LLM高分但ML低分，说明模型不认可
+                    if sr.flow_direction == "升级":
+                        sr.flow_direction = "降级"
+                        sr.target_pool = "边缘池"
+                        sr.core_logic += f" | 📉 ML{sr.ml_score}分<45，LLM高分背离，降级"
+                        print(f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
         except ImportError:
             pass
+        # ═══════════════════════════════════════════════════════════════════════
+
+        # ═══ ML评分前置拦截：升级重点池前先过ML阈值 ═══════════════
+        _ml_blocked = []
+        for sr in review_result.stocks:
+            if sr.ml_score is not None and sr.ml_score < 45 and sr.flow_direction == "升级":
+                sr.flow_direction = "降级"
+                sr.target_pool = "边缘池"
+                sr.core_logic += f" | 🚫 ML{sr.ml_score}分<45，前置拦截"
+                _ml_blocked.append(sr)
+                print(f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
+        if _ml_blocked:
+            parsed_result.demotions.extend(_ml_blocked)
+            self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
+            print(f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
         # ═══════════════════════════════════════════════════════════════════════
 
         # ═══ ML评分模型 — 并列显示（2026-06-11）═══════════════════════════

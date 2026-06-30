@@ -649,15 +649,108 @@ class DecisionAgent(BaseAgent):
 {result}
 
 ---
+|决策执行时间：{datetime.now().strftime('%H:%M')}
+"""
+
+        # ── 先写S级操作池（含质检），再从池反推报告 ──────────────
+        # 这样决策报告只反映真实落池的标的，池外标的不出现在报告中
+        self._update_s_pool(result, scored_stocks=scored_stocks or [])
+        
+        # 读取S级操作池今日进入的标的
+        pool_confirmed_codes = set()
+        s_pool_today_codes = set()
+        s_pool_path = self.pool_dir / 'S级操作池.json'
+        if s_pool_path.exists():
+            try:
+                s_data = json.loads(s_pool_path.read_text(encoding='utf-8'))
+                for h in s_data.get('历史记录', []):
+                    if h.get('日期') == today:
+                        for s in h.get('标的', []):
+                            if isinstance(s, dict) and s.get('代码'):
+                                pool_confirmed_codes.add(str(s['代码']))
+                                s_pool_today_codes.add(str(s['代码']))
+            except Exception:
+                pass
+        # 同时也读重点观察池中的标的（长效跟踪）
+        kw_pool_path = self.pool_dir / '重点观察池.json'
+        kw_data = {'stocks': []}
+        if kw_pool_path.exists():
+            try:
+                kw_data = json.loads(kw_pool_path.read_text(encoding='utf-8'))
+                for s in kw_data.get('stocks', []):
+                    code = str(s.get('代码', ''))
+                    if code:
+                        pool_confirmed_codes.add(code)
+            except Exception:
+                pass
+        
+        # 从result中移除未落池的【主推】标的
+        if pool_confirmed_codes:
+            import re as _re2
+            main_in_result = _re2.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", result)
+            codes_to_remove = {mc[1] for mc in main_in_result if mc[1] not in pool_confirmed_codes}
+            if codes_to_remove:
+                new_lines, skip = [], False
+                for line in result.split("\n"):
+                    rm = _re2.match(r"###?\s*【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", line)
+                    if rm and rm.group(2) in codes_to_remove:
+                        skip = True
+                        continue
+                    if skip and (line.startswith("###") or line.startswith("---")):
+                        skip = False
+                        if line.startswith("###"):
+                            new_lines.append(line)
+                        continue
+                    if not skip:
+                        new_lines.append(line)
+                result = "\n".join(new_lines)
+        elif result and ('【主推】' in result or '【备选】' in result):
+            # 池全空（全部被S池拒绝+重点池也空），清空result展示空仓
+            if '空仓' not in result and '不操作' not in result:
+                result_lines = result.split('\n')
+                filtered = []
+                skip = False
+                for line in result_lines:
+                    if line.startswith('###') or line.startswith('---'):
+                        skip = False
+                    if skip:
+                        continue
+                    if re.search(r'【主推】|【备选】', line):
+                        skip = True
+                        continue
+                    if not line.startswith('###') and not line.startswith('---') and '━━' not in line:
+                        filtered.append(line)
+                result = '\n'.join([l for l in filtered if l.strip()]) or '📭 今日S级操作池：无标的通过质检'
+
+        # 格式化报告
+        s_pool_today = len(s_pool_today_codes)  # S池今日进入
+        kw_count = len(kw_data.get('stocks', []))
+        report = f"""# 【决策报告】{today}
+
+━━━━━━━━━━━━━━━━
+
+## 指数环境判断
+
+### 今日行情
+{market_env}
+
+---
+
+{result}
+
+---
+
+### 📋 池联动确认
+- **S级操作池**: {s_pool_today}只今日主推标的
+- **重点观察池**: {kw_count}只持续跟踪中
+- **报告说明**: 本报告标的均来自S级操作池和重点观察池，池外推荐不展示
+---
 决策执行时间：{datetime.now().strftime('%H:%M')}
 """
 
         # 保存
         out_file = self.history_dir / f"{today}_决策报告.md"
         self.safe_write_text(out_file, report)
-
-        # S级操作池：从决策报告中提取"【主推】"标的，写入 S级操作池
-        self._update_s_pool(result, scored_stocks=scored_stocks)
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
         report = self.track_recorder.record_s_pool_eval(report, out_file)

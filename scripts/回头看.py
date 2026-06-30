@@ -485,6 +485,8 @@ def extract_decision_results(filepath):
         'date': parse_date_from_filename(os.path.basename(filepath)),
         'source_file': filepath,
         'is_empty': False,
+        'is_blocked': False,
+        'pool_confirmed': True,  # 默认True，后续交叉验证
         'main_stocks': [],
         'backup_stocks': [],
         'reason': '',
@@ -496,6 +498,10 @@ def extract_decision_results(filepath):
     # 检查空仓决策
     if re.search(r'(空仓|暂无.*股票|建议空仓|空仓等待)', content):
         result['is_empty'] = True
+    
+    # 检查阻塞（质疑报告缺失、无法制定执行计划等）
+    if re.search(r'(无法制定执行计划|等待质疑审查报告|质疑审查报告缺失|无法执行|⏸️)', content):
+        result['is_blocked'] = True
     
     # === 多格式主推提取 ===
     format_version = 'unknown'
@@ -514,15 +520,24 @@ def extract_decision_results(filepath):
             format_version = 'v1-fallback-1'
     
     for name, code in mains:
-        #  在主推段落中找仓位：按 ### 分块后，在对应股票块内搜索
+        #  在主推段落中找仓位：按 ### 分块后，优先找含该股票名+单笔仓位的段落
         main_section = content[:300]  # fallback
-        # 找到该股票所在的 ### 块
-        stock_tag = f'{code}'
         sections = re.split(r'(?m)^###\s+', content)
-        for sec in sections:
-            if stock_tag in sec:
-                main_section = sec[:500]
-                break
+        candidates = []
+        for i, sec in enumerate(sections):
+            # 匹配：段落同时包含股票名称和单笔仓位/执行方案
+            if name[:2] in sec and code in sec and ('单笔仓位' in sec or '执行方案' in sec):
+                candidates.append((i, sec))
+        if candidates:
+            # 取最短的候选段（最精确匹配）
+            candidates.sort(key=lambda x: len(x[1]))
+            main_section = candidates[0][1][:500]
+        else:
+            # fallback: 找包含此代码的任意段
+            for sec in sections:
+                if code in sec:
+                    main_section = sec[:500]
+                    break
         pos_match = re.search(r'(?:单笔仓位|(?<!总)仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', main_section)
         if pos_match:
             # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
@@ -534,25 +549,34 @@ def extract_decision_results(filepath):
         result['main_stocks'].append({'name': name.strip(), 'code': code, 'position': pos})
     
     # === 多格式备选提取 ===
-    # 格式1: ### 【备选观察】名称(代码)
-    backups = re.findall(r'###\s*【备选观察】\s*([^\n（]+)[（(](\d{6})[）)]', content)
+    # 格式1: ### 【备选】名称(代码)（天枢最新格式）
+    backups = re.findall(r'###\s*【备选】\s*([^\n（]+)[（(](\d{6})[）)]', content)
     
-    # 格式2: 【备选观察】名称(代码)（无###）
+    # 格式2: ### 【备选观察】名称(代码)
+    if not backups:
+        backups = re.findall(r'###\s*【备选观察】\s*([^\n（]+)[（(](\d{6})[）)]', content)
+    
+    # 格式3: 【备选观察】名称(代码)（无###）
     if not backups:
         backups = re.findall(r'^【备选观察】\s*([^\n（]+)[（(](\d{6})[）)]', content, re.MULTILINE)
     
-    # 格式3: 备选观察名称(代码)（无【】方括号）
+    # 格式4: 备选观察名称(代码)（无【】方括号）
     if not backups:
         backups = re.findall(r'备选观察\s*[:：]?\s*([^\n（]+)[（(](\d{6})[）)]', content)
     
     for name, code in backups:
         backup_section = content[:200]  # fallback
-        stock_tag = f'{code}'
+        stock_tag = f'({code})'
         sections = re.split(r'(?m)^###\s+', content)
         for sec in sections:
-            if stock_tag in sec:
+            if stock_tag in sec and ('单笔仓位' in sec or '执行方案' in sec or '止损' in sec):
                 backup_section = sec[:500]
                 break
+        else:
+            for sec in sections:
+                if code in sec:
+                    backup_section = sec[:500]
+                    break
         pos_match = re.search(r'(?:单笔仓位|(?<!总)仓位)[：:]?\s*(\d+)%\s*(?!仓位|总|整体)', backup_section)
         if pos_match:
             # 确认匹配段不包含涨幅、权重、百分比等干扰上下文
@@ -575,6 +599,47 @@ def extract_decision_results(filepath):
     if reason:
         result['reason'] = reason
     
+    # ── 方案A：五池交叉验证 ──────────────────────────────
+    # 读取S级操作池和重点观察池，确认推荐标的是否真实落池
+    date_str = result.get('date', '')
+    if date_str and (result['main_stocks'] or result['backup_stocks']):
+        pool_codes = set()
+        for pool_name in ['S级操作池', '重点观察池']:
+            pool_path = cfg.pools_dir / f'{pool_name}.json'
+            if pool_path.exists():
+                try:
+                    pool_data = json.loads(pool_path.read_text(encoding='utf-8'))
+                    # 检查历史记录中对应当日的标的
+                    for h in pool_data.get('历史记录', []):
+                        if h.get('日期') == date_str:
+                            for s in h.get('标的', []):
+                                if isinstance(s, dict) and s.get('代码'):
+                                    pool_codes.add(str(s['代码']))
+                                elif isinstance(s, str):
+                                    pool_codes.add(s)
+                            if h.get('进入', 0) == 0:
+                                pass  # 当日池无新增，不增加pool_codes
+                    # 检查当前池中的标的（长效标的）
+                    for s in pool_data.get('stocks', []):
+                        code = str(s.get('代码', ''))
+                        if code:
+                            pool_codes.add(code)
+                except Exception:
+                    pass
+        if pool_codes:
+            all_stock_codes = {s['code'] for s in result['main_stocks']}
+            all_stock_codes |= {s['code'] for s in result['backup_stocks']}
+            confirmed = all_stock_codes & pool_codes
+            if confirmed != all_stock_codes:
+                result['pool_confirmed'] = False
+                missing = all_stock_codes - pool_codes
+                for s in result['main_stocks']:
+                    if s['code'] in missing:
+                        s['pool_note'] = '未落池'
+                for s in result['backup_stocks']:
+                    if s['code'] in missing:
+                        s['pool_note'] = '未落池'
+
     # 标记格式完整性
     result['_format'] = format_version
     result['_completeness'] = 'full' if (result['main_stocks'] or result['is_empty']) else 'partial'
@@ -835,13 +900,16 @@ def calculate_decision_accuracy(files, review_results, trading_days):
     all_results = []
     empty_days = 0
     execute_days = 0
+    blocked_days = 0
     empty_reasons = []
-    
+
     for filepath in files['决策']:
         results = extract_decision_results(filepath)
         for r in results:
             all_results.append(r)
-            if r['is_empty']:
+            if r['is_blocked']:
+                blocked_days += 1
+            elif r['is_empty']:
                 empty_days += 1
                 empty_reasons.append(r.get('reason', '')[:100])
             else:
@@ -854,6 +922,7 @@ def calculate_decision_accuracy(files, review_results, trading_days):
         'total_days': total_days,
         'empty_days': empty_days,
         'execute_days': execute_days,
+        'blocked_days': blocked_days,
         'empty_accuracy': empty_accuracy,
         'empty_reasons': empty_reasons,
         'details': all_results
@@ -935,6 +1004,31 @@ def generate_report(days=7, output_file=None):
                     performance_map.setdefault(key, perf)
 
     save_price_cache()
+
+    # ── 全量决策日志自动T+3验证 ──────────────────────────────
+    # 扫描 decision_log.json 中未验证的条目，补充回performance_map
+    decision_log_path = BASE_DIR / 'decision_log.json'
+    if decision_log_path.exists():
+        try:
+            import json as _json
+            log_data = _json.loads(decision_log_path.read_text(encoding='utf-8'))
+            unverified = [e for e in log_data if e.get('actual_pnl') is None and e.get('code') and e.get('date')]
+            for entry in unverified:
+                key = f"{entry['code']}_{entry['date']}"
+                if key in performance_map:
+                    continue  # 已验证过
+                perf = verify_recommendation(entry['code'], entry['date'], hold_days=3)
+                if perf:
+                    performance_map[key] = perf
+                    # 写回决策日志
+                    entry['actual_pnl'] = perf['change_pct']
+                    entry['actual_change'] = perf['change_pct']
+                    print(f"[回头看] 🔄 自动验证: {entry['name']}({entry['code']}) {entry['date']} → {perf['change_pct']:+.2f}%")
+            decision_log_path.write_text(_json.dumps(log_data, ensure_ascii=False, indent=2), encoding='utf-8')
+            if unverified:
+                print(f"[回头看] ✅ 全量决策日志T+3验证: {len(unverified)} 条新验证")
+        except Exception as e:
+            print(f"[回头看] ⚠️ 全量决策日志验证失败: {e}")
 
     # 审查层准确率（传入 performance_map + review_results 做真实行情验证）
     review = calculate_review_accuracy(files, trading_days, performance_map=performance_map)
@@ -1161,6 +1255,7 @@ def generate_report(days=7, output_file=None):
 | 总交易日 | {decision['total_days']}天 |
 | 空仓天数 | {decision['empty_days']}天 |
 | 执行天数 | {decision['execute_days']}天 |
+| 阻塞天数 | {decision.get('blocked_days', 0)}天 |
 | 空仓准确率 | {decision['empty_accuracy']}% |
 
 ### 空仓理由摘要
@@ -1172,13 +1267,19 @@ def generate_report(days=7, output_file=None):
         report += f"""
 ### 详细记录
 
-| 日期 | 决策类型 | 主推标的 | 仓位 | 备选标的 |
-|------|----------|----------|------|----------|
+| 日期 | 决策类型 | 主推标的 | 仓位 | 备选标的 | 落池确认 |
+|------|----------|----------|------|----------|----------|
 """
         for d in decision['details']:
-            decision_type = "空仓" if d['is_empty'] else "执行"
+            if d.get('is_blocked'):
+                decision_type = "阻塞"
+            elif d['is_empty']:
+                decision_type = "空仓"
+            else:
+                decision_type = "执行"
             main_str = ", ".join([f"{s['name']}({s['position']}%)" for s in d['main_stocks']]) or "无"
             backup_str = ", ".join([f"{s['name']}({s['position']}%)" for s in d['backup_stocks']]) or "无"
+            pool_ok = "✅" if d.get('pool_confirmed', True) else "⚠️"
             # 标记被 SkepticGate 阻塞的主推标的
             date = d.get('date', '')
             blocked_today = blocked_map.get(date, set())
@@ -1190,7 +1291,7 @@ def generate_report(days=7, output_file=None):
                 else:
                     main_str_filtered.append(f"{s['name']}({s['position']}%)")
             main_display = ", ".join(main_str_filtered) or "无"
-            report += f"| {d['date']} | {decision_type} | {main_display} | - | {backup_str} |\n"
+            report += f"| {d['date']} | {decision_type} | {main_display} | - | {backup_str} | {pool_ok} |\n"
     else:
         report += "⚠️ 未找到决策报告数据\n"
     

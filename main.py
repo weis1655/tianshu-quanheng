@@ -291,9 +291,12 @@ def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
 
     # 决策结果
     if "decision" in results and results["decision"].get("success"):
+        decision_report = results["decision"].get("saved_to", "")
+        decision_msg = "✅ 决策完成" if decision_report else "✅ 跳过（弱市不操作）"
+        report_link = f"📄 {decision_report.split('/')[-1]}" if decision_report else ""
         card["elements"].append({
             "tag": "markdown",
-            "content": f"### 💡 决策方案\n✅ 决策完成\n📄 {results['decision']['saved_to'].split('/')[-1]}"
+            "content": f"### 💡 决策方案\\n{decision_msg}\\n{report_link}"
         })
 
     # 五池状态
@@ -712,30 +715,39 @@ def main():
             except Exception as e:
                 print(f"  ⚠️ 【截断检测】读取审查报告失败: {e}")
 
-        # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
-        pools = orch.get_pools()
-        if not check_circuit_breaker("skeptic"):
-            print(f"[熔断器] ⛔ skeptic 熔断，跳过")
-            r_skeptic = {}
+        # ── 弱市跳过Skeptic+Decision ─────────────────────────
+        _ms = ReviewAgent()._get_market_state()
+        if _ms.get("state", "") in ("震荡偏弱", "偏空"):
+            print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，跳过Skeptic+Decision阶段")
+            results["skeptic"] = {"success": True, "skipped": True, "reason": "weak_market"}
+            results["decision"] = {"success": True, "report": "弱市不操作"}
+            record_success("skeptic")
+            record_success("decision")
         else:
-            r_skeptic = run_phase("skeptic", pools, wake_ctx=wake_ctx)
-        if _graceful_shutdown:
-            print("[守护] 已中断")
-            return results
-        results.update(r_skeptic)
-        record_success("skeptic") if results.get("skeptic", {}).get("success") else record_failure("skeptic")
+            # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
+            pools = orch.get_pools()
+            if not check_circuit_breaker("skeptic"):
+                print(f"[熔断器] ⛔ skeptic 熔断，跳过")
+                r_skeptic = {}
+            else:
+                r_skeptic = run_phase("skeptic", pools, wake_ctx=wake_ctx)
+            if _graceful_shutdown:
+                print("[守护] 已中断")
+                return results
+            results.update(r_skeptic)
+            record_success("skeptic") if results.get("skeptic", {}).get("success") else record_failure("skeptic")
 
-        pools = orch.get_pools()
-        if not check_circuit_breaker("decision"):
-            print(f"[熔断器] ⛔ decision 熔断，跳过")
-            r_decision = {}
-        else:
-            r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
-        if _graceful_shutdown:
-            print("[守护] 已中断")
-            return results
-        results.update(r_decision)
-        record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
+            pools = orch.get_pools()
+            if not check_circuit_breaker("decision"):
+                print(f"[熔断器] ⛔ decision 熔断，跳过")
+                r_decision = {}
+            else:
+                r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
+            if _graceful_shutdown:
+                print("[守护] 已中断")
+                return results
+            results.update(r_decision)
+            record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
 
         # ── P3：边缘池清理（决策阶段后自动执行）────────────────────
         print(f"\n{'='*40}")

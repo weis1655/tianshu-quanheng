@@ -39,7 +39,17 @@ from market_agent import fetch_quotes, calculate_technical_score, to_api
 
 ROLE_PROMPT = """你是一个短线选股专家，根据新闻驱动筛选股票。
 
-⚠️ 硬性约束（违反即淘汰）：
+⚠️ **输出格式严格约束（违反即淘汰）：**
+- 只输出筛选结果，每行一条 `- 名称（代码）- 理由`
+- 不要输出你的思考过程、不要评论数据是否完整、不要解释为什么选或不选
+- 不要写"我没有实时数据""我根据常识""我需要筛选"等元评论
+- 如果你不知道某个数据，假设它符合条件后基于逻辑推荐
+
+**绝对禁止：**
+- 不要写"我注意到""我认为""我需要""从新闻来看"等第一人称表述
+- 不要写学习过程或推理步骤
+- 直接给出候选股票列表
+
 1. PE_TTM 必须 >0 且 <50（亏损股和高估值泡沫股直接排除）
 2. 换手率必须 >1%（低流动性标的排除）
 3. 流通市值必须 >5亿
@@ -213,6 +223,7 @@ class ScreenAgent(BaseAgent):
 
     def _scan_technical_signals(self) -> list:
         """技术面补位扫描：从东方财富获取涨幅榜，筛选量价异动但未在池中的标的"""
+        pooled_codes = set()
         try:
             import json, urllib.request
             today = datetime.now().strftime("%Y-%m-%d")
@@ -277,6 +288,34 @@ class ScreenAgent(BaseAgent):
 
         except Exception as e:
             print(f"[技术面补位] ⚠️ 扫描失败: {e}")
+            # fallback：尝试新浪财经涨幅榜
+            try:
+                print(f"[技术面补位] 🔄 降级到新浪接口...")
+                import json, urllib.request
+                url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=30&sort=changepercent&asc=0&node=hs_a&symbol=&_=1"
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    raw = resp.read().decode("gbk", errors="replace")
+                fallback_data = json.loads(raw) if raw.startswith("[") else []
+                cand = []
+                for s in fallback_data:
+                    code = s.get("code", "")
+                    if code in pooled_codes:
+                        continue
+                    chg = float(s.get("changepercent", 0))
+                    turnover = float(s.get("turnover", 0))
+                    vol_ratio = float(s.get("volume_ratio", 0))
+                    amplitude = float(s.get("amplitude", 0))
+                    if chg >= 5 and turnover >= 3 and vol_ratio >= 1.5 and amplitude >= 5:
+                        name = s.get("name", "?")
+                        reason = f"量价异动(新浪): 涨{chg:.1f}%+换手{turnover:.1f}%+量比{vol_ratio:.1f}"
+                        cand.append({"code": code, "name": name, "chg_pct": chg, "reason": reason})
+                if cand:
+                    print(f"[技术面补位] 📊 新浪fallback 发现 {len(cand)} 只异动标的: {[s['name'] for s in cand[:3]]}")
+                    return cand[:5]
+                print(f"[技术面补位] 📭 新浪fallback 无结果")
+            except Exception as e2:
+                print(f"[技术面补位] ❌ 新浪fallback也失败: {e2}")
             return []
 
     def _parse_screen_result(self, raw_text: str) -> List[StockCandidate]:
