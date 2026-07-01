@@ -292,11 +292,16 @@ def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
     # 决策结果
     if "decision" in results and results["decision"].get("success"):
         decision_report = results["decision"].get("saved_to", "")
-        decision_msg = "✅ 决策完成" if decision_report else "✅ 跳过（弱市不操作）"
-        report_link = f"📄 {decision_report.split('/')[-1]}" if decision_report else ""
+        express_note = results["decision"].get("express_note", "")
+        if express_note:
+            decision_msg = "🟡 弱市极速审查（有高分标的）"
+            report_link = express_note.replace("\\n", "\\\\n")
+        else:
+            decision_msg = "✅ 决策完成" if decision_report else "✅ 跳过（弱市不操作）"
+            report_link = f"📄 {decision_report.split('/')[-1]}" if decision_report else ""
         card["elements"].append({
             "tag": "markdown",
-            "content": f"### 💡 决策方案\\n{decision_msg}\\n{report_link}"
+            "content": f"### 💡 决策方案\\\\n{decision_msg}\\\\n{report_link}"
         })
 
     # 五池状态
@@ -715,14 +720,47 @@ def main():
             except Exception as e:
                 print(f"  ⚠️ 【截断检测】读取审查报告失败: {e}")
 
-        # ── 弱市跳过Skeptic+Decision ─────────────────────────
+        # ── 弱市极速模式（P2-1：非完全跳过）─────────────────────
         _ms = ReviewAgent()._get_market_state()
         if _ms.get("state", "") in ("震荡偏弱", "偏空"):
-            print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，跳过Skeptic+Decision阶段")
-            results["skeptic"] = {"success": True, "skipped": True, "reason": "weak_market"}
-            results["decision"] = {"success": True, "report": "弱市不操作"}
-            record_success("skeptic")
-            record_success("decision")
+            # 先检查重点池中是否有≥85分的极致标的
+            key_pool_file = PROJECT_ROOT / "五池管理" / "重点观察池.json"
+            urgent_candidates = []
+            if key_pool_file.exists():
+                try:
+                    pool_data = json.loads(key_pool_file.read_text(encoding="utf-8"))
+                    for s in pool_data.get("stocks", []):
+                        score = s.get("综合评分") or s.get("score", 0)
+                        try:
+                            if float(score) >= 85:
+                                urgent_candidates.append(s)
+                        except (ValueError, TypeError):
+                            pass
+                except Exception:
+                    pass
+
+            if urgent_candidates and len(urgent_candidates) <= 3:
+                names = [s.get("名称", "?") for s in urgent_candidates]
+                print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，发现{len(urgent_candidates)}只≥85分标的，进入极速审查模式")
+                results["skeptic"] = {
+                    "success": True, "skipped": True, "reason": "weak_market_express",
+                    "note": f"弱市极速审查：{', '.join(names)}评分≥85",
+                    "urgent_candidates": [{"code": s.get("代码",""), "name": s.get("名称",""),
+                                           "score": s.get("综合评分",0)} for s in urgent_candidates]
+                }
+                results["decision"] = {
+                    "success": True, "report": "弱市不操作",
+                    "express_note": f"📉 市场偏弱建议空仓，但以下标的评分≥85可关注：\\n" +
+                                    "\\n".join([f"  • {s.get('名称','?')}({s.get('代码','?')}) {s.get('综合评分',0)}分" for s in urgent_candidates])
+                }
+                record_success("skeptic")
+                record_success("decision")
+            else:
+                print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，无≥85分极致标的，跳过Skeptic+Decision阶段")
+                results["skeptic"] = {"success": True, "skipped": True, "reason": "weak_market"}
+                results["decision"] = {"success": True, "report": "弱市不操作"}
+                record_success("skeptic")
+                record_success("decision")
         else:
             # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
             pools = orch.get_pools()

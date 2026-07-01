@@ -96,7 +96,7 @@ OVERHEAT_W4_SCORE = 70             # 评分 >=70
 # ═══════════════════════════════════════════════════════════════
 POOL_CAPACITY_FAST_SCREEN = 20     # 快筛候选池
 POOL_CAPACITY_KEY_WATCH = 20       # 重点观察池
-POOL_CAPACITY_S_POOL = 2           # S级操作池（≤2，当日决策主推标的）
+POOL_CAPACITY_S_POOL = 3           # S级操作池（≤3，P2升级：原2只）
 POOL_CAPACITY_EDGE = 20            # 边缘池
 # 持仓池无上限（None）
 

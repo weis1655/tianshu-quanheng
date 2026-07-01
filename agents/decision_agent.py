@@ -407,8 +407,13 @@ class DecisionAgent(BaseAgent):
             if key_pool_file.exists():
                 key_pool_data = self.safe_read_json(key_pool_file, {})
                 if key_pool_data.get("stocks"):
+                    # ── P1-2: 读取裁决JSON用于首次high豁免 ──
+                    verdict_file = self.history_dir / f"{today}_质疑审查裁决.json"
+                    verdict_data = None
+                    if verdict_file.exists():
+                        verdict_data = self.safe_read_json(verdict_file, {})
                     key_pool_data, demotions, resets, modified = GateController.process_focus_pool_blocked_counts(
-                        key_pool_data, blocked_codes
+                        key_pool_data, blocked_codes, verdict_data
                     )
                     for dm in demotions:
                         edge = {
@@ -1267,7 +1272,7 @@ class DecisionAgent(BaseAgent):
         import json
         from pathlib import Path
         sm_file = self.root / "data" / "shared_memory.json"
-        result = {"state": "震荡", "sh_chg": 0, "s_pool_cap": 2, "suggestion": "标准"}
+        result = {"state": "震荡", "sh_chg": 0, "s_pool_cap": 3, "suggestion": "标准（P2升级：容量3）"}
         if sm_file.exists():
             try:
                 with open(sm_file) as f:
@@ -1279,20 +1284,20 @@ class DecisionAgent(BaseAgent):
                         result["sh_chg"] = sh_chg
                         if sh_chg > 1:
                             result["state"] = "偏多"
-                            result["s_pool_cap"] = 2       # 上涨市维持2只
+                            result["s_pool_cap"] = 3       # P2升级：3只
                             result["suggestion"] = "积极，关注科技+券商"
                         elif sh_chg > 0:
                             result["state"] = "震荡偏强"
-                            result["s_pool_cap"] = 2
+                            result["s_pool_cap"] = 3       # P2升级：3只
                             result["suggestion"] = "谨慎积极"
                         elif sh_chg > -1:
                             result["state"] = "震荡偏弱"
-                            result["s_pool_cap"] = 1        # 弱势减少推荐
+                            result["s_pool_cap"] = 2        # P2升级：2只（原1只）
                             result["suggestion"] = "防御为主，关注高股息"
                         else:
                             result["state"] = "偏空"
-                            result["s_pool_cap"] = 0         # 跌市不推荐
-                            result["suggestion"] = "空仓观望，不推S级"
+                            result["s_pool_cap"] = 1         # P2升级：1只（原0只）
+                            result["suggestion"] = "严格风控，仅极优标的"
             except Exception:
                 pass
         return result
