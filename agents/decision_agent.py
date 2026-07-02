@@ -398,6 +398,16 @@ class DecisionAgent(BaseAgent):
             if dup_in_picks:
                 print(f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
             # 如果过滤后为空，走正常空仓逻辑（不是硬返回，让后续逻辑决定）
+        # ── P0: 构建重复推荐警告，注入LLM prompt ──────────────
+        dup_warning = ""
+        if dup_names:
+            dup_warning = (
+                f"\n\n## 🚫 7日内已推荐标的（禁止重复推荐）\n"
+                f"以下标的在最近7天内已被推荐或提及，不得再次推荐（系统硬约束）：\n"
+                + ", ".join(sorted(dup_names))
+                + "\n\n严禁在本报告中再次输出这些标的的【主推】或【备选】方案。\n"
+            )
+            print(f"[重复推荐] ✋ {len(dup_names)} 只标的7日内已推荐，已注入LLM硬约束")
         # ═══════════════════════════════════════════════════════════════════════
 
         # ── 二审制Gate：阻塞标的计数 + 连续3次自动降级 ──
@@ -514,6 +524,9 @@ class DecisionAgent(BaseAgent):
         # ── P0-3：S级操作池优先注入（LLM可见）───────────────
         if s_pool_section:
             header_parts.append(s_pool_section)
+        # ── P0-重复推荐警告注入 ────────────────────────────
+        if dup_warning:
+            header_parts.append(dup_warning)
         # ────────────────────────────────────────────────────
         header_parts.append("请基于以上数据制定执行方案。\n")
         header_parts.append(USER_PROMPT_TEMPLATE.format(
@@ -762,6 +775,9 @@ class DecisionAgent(BaseAgent):
 
         # P1-3: 记录决策日志（含可验证假设，从五池直取核心逻辑兜底）
         self._record_to_evo(scored_stocks, result, review_report, pools=pools)
+
+        # ── P0: 推荐追踪器——记录每日推荐 ───────────────────────
+        self._record_recommendation_tracker(today, result)
 
         # 生成汇总报告
         self._generate_summary(today)
@@ -1377,6 +1393,48 @@ class DecisionAgent(BaseAgent):
         # 传入 scored_stocks 供防线一/三校验评分
         self.pool_updater.update_s_pool(decision_result, scored_stocks=scored_stocks or [])
         self.logger.pool_operation("S级操作池", "sync", count=0)
+
+    # ── P0: 推荐追踪器 ──
+    def _record_recommendation_tracker(self, today: str, result: str):
+        """记录每日推荐标的到追踪器，用于后续执行状态跟踪和冷却期判断。"""
+        import json
+        import re
+        tracker_path = self.root / "data" / "recommendation_tracker.json"
+        
+        # 读取已有记录
+        try:
+            if tracker_path.exists():
+                with open(tracker_path) as f:
+                    records = json.load(f)
+            else:
+                records = []
+        except Exception:
+            records = []
+        
+        # 从 result 中提取推荐标的
+        new_entries = []
+        m_list = re.findall(r"(【主推】|【备选】)\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", result)
+        for tag, name, code in m_list:
+            tag_str = "主推" if "主推" in tag else "备选"
+            entry = {
+                "date": today,
+                "code": code,
+                "name": name,
+                "type": tag_str,
+                "status": "待执行",
+                "recorded_at": datetime.now().strftime("%H:%M"),
+            }
+            new_entries.append(entry)
+            records.append(entry)
+        
+        if new_entries:
+            # 写回
+            tracker_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tracker_path, "w", encoding="utf-8") as f:
+                json.dump(records, f, ensure_ascii=False, indent=2)
+            print(f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
+        else:
+            print(f"[推荐追踪器] ℹ️ {today}无推荐标的（空仓/无匹配）")
 
     def _build_empty_decision(self, today: str, pools: dict,
                                market_env: str, reason: str,

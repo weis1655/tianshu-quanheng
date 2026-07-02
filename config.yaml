@@ -130,7 +130,8 @@ features:
 ## 自动迭代配置
 auto_heal:
   # 超时设置
-  timeout_minutes: 10
+  timeout_minutes: 15
+  total_timeout_minutes: 45
   max_retries: 3
 
   # 修复约束

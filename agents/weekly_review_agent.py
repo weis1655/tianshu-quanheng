@@ -95,6 +95,8 @@ class WeeklyReviewAgent:
 
     # 边缘池回归规则（P1-1）
     EDGE_POOL_REGRESSION_DAYS = 14  # 边缘池停留≥14天且有新催化 → 回归快筛候选池
+    # 边缘池陈旧淘汰规则（P2）
+    EDGE_POOL_STALE_DAYS = 30       # 边缘池停留≥30天 → 彻底淘汰
 
     # ─────────────────────────────────────────────
     # 1. 池卫生检查（0次LLM）
@@ -192,6 +194,15 @@ class WeeklyReviewAgent:
                     "days": days,
                     "action": "回归候选池",
                     "reason": f"在边缘池已{days}天(≥{self.EDGE_POOL_REGRESSION_DAYS}天)，建议回归快筛候选池重新审查"
+                })
+            # ── P2: 边缘池30天彻底淘汰 ──────────────────────
+            elif days >= self.EDGE_POOL_STALE_DAYS:
+                actions.append({
+                    "pool": "边缘池",
+                    "stock": s,
+                    "days": days,
+                    "action": "彻底淘汰",
+                    "reason": f"在边缘池已{days}天(≥{self.EDGE_POOL_STALE_DAYS}天)，无回归价值，彻底淘汰"
                 })
 
         report.append(f"## 🧹 池卫生检查")
@@ -573,6 +584,54 @@ class WeeklyReviewAgent:
 
         # 合并报告
         all_lines = []
+        
+        # ── P1: 自动ML重训（每周复盘触发）─────────────────────
+        if not dry_run:
+            print("  🤖 触发ML模型自动重训...")
+            try:
+                import subprocess
+                # Step1: 拉最新数据
+                r1 = subprocess.run(
+                    ["python3", "scripts/ml_scoring_model.py"],
+                    cwd=self.root, capture_output=True, text=True, timeout=120
+                )
+                if r1.returncode == 0:
+                    n_records = "?"
+                    for line in r1.stdout.split("\n"):
+                        if "条" in line or "记录" in line:
+                            n_records = line.strip()
+                            break
+                    print(f"  ✅ ML数据拉取完成: {n_records}")
+                    all_lines.append(f"- 🤖 ML数据更新: {n_records}")
+                else:
+                    print(f"  ⚠️ ML数据拉取异常: {r1.stderr[-200:]}")
+                    all_lines.append(f"- ⚠️ ML数据更新失败: {r1.stderr[-100:]}")
+                    raise Exception("ML数据拉取失败")
+                    
+                # Step2: 重训模型
+                r2 = subprocess.run(
+                    ["python3", "scripts/ml_model_train.py"],
+                    cwd=self.root, capture_output=True, text=True, timeout=300
+                )
+                if r2.returncode == 0:
+                    # 提取准确率
+                    acc = "?"
+                    for line in r2.stdout.split("\n"):
+                        if "准确率" in line or "accuracy" in line.lower() or "Acc" in line:
+                            acc = line.strip()
+                            break
+                    print(f"  ✅ ML模型重训完成: {acc}")
+                    all_lines.append(f"- 🤖 ML模型重训: {acc}")
+                else:
+                    print(f"  ⚠️ ML重训异常: {r2.stderr[-200:]}")
+                    all_lines.append(f"- ⚠️ ML重训失败: {r2.stderr[-100:]}")
+            except subprocess.TimeoutExpired:
+                print("  ⚠️ ML重训超时(300s)，跳过")
+                all_lines.append("- ⚠️ ML重训超时，跳过")
+            except Exception as e:
+                print(f"  ⚠️ ML重训异常: {e}")
+                all_lines.append(f"- ⚠️ ML重训异常: {e}")
+        # ────────────────────────────────────────────────────────
         all_lines.extend(hygiene["report_lines"])
         all_lines.extend(verify["report_lines"])
         all_lines.extend(weights["report_lines"])

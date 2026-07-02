@@ -453,6 +453,7 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
              f"MATCH (file:File)-[:CONTAINS]->(f:Function) "
              f"WHERE {kw_pattern} "
              f"RETURN file.name, f.name LIMIT {cgc_max_results}"],
+            cwd=str(project),
             timeout=cgc_timeout,
         )
         if cgc_result.returncode == 0 and cgc_result.stdout.strip():
@@ -506,19 +507,14 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
         caller_query = f"MATCH (caller:Function)-[:CALLS]->(f:Function) WHERE f.name CONTAINS '{search_list[0]}' RETURN caller.name, caller.file LIMIT {cgc_max_results}"
         caller_result = _run_cmd(
             ["codegraphcontext", "query", caller_query],
+            cwd=str(project),
             timeout=cgc_timeout,
         )
         if caller_result.returncode == 0 and caller_result.stdout.strip():
             callers = caller_result.stdout.strip()
             code_context = f"\n## 调用上下文\n以下代码调用了相关函数：\n{callers}"
 
-    # 读取 CLAUDE.md 作为上下文
-    claude_md = project / "CLAUDE.md"
-    if claude_md.exists():
-        try:
-            code_context += f"\n## 修复规范（CLAUDE.md）\n{claude_md.read_text(encoding='utf-8')}\n"
-        except Exception as e:
-            logger.warning(f"[auto_heal]   ⚠️ 读取 CLAUDE.md 失败: {e}")
+    # CLAUDE.md 已移除（内容为人工审核规则，OpenCode 不需要）
 
     # ── 代码级诊断注入：已知问题类型的精确定位信息 ──────────────
     code_diagnosis = ""

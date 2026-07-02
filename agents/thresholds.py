@@ -97,7 +97,7 @@ OVERHEAT_W4_SCORE = 70             # 评分 >=70
 POOL_CAPACITY_FAST_SCREEN = 20     # 快筛候选池
 POOL_CAPACITY_KEY_WATCH = 20       # 重点观察池
 POOL_CAPACITY_S_POOL = 3           # S级操作池（≤3，P2升级：原2只）
-POOL_CAPACITY_EDGE = 20            # 边缘池
+POOL_CAPACITY_EDGE = 30            # 边缘池（P2升级：原20只）
 # 持仓池无上限（None）
 
 # 池容量字典（与 pool_manager.POOL_CAPACITY_LIMITS 保持一致）
@@ -169,3 +169,6 @@ DEDUP_HOURS = 48
 
 # 历史池最大保留量
 HISTORY_POOL_MAX_STOCKS = 200
+
+# 边缘池陈旧淘汰阈值（P2新增：入池>30天自动移除）
+EDGE_POOL_STALE_DAYS = 30
