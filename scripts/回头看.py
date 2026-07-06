@@ -990,6 +990,7 @@ def generate_report(days=7, output_file=None):
     blocked_map = load_skeptic_blocked_codes(trading_days)
 
     # 验证决策层主推标的（过滤被 SkepticGate 阻塞的标的）
+    unverified_count = 0
     for d in decision_results:
         if not d['is_empty'] and d.get('date'):
             date = d['date']
@@ -1002,6 +1003,8 @@ def generate_report(days=7, output_file=None):
                 if perf:
                     key = f"{code}_{date}"
                     performance_map.setdefault(key, perf)
+                else:
+                    unverified_count += 1
 
     save_price_cache()
 
@@ -1336,6 +1339,7 @@ def generate_report(days=7, output_file=None):
 | 验证推荐总数 | {len(perf_total)}只 |
 | 盈利标的 | {len(perf_profits)}只 |
 | 亏损标的 | {len(perf_total) - len(perf_profits)}只 |
+| 无法验证（退市/停牌） | {unverified_count}只 |
 || 实战准确率(3日后涨) | {actual_accuracy}% |
 | 平均收益 | {avg_return:+.2f}% |
 | 上证指数同期均值 | {avg_index_return:+.2f}% |

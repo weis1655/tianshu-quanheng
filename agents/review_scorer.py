@@ -10,34 +10,34 @@ from typing import Optional
 class OverheatDetector:
     """过热检测器 — 纯函数式静态方法，零LLM依赖
 
-    所有硬编码阈值集中为类常量，方便统一调参。
+    所有阈值引用 thresholds.py 集中常量，避免双定义漂移。
     返回 dict 或 None，不入池不调LLM。
     """
 
-    # ── CRITICAL 规则阈值 ────────────────────────────────────
-    CRITICAL_GAIN_PCT = 12        # 日涨幅 > 12% 触发critical检查
-    CRITICAL_PE_LIMIT = 80        # PE > 80 视为高估值
-    CRITICAL_TURNOVER_PCT = 12    # 换手率 > 12% 视为高换手
-    MONTHLY_GAIN_PCT = 25         # 月涨幅 > 25% 中期过热
-    QUARTERLY_GAIN_PCT = 50       # 季涨幅 > 50% 长期暴涨
+    # ── 规则阈值从 thresholds.py 导入（SSOT）──
+    from thresholds import (
+        OVERHEAT_CRITICAL_DAY_CHG as CRITICAL_GAIN_PCT,
+        OVERHEAT_CRITICAL_PE as CRITICAL_PE_LIMIT,
+        OVERHEAT_CRITICAL_TURNOVER as CRITICAL_TURNOVER_PCT,
+        OVERHEAT_CRITICAL_MONTH_CHG as MONTHLY_GAIN_PCT,
+        OVERHEAT_CRITICAL_QUARTER_CHG as QUARTERLY_GAIN_PCT,
+        OVERHEAT_W1_DAY_CHG as WARN1_GAIN_PCT,
+        OVERHEAT_W1_SCORE as WARN1_SCORE,
+        OVERHEAT_W2_DAY_CHG as WARN2_GAIN_PCT,
+        OVERHEAT_W3_DAY_CHG as WARN3_GAIN_PCT,
+        OVERHEAT_W3_VOL_RATIO as WARN3_VOLUME_RATIO,
+        OVERHEAT_W4_AMPLITUDE as WARN4_AMPLITUDE_PCT,
+        OVERHEAT_W4_MONTH_CHG as WARN4_MONTH_CHG_PCT,
+        OVERHEAT_W4_SCORE as WARN4_SCORE,
+    )
 
-    # ── WARNING 规则阈值 ─────────────────────────────────────
-    WARN1_GAIN_PCT = 8            # 涨幅 > 8% 触发warn-1
-    WARN1_SCORE = 75              # 评分 > 75 才触发warn-1
-    WARN2_GAIN_PCT = 10           # 涨幅 >= 10% 触发warn-2（边界修复：>= 而非 >）
-    WARN2_SCORE_FALLBACK = 70     # 新增：涨幅>8%且评分>70的独立WARNING（P0-过热漏检修复）
-    WARN3_GAIN_PCT = 5            # 涨幅 > 5% 触发warn-3
-    WARN3_VOLUME_RATIO = 3        # 量比 > 3 视为高位放量
-    WARN4_AMPLITUDE_PCT = 7       # 振幅 > 7% 高波动（RULE-7新增）
-    WARN4_MONTH_CHG_PCT = 15      # 月涨幅 > 15% 配合高波动
-    WARN4_SCORE = 70              # 评分 >= 70 才触发
-
-    # ── 惩罚分值 ─────────────────────────────────────────────
+    # ── 以下为OverheatDetector私有常量（thresholds.py无对应项）──
+    WARN2_SCORE_FALLBACK = 70     # 涨幅>8%且评分>70的独立WARNING
     PENALTY_CRITICAL = 30         # CRITICAL 扣30分
     PENALTY_WARN1 = 10            # WARNING-1 扣10分
     PENALTY_WARN2 = 5             # WARNING-2 扣5分
     PENALTY_WARN3 = 5             # WARNING-3 扣5分
-    PENALTY_WARN4 = 10            # WARNING-4 扣10分（高波动过热）
+    PENALTY_WARN4 = 10            # WARNING-4 扣10分
 
     # ── 严重程度标识 ─────────────────────────────────────────
     LEVEL_CRITICAL = "critical"

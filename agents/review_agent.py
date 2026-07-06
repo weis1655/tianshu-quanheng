@@ -449,7 +449,7 @@ class ReviewAgent(BaseAgent):
         # 但原始flow_direction未同步更新，导致低分标的未降级
         _extra_demotions = []
         for sr in review_result.stocks:
-            if sr.composite_score < 60 and sr.flow_direction != "降级":
+            if sr.composite_score < 65 and sr.flow_direction != "降级":
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<60分阈值"
@@ -464,7 +464,7 @@ class ReviewAgent(BaseAgent):
         # 扫描候选池中仍存在且评分<60的标的，强制迁入边缘池
         _pool_cleanup = []
         for sr in review_result.stocks:
-            if sr.composite_score is not None and sr.composite_score < 60 and sr.flow_direction not in ("降级", "淘汰"):
+            if sr.composite_score is not None and sr.composite_score < 65 and sr.flow_direction not in ("降级", "淘汰"):
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 残留低分清理：{sr.composite_score}分<60分阈值"
@@ -1129,9 +1129,9 @@ class ReviewAgent(BaseAgent):
                 sr.driver_level = _score_to_level(sr.composite_score)
                 print(f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
             
-            # ── P0-降级延迟修复：硬性降级阈值（<60分强制降级）─────────
-            # 解决奕东电子(41分)、兆易创新(46分)等低分未降级问题
-            if sr.composite_score < 60:
+            # ── P0-降级延迟修复：硬性降级阈值（<65分强制降级）─────────
+            # 解决LLM提示词降级区间55-64与代码盲区60-64对齐问题
+            if sr.composite_score < 65:
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 if sr.action_advice == "":

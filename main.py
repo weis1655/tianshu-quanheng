@@ -115,11 +115,19 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
         # 读取审查报告
         today = datetime.now().strftime("%Y-%m-%d")
         review_file = PROJECT_ROOT / "data" / "历史记录" / f"{today}_审查报告.md"
-        review_report = review_file.read_text(encoding="utf-8") if review_file.exists() else ""
+        review_report = ""
+        try:
+            review_report = review_file.read_text(encoding="utf-8") if review_file.exists() else ""
+        except Exception as e:
+            print(f"  ⚠️ 读取审查报告失败: {e}")
 
         # 读取重点观察池（二审制Gate：只质疑审查通过进入重点观察池的标的）
         pool_file = PROJECT_ROOT / "五池管理" / "重点观察池.json"
-        if not (pool_file.exists() and json.loads(pool_file.read_text(encoding="utf-8")).get("stocks")):
+        try:
+            has_stocks = pool_file.exists() and json.loads(pool_file.read_text(encoding="utf-8")).get("stocks")
+        except Exception:
+            has_stocks = False
+        if not has_stocks:
             # ⚠️ 无升级标的时跳过 Skeptic，避免宪法冲突
             # 详见：review无标的升级到重点池→重点池为空→静默降级候选池→LLM宪法冲突拒绝审查
             print("  ⏭️ 重点观察池为空（今日无review升级标的），跳过Skeptic阶段")
@@ -197,7 +205,10 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             
             skeptic_content = "".join(lines)
         
-        skeptic_file.write_text(skeptic_content, encoding="utf-8")
+        try:
+            skeptic_file.write_text(skeptic_content, encoding="utf-8")
+        except Exception as e:
+            print(f"  ⚠️ 写入质疑报告失败: {e}")
         print(f"  ✅ 完成（LLM调用: {LLM_CALL_COUNT}次） | 高风险: {r.get('high_risk_count', 0)}只")
 
     elif phase == "decision":
@@ -310,7 +321,15 @@ def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
     for name, data in pools.items():
         stocks = data.get("stocks", [])
         count = len(stocks) if stocks else 0
-        pool_lines.append(f"- **{name}**: {count}只")
+        if count > 0 and name in ("S级操作池", "重点观察池", "持仓池"):
+            names = "、".join(
+                f"{s.get('名称','?')}({s.get('代码','?')})" 
+                for s in stocks[:3]
+            )
+            suffix = f"（{names}）" if names else ""
+        else:
+            suffix = ""
+        pool_lines.append(f"- **{name}**: {count}只{suffix}")
     card["elements"].append({"tag": "markdown", "content": "\n".join(pool_lines)})
 
     # 底部
@@ -620,6 +639,11 @@ def main():
             print(f"  ✅ 快筛候选池: {len(refreshed_candidate)} 只已刷新（含存量降级扫描）")
         except Exception as e:
             print(f"  ⚠️ 快筛候选池刷新失败: {e}")
+        try:
+            refreshed_s_pool = pm.refresh_s_operation_prices()
+            print(f"  ✅ S级操作池: {len(refreshed_s_pool)} 只已刷新（含存量降级扫描）")
+        except Exception as e:
+            print(f"  ⚠️ S级操作池刷新失败: {e}")
         # ── 池价格刷新结束 ─────────────────────────────────
 
         # ── T+1 追踪数据采集 ─────────────────────────────

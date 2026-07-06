@@ -3,6 +3,7 @@
 """
 import json
 from datetime import datetime
+from thresholds import S_POOL_MIN_SCORE
 from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 
@@ -217,7 +218,7 @@ class GateController:
                 return {'allowed': False, 'reason': f'{target_pool}已达容量上限{max_cap}只'}
         # 2. 规则检查
         rules = {
-            'S级操作池': lambda s: int(s.get('score', s.get('综合评分', 0))) >= 80,
+            'S级操作池': lambda s: int(s.get('score', s.get('综合评分', 0))) >= S_POOL_MIN_SCORE,
             '重点观察池': lambda s: int(s.get('score', s.get('综合评分', 0))) >= 50,
             '持仓池': lambda s: True,
         }

@@ -19,7 +19,7 @@ import json
 import re
 import sys
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
 
@@ -189,16 +189,57 @@ class DecisionAgent(BaseAgent):
         expired_result = self.pool_manager.clean_expired_s_pool(max_age_days=1)
         # ── P0-2: S级过期标的→重点观察池（保留回流机会）─────
         if expired_result.get("removed"):
+            # 加载昨日闭环追踪，查T+1表现
+            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            t1_tracker = {}
+            t1_path = self.root / "data" / "闭环追踪" / f"{yesterday}_闭环追踪.json"
+            if t1_path.exists():
+                try:
+                    t1_data = json.loads(t1_path.read_text(encoding="utf-8"))
+                    t1_tracker = t1_data.get("stocks", {})
+                except Exception:
+                    pass
             for r in expired_result["removed"]:
+                r_code = r.get("代码", "")
+                # P0-7：T+1表现感知回流 — 亏损标的加大衰减，止损触发的跳过回流
+                t1_info = t1_tracker.get(r_code, {}).get("t1_performance") if r_code else None
+                skip_refeed = False
+                extra_penalty = 0
+                t1_pnl = 0
+                if t1_info:
+                    pnl = t1_info.get("pnl_pct", 0)
+                    t1_pnl = pnl
+                    hit_sl = t1_info.get("hit_stop_loss", False)
+                    verdict = t1_info.get("verdict", "")
+                    if hit_sl or (pnl is not None and pnl < -5):
+                        skip_refeed = True
+                        print(f"  [S级回流-跳过] {r.get('名称','?')}({r_code}) T+1{verdict} pnl={pnl}%，止损触发或亏损>5%，跳过回流")
+                    elif pnl is not None and pnl < 0:
+                        extra_penalty = 10
+                        print(f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
                 # P0: S级过期回流—等比衰减而非硬编码70分
                 original_score = r.get("综合分", 80)
                 if original_score is not None:
                     try:
-                        decay_score = max(65, int(float(original_score) * 0.85))
+                        decay_score = max(55, int(float(original_score) * 0.85) - extra_penalty)
                     except (TypeError, ValueError):
-                        decay_score = 70
+                        decay_score = 70 - extra_penalty
                 else:
-                    decay_score = 70
+                    decay_score = max(55, 70 - extra_penalty)
+
+                if skip_refeed:
+                    # 回流到边缘池而非直接蒸发（保留观察机会）
+                    edge_stock = {
+                        "代码": r.get("代码", ""),
+                        "名称": r.get("名称", ""),
+                        "综合分": decay_score,
+                        "降级时间": datetime.now().strftime("%Y-%m-%d"),
+                        "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1f}%，触发止损），原始评分{r.get('综合分', '?')}分",
+                    }
+                    self.pool_manager.add_stock("边缘池", edge_stock)
+                    print(f"  [S级回流-边缘池] ⬇️ {r.get('名称','?')}({r_code}) T+1表现差 → 边缘池（保留观察机会）")
+                    continue
+
                 key_stock = {
                     "代码": r.get("代码", ""),
                     "名称": r.get("名称", ""),
@@ -462,7 +503,9 @@ class DecisionAgent(BaseAgent):
         candidate_pool = self._format_pools(pools)
 
         # P0-2: 从审查报告中提取结构化评分（行255已过滤Gate拦截标的，此处复用）
-        scored_summary = self._format_scored_stocks(scored_stocks)
+        # P0-8: 仅向LLM展示评分≥75的标的（与决策准入阈值对齐，防止低分标的被执行）
+        llm_visible = [s for s in scored_stocks if s.get("score", 0) >= 75]
+        scored_summary = self._format_scored_stocks(llm_visible)
 
         # ── 记忆闭环：注入历史决策参考 ────────────────────────────
         evo_history = self._inject_evo_history(scored_stocks)
@@ -544,7 +587,7 @@ class DecisionAgent(BaseAgent):
         )
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
-        if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不建议"]) and scored_stocks:
+        if scored_stocks and any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作"]):
             # P0-2026-06-04: 只选择审查通过（passed=True）且评分≥75的标的
             # P0-2026-06-05: 防御性排除被SkepticGate阻塞的标的（虽然L338已过滤，兜底保护）
             actionable = [
@@ -555,6 +598,10 @@ class DecisionAgent(BaseAgent):
             if actionable:
                 # ═══ P0-修复（2026-06-10）：准确率0%根因 — 市场状态检查 ═══
                 market_state_cur = self._market_state if hasattr(self, '_market_state') else {"state": "震荡", "s_pool_cap": 2}
+                # ═══ P1-8修复：兜底准入阈值随市场状态动态调整 ═══
+                from agents.thresholds import DYNAMIC_SCORE_THRESHOLDS
+                dynamic_min = DYNAMIC_SCORE_THRESHOLDS.get(market_state_cur.get("state", "震荡"), 75)
+                actionable = [s for s in actionable if s.get("score", 0) >= dynamic_min]
                 
                 # 偏空市场：尊重LLM的空仓判断，跳过兜底买入
                 if market_state_cur.get("state") in ["偏空"]:
@@ -577,7 +624,27 @@ class DecisionAgent(BaseAgent):
                         f"⚠️ 免责声明：此观察建议由兜底引擎自动生成，不构成买入建议。\n"
                     )
                     print(f"[兜底引擎] ⏳ 震荡偏弱市场，{best['name']}({best['code']}) {best['score']}分 → 仅建议观察")
-                
+
+                                    # 震荡市场：半仓试探，不激进买入
+                elif market_state_cur.get("state") == "震荡":
+                    best = actionable[0]
+                    result = (
+                        f"### 【主推】{best['name']}（{best['code']}）\n"
+                        f"━━━━━━━━━━━━━━━━\n"
+                        f"📍 审查通过（综合评分{best['score']}分）\n"
+                        f"💡 逻辑支撑：评分≥75分，驱动明确，但当前市场震荡，方向未明\n"
+                        f"💰 执行方案\n"
+                        f"• 单笔仓位：5%（半仓试探，等待市场方向确认）\n"
+                        f"• 买入方式：分批低吸（首次1/2仓位，确认后补1/2）\n"
+                        f"• 止损线：现价下方3%（动态调整）\n"
+                        f"• 第一止盈：+5%（卖1/2）\n"
+                        f"• 第二止盈：+10%（清仓）\n"
+                        f"• 失效条件：跌破止损线或3日内无有效启动\n"
+                        f"\n"
+                        f"⚠️ 免责声明：此方案由兜底引擎自动生成，请结合个人判断使用。\n"
+                    )
+                    print(f"[兜底引擎] ⏳ 震荡市场，{best['name']}({best['code']}) {best['score']}分 → 半仓试探")
+
                 # 偏多/震荡偏强：执行原有兜底买入（保留LLM二次尝试+模板兜底）
                 else:
                     # P0-实盘亏损修复：LLM-ML背离标的禁止兜底买入
@@ -1345,7 +1412,7 @@ class DecisionAgent(BaseAgent):
             return ""
         lines = []
         for s in stocks[:10]:  # 最多10只
-            flag = "✅" if s["score"] >= 70 else "🟡" if s["score"] >= 60 else "🔴"
+            flag = "✅" if s["score"] >= 75 else "🟡" if s["score"] >= 60 else "🔴"
             passed = "通过审查" if s["passed"] else "待观察"
             lines.append(f"- {flag} {s['name']}({s['code']}) 综合评分:{s['score']}分 [{passed}]")
         return "\n".join(lines)

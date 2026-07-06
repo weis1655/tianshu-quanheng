@@ -20,7 +20,7 @@ class PoolUpdater:
         """从决策报告提取【主推】标的，写入S级操作池
         完整逻辑移植自 DecisionAgent._update_s_pool（含今日已修复的merge逻辑）
         """
-        from agents.thresholds import S_POOL_MIN_SCORE
+        from market_agent import to_api, fetch_quotes
 
         pm = pool_manager or self.pool_manager
         if not pm:
@@ -132,40 +132,44 @@ class PoolUpdater:
         print(f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
 
     def _check_price_position(self, code: str, current_price: float) -> str:
-        """检查当前价格在52周中的位置，返回空字符串表示通过，非空表示警告。
-        
-        P1-3修复：增加趋势感知——上升趋势中的高位=强势股，不拦截。
-        """
-        try:
-            from market_agent import to_api, fetch_history, fetch_quotes
-            symbol = to_api(code)
-            history = fetch_history(symbol, "month", 12)
-            if not history:
+            """检查当前价格在52周中的位置，返回空字符串表示通过，非空表示警告。
+
+            P1-3修复：增加趋势感知——上升趋势中的高位=强势股，不拦截。
+            P0-7修复：API无MA数据时视为无法判断趋势，放行不拦截。
+            """
+            try:
+                from market_agent import to_api, fetch_history, fetch_quotes
+                symbol = to_api(code)
+                history = fetch_history(symbol, "month", 12)
+                if not history:
+                    return ""
+                high_52w = max(float(item.get("最高", 0)) for item in history)
+                if high_52w <= 0:
+                    return ""
+                ratio = current_price / high_52w
+                if ratio > 0.85:
+                    # P1-3: 检查是否处于上升趋势——趋势中的高位是强势股，不拦截
+                    try:
+                        q = fetch_quotes([symbol])
+                        if q and len(q) > 0:
+                            ma5 = q[0].get('MA5', 0)
+                            ma10 = q[0].get('MA10', 0)
+                            if ma5 and ma10 and ma5 > ma10:
+                                # 上升趋势中52周高位=强势股，放行
+                                return ""
+                            if not ma5 and not ma10:
+                                # API不返回MA数据，无法判断趋势，放行不拦截
+                                return ""
+                    except Exception:
+                        pass
+                    # 阈值从85%放宽到92%（P1-3放松）
+                    if ratio > 0.92:
+                        return f"追高风险: 当前价{current_price}/52周最高{high_52w}={ratio:.0%}>92%"
+                    return ""
                 return ""
-            high_52w = max(float(item.get("最高", 0)) for item in history)
-            if high_52w <= 0:
+            except Exception as e:
+                print(f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
                 return ""
-            ratio = current_price / high_52w
-            if ratio > 0.85:
-                # P1-3: 检查是否处于上升趋势——趋势中的高位是强势股，不拦截
-                try:
-                    q = fetch_quotes([symbol])
-                    if q and len(q) > 0:
-                        ma5 = q[0].get('MA5', 0)
-                        ma10 = q[0].get('MA10', 0)
-                        if ma5 and ma10 and ma5 > ma10:
-                            # 上升趋势中52周高位=强势股，放行
-                            return ""
-                except Exception:
-                    pass
-                # 阈值从85%放宽到92%（P1-3放松）
-                if ratio > 0.92:
-                    return f"追高风险: 当前价{current_price}/52周最高{high_52w}={ratio:.0%}>92%"
-                return ""
-            return ""
-        except Exception as e:
-            print(f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
-            return ""
 
     def _get_market_state(self) -> dict:
         """获取当前市场状态（P2修复：对齐5档标准，基于沪深300 vs MA20）。

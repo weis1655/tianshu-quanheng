@@ -71,48 +71,12 @@ try:
 except Exception as e:
     results.append(f"持仓池❌:{e}")
 
-# ── S级操作池（pool_manager 不覆盖，手动刷） ──
+# ── S级操作池（委托 pool_manager，含降级扫描+评分衰减）──
 try:
-    s_pool_file = pool_dir / "S级操作池.json"
-    s_refreshed = []
-    if s_pool_file.exists():
-        with open(s_pool_file) as f:
-            s_data = json.load(f)
-        s_stocks = s_data.get("stocks", [])
-        if s_stocks:
-            s_codes = [s.get("代码", "") for s in s_stocks if s.get("代码")]
-            if s_codes:
-                api_codes = [to_api(c) for c in s_codes]
-                s_quotes = fetch_quotes(api_codes)
-                s_qmap = {q["代码"]: q for q in s_quotes if q.get("代码")}
-                for s in s_stocks:
-                    code = s.get("代码", "")
-                    q = s_qmap.get(code)
-                    if q and q.get("现价") is not None:
-                        s["今日收盘"] = q["现价"]
-                        chg = q.get("涨跌幅", 0)
-                        s["今日涨跌"] = f"{chg:+.2f}%" if isinstance(chg, float) else chg
-                        s["换手率"] = q.get("换手率", s.get("换手率", 0))
-                        s["量比"] = q.get("量比", s.get("量比", 0))
-                        s["更新时间"] = now_str
-                        s_refreshed.append(code)
-                # 止损检查
-                entry_price = s.get("入场价", 0)
-                s_name = s.get("名称", "?")
-                s_code = s.get("代码", "")
-                now_price_s = q.get("现价", 0)
-                if entry_price and now_price_s and entry_price > 0:
-                    loss_pct = (now_price_s - entry_price) / entry_price * 100
-                    if loss_pct < -5:
-                        s["操作建议"] = "⚠️ 跌幅超5%，关注止损"
-                        results.append(f"止损预警:{s_name}({s_code})亏损{loss_pct:.1f}%")
-                        print(f"  [止损预警] {s_name}({s_code}) 入场{entry_price}→现{now_price_s}, 亏损{loss_pct:.1f}%")
-                # 写回
-                with open(s_pool_file, "w") as f:
-                    json.dump(s_data, f, ensure_ascii=False, indent=2)
-        results.append(f"S级池:{len(s_refreshed)}只")
-    else:
-        results.append("S级池:无文件")
+    r3 = pm.refresh_s_operation_prices()
+    results.append(f"S级操作池:{len(r3)}只")
+except Exception as e:
+    results.append(f"S级操作池❌:{e}")
 except Exception as e:
     results.append(f"S级池❌:{e}")
 

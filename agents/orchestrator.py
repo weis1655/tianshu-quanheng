@@ -77,7 +77,7 @@ class Orchestrator:
     def get_pools(self) -> dict:
         """读取四池状态（接近决策池已停用，P0-9删除）"""
         pools = {}
-        pool_names = ["快筛候选池", "重点观察池", "边缘池", "持仓池"]
+        pool_names = ["快筛候选池", "重点观察池", "边缘池", "持仓池", "S级操作池"]
         for name in pool_names:
             data = self.pool_manager.load_pool(name)
             pools[name] = {"stocks": data.get("stocks", [])} if data else {"stocks": []}

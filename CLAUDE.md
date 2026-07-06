@@ -16,7 +16,7 @@
 以下阈值经过多轮校准（v5.92/v5.94/v6.0），修改前必须人工确认：
 - **审查升级阈值**：综合分≥75 → 升级重点观察池（`review_agent.py`）
 - **决策准入阈值**：综合分≥75 → 可制定执行方案（`decision_agent.py` prompt）
-- **S级准入阈值**：综合分≥80 → 可入S级操作池（`gate_controller.py`）
+- **S级准入阈值**：综合分≥75 → 可入S级操作池（`gate_controller.py`，与 `thresholds.S_POOL_MIN_SCORE` 对齐）
 - **WARNING-1过热阈值**：日涨>8% + 综合分>75 → 扣10分（`review_agent.py` L1050，v5.94校准）
 - **CRITICAL过热阈值**：月涨>25% + 综合分>=70 → 强制降级（`review_scorer.py` L91，2026-06-05修复>=边界）
 - **黄色预警区间**：60-74分（`decision_agent.py` 多处，v6.0校准）

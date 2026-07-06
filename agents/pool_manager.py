@@ -477,6 +477,21 @@ class PoolManager:
                 remaining.append(stock)
 
         if removed:
+            # ⬆️ 高评分标的回流到快筛候选池
+            refeed_count = 0
+            for r_item in removed:
+                try:
+                    r_score = float(r_item.get("评分", 0)) if r_item.get("评分") is not None else 0
+                    if r_score > 60:
+                        refeed_stock = {"代码": r_item.get("代码", ""), "名称": r_item.get("名称", ""), "综合分": r_score, "纳入日期": today.strftime("%Y-%m-%d"), "驱动来源": "边缘池回流", "核心逻辑": f"边缘池清理回流（评分{r_score}分>60）"}
+                        self.add_stock("快筛候选池", refeed_stock)
+                        refeed_count += 1
+                        print(f"  [边缘池回流] ⬆️ {r_item.get('名称','?')}({r_item.get('代码','?')}) 评分{r_score}→快筛候选池")
+                except (TypeError, ValueError):
+                    pass
+            if refeed_count:
+                print(f"  [PoolManager] ⬆️ {refeed_count} 只边缘池高评分标的回流到快筛候选池")
+
             data["stocks"] = remaining
             data["历史记录"] = data.get("历史记录", [])
             data["历史记录"].append({
@@ -1010,7 +1025,7 @@ class PoolManager:
         if score >= 55: return "C级(观察区)"
         return "D级(淘汰)"
 
-    def _scan_and_downgrade(self, data: dict, pool_name: str = "重点观察池") -> list:
+    def _scan_and_downgrade(self, data: dict) -> list:
         """扫描池中评分<65的股票，自动降级到边缘池。返回被降级的股票列表。"""
         stocks = data.get("stocks", [])
         to_demote = []
@@ -1132,6 +1147,22 @@ class PoolManager:
                         stock["综合分"] = new_score
                         stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
                         print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+
+        # ── 盘中过热标记（基于今日涨跌幅+评分，无需PE/历史数据）──
+        for stock in stocks:
+            chg_str = stock.get("今日涨跌", "")
+            orig_score = stock.get("综合分", 0)
+            if chg_str and isinstance(orig_score, (int, float)) and orig_score >= 70:
+                try:
+                    chg = float(chg_str.replace("%", "").replace("+", ""))
+                    if chg > 8:
+                        penalty = 5
+                        new_score = max(40, int(orig_score) - penalty)
+                        stock["综合分"] = new_score
+                        stock["评分最后更新"] = f"{orig_score}→{new_score}(盘中过热+{chg:.1f}%)"
+                        print(f"  [盘中过热] {stock.get('名称','?')}({stock.get('代码','?')}) 涨{chg:.1f}% 评分{orig_score}→{new_score}")
+                except (ValueError, TypeError):
+                    pass
 
         # 更新统计（P0：即使行情刷新失败也执行降级扫描）
         data["统计"] = data.get("统计", {})
@@ -1345,10 +1376,14 @@ class PoolManager:
             data["统计"] = data.get("统计", {})
             data["统计"]["持仓数"] = len(stocks)
             data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # 同时更新总盈亏（从历史持仓计算）
+            # 同时更新总盈亏（历史持仓盈亏 + 当前持仓浮盈浮亏）
             history = data.get("历史持仓", [])
-            total_pnl = sum(h.get("盈亏额", 0) or 0 for h in history)
-            data["统计"]["总盈亏"] = round(total_pnl, 2)
+            history_pnl = sum(h.get("盈亏额", 0) or 0 for h in history)
+            current_pnl = sum(s.get("盈亏额", 0) or 0 for s in stocks)
+            total_pnl = round(history_pnl + current_pnl, 2)
+            data["统计"]["总盈亏"] = total_pnl
+            data["统计"]["历史盈亏"] = round(history_pnl, 2)
+            data["统计"]["当前浮盈"] = round(current_pnl, 2)
             data["统计"]["盈利次数"] = sum(1 for h in history if (h.get("盈亏额", 0) or 0) > 0)
             data["统计"]["亏损次数"] = sum(1 for h in history if (h.get("盈亏额", 0) or 0) < 0)
             # 同时更新资金配置中的持仓市值
@@ -1409,6 +1444,30 @@ class PoolManager:
                     print(f"[持仓降级] ⬇️ {name}({code}) → 边缘池（止损触发）")
             if demoted:
                 print(f"[PoolManager] 🧹 持仓池止损降级：移除 {len(demoted)} 只")
+
+            # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
+            for stock in stocks:
+                code = stock.get("代码", "")
+                entry_date = stock.get("纳入日期", "")
+                orig_score = stock.get("综合分", 0)
+                if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
+                    try:
+                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                    except ValueError:
+                        days_in_pool = 999
+                    if days_in_pool > 7:
+                        decay = min(days_in_pool * 0.5, 15)
+                        chg_str = stock.get("今日涨跌", "")
+                        if chg_str and "+" in str(chg_str):
+                            decay *= 0.5
+                        new_score = max(round(orig_score - decay), 40)
+                        if new_score != orig_score:
+                            stock["综合分"] = new_score
+                            stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
+                            print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+
+            # 扫描评分<65的存量股，自动降级
+            self._scan_and_downgrade(data)
 
             self.save_pool("持仓池", data)
             print(f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
@@ -1478,8 +1537,28 @@ class PoolManager:
         # 更新统计（P0：即使行情刷新失败也执行降级扫描）
         data["统计"] = data.get("统计", {})
         data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
+        for stock in stocks:
+            code = stock.get("代码", stock.get("股票代码", ""))
+            entry_date = stock.get("纳入日期", "")
+            orig_score = stock.get("综合分", 0)
+            if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
+                try:
+                    days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                except ValueError:
+                    days_in_pool = 999
+                if days_in_pool > 7:
+                    decay = min(days_in_pool * 0.5, 15)
+                    chg_str = stock.get("今日涨跌", "")
+                    if chg_str and "+" in str(chg_str):
+                        decay *= 0.5
+                    new_score = max(round(orig_score - decay), 40)
+                    if new_score != orig_score:
+                        stock["综合分"] = new_score
+                        stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
+                        print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
         # 扫描评分<65的存量股，自动降级
-        self._scan_and_downgrade(data, "快筛候选池")
+        self._scan_and_downgrade(data)
 
         if refreshed:
             print(f"[PoolManager] ✅ 快筛候选池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
@@ -1557,6 +1636,28 @@ class PoolManager:
         if refreshed:
             data["统计"] = data.get("统计", {})
             data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # ── 评分时间衰减（无条件执行，不依赖行情）──
+            for stock in stocks:
+                code = stock.get("代码", stock.get("股票代码", ""))
+                entry_date = stock.get("纳入日期", "")
+                orig_score = stock.get("综合分", 0)
+                if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
+                    try:
+                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                    except ValueError:
+                        days_in_pool = 999
+                    if days_in_pool > 7:
+                        decay = min(days_in_pool * 0.5, 15)
+                        chg_str = stock.get("今日涨跌", "")
+                        if chg_str and "+" in str(chg_str):
+                            decay *= 0.5
+                        new_score = max(round(orig_score - decay), 40)
+                        if new_score != orig_score:
+                            stock["综合分"] = new_score
+                            stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
+                            print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+            # 扫描评分<65的存量股，自动降级
+            self._scan_and_downgrade(data)
             self.save_pool("S级操作池", data)
             print(f"[PoolManager] ✅ S级操作池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
