@@ -123,9 +123,12 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             # ⚠️ 无升级标的时跳过 Skeptic，避免宪法冲突
             # 详见：review无标的升级到重点池→重点池为空→静默降级候选池→LLM宪法冲突拒绝审查
             print("  ⏭️ 重点观察池为空（今日无review升级标的），跳过Skeptic阶段")
+            # 写入占位报告，确保DecisionAgent能读取到质疑记录
+            placeholder = f"# 【质疑审查报告】{today}\n\n重点观察池为空，SkepticAgent跳过。\n"
+            (PROJECT_ROOT / "data" / "历史记录" / f"{today}_质疑审查报告.md").write_text(placeholder, encoding="utf-8")
             results["skeptic"] = {
                 "success": True, "challenges": [], "high_risk_stocks": [],
-                "high_risk_count": 0, "report": "",
+                "high_risk_count": 0, "report": placeholder,
                 "skipped": True, "reason": "no_upgrades_to_key_watch_pool"
             }
             print(f"  ✅ 完成（跳过，无升级标的）")
