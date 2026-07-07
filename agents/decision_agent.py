@@ -440,6 +440,7 @@ class DecisionAgent(BaseAgent):
                         for m in set(re.findall(r"[（(](\d{6})[）)]", content)):
                             dup_codes.add(m)
         except Exception:
+            # 交易日历文件不存在→无限制天数，安全
             pass
         if dup_codes:
             before = len(scored_stocks)

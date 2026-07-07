@@ -117,7 +117,7 @@ class PoolManager:
                             d = s.get("纳入日期", s.get("建仓日期", ""))
                             try:
                                 return datetime.strptime(d, "%Y-%m-%d")
-                            except:
+                            except (ValueError, TypeError):
                                 return datetime.min
                         stocks_sorted = sorted(stocks, key=get_date, reverse=True)
                         data["stocks"] = stocks_sorted[:limit]

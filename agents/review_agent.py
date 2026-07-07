@@ -1242,8 +1242,8 @@ class ReviewAgent(BaseAgent):
             change_str = stock_data.get("今日涨跌", "0%")
             try:
                 change_pct = float(change_str.replace("%", "").replace("+", ""))
-            except:
-                change_pct = 0.0
+            except (ValueError, TypeError):
+                change_pct = 0.0  # 涨跌幅格式异常，默认0%
             pe_ttm = float(stock_data.get("PE", 0) or 0)
             turnover = float(stock_data.get("换手率", 0) or 0)
             volume_ratio = float(stock_data.get("量比", 1) or 1)

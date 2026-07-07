@@ -103,7 +103,8 @@ class PoolUpdater:
                 age = (today_dt - entry_date).days
                 if age == 0:
                     retained_stocks.append(s)
-            except:
+            except (ValueError, TypeError):
+                # 日期格式异常，跳过该标的（非关键路径，不阻塞）
                 pass
 
         # 按code去重合并
