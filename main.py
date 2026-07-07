@@ -756,73 +756,171 @@ def main():
             except Exception as e:
                 print(f"  ⚠️ 【截断检测】读取审查报告失败: {e}")
 
-        # ── 弱市极速模式（P2-1：非完全跳过）─────────────────────
+        # ── 弱市极速模式（P2-1：非完全跳过，改为简化审查）──────────
         _ms = ReviewAgent()._get_market_state()
         ____today = datetime.now().strftime("%Y-%m-%d")
         if _ms.get("state", "") in ("震荡偏弱", "偏空"):
-            # 先检查重点池中是否有≥85分的极致标的
+            # 弱市简化审查：扫描重点池+S池，检查明显风险信号
+            print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，执行简化审查模式")
+            simplified_blocked = []  # [(code, name, reason)]
+            simplified_passed = []
+            simplified_observations = []
+
+            # 加载重点观察池
             key_pool_file = PROJECT_ROOT / "五池管理" / "重点观察池.json"
-            urgent_candidates = []
+            all_stocks_for_review = []
             if key_pool_file.exists():
                 try:
                     pool_data = json.loads(key_pool_file.read_text(encoding="utf-8"))
-                    for s in pool_data.get("stocks", []):
-                        score = s.get("综合评分") or s.get("score", 0)
-                        try:
-                            if float(score) >= 85:
-                                urgent_candidates.append(s)
-                        except (ValueError, TypeError):
-                            pass
+                    all_stocks_for_review.extend(pool_data.get("stocks", []))
                 except Exception:
                     pass
 
-            if urgent_candidates and len(urgent_candidates) <= 3:
-                names = [s.get("名称", "?") for s in urgent_candidates]
-                print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，发现{len(urgent_candidates)}只≥85分标的，进入极速审查模式")
-                # 写入占位质疑报告
-                placeholder = (
-                    f"# 【质疑审查报告】{____today}\n"
-                    f"弱市极速审查模式（Skeptic跳过）。\n"
-                    f"≥85分极致标的：{', '.join(names)}\n"
-                    f"否决列表：空\n"
-                )
+            # 也检查S级操作池
+            s_pool_file = PROJECT_ROOT / "五池管理" / "S级操作池.json"
+            if s_pool_file.exists():
                 try:
-                    (PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md").write_text(placeholder, encoding="utf-8")
+                    s_data = json.loads(s_pool_file.read_text(encoding="utf-8"))
+                    s_codes = {s.get("代码","") for s in all_stocks_for_review}
+                    for s in s_data.get("stocks", []):
+                        if s.get("代码","") not in s_codes:
+                            all_stocks_for_review.append(s)
                 except Exception:
                     pass
-                results["skeptic"] = {
-                    "success": True, "skipped": True, "reason": "weak_market_express",
-                    "report": placeholder,
-                    "note": f"弱市极速审查：{', '.join(names)}评分≥85",
-                    "urgent_candidates": [{"code": s.get("代码",""), "name": s.get("名称",""),
-                                           "score": s.get("综合评分",0)} for s in urgent_candidates]
-                }
-                results["decision"] = {
-                    "success": True, "report": "弱市不操作",
-                    "express_note": f"📉 市场偏弱建议空仓，但以下标的评分≥85可关注：\\n" +
-                                    "\\n".join([f"  • {s.get('名称','?')}({s.get('代码','?')}) {s.get('综合评分',0)}分" for s in urgent_candidates])
-                }
-                record_success("skeptic")
-                record_success("decision")
+
+            # 简化审查：检查明显风险信号（PE异常/单日暴涨/高换手）
+            for s in all_stocks_for_review:
+                code = str(s.get("代码", s.get("股票代码", "")))
+                name = str(s.get("名称", s.get("股票名称", "?")))
+                score = float(s.get("综合分", s.get("综合评分", 0)))
+                # 解析行情数据
+                try:
+                    chg_str = str(s.get("今日涨跌", "0%")).replace("%", "").replace("+", "")
+                    daily_chg = float(chg_str)
+                except (ValueError, TypeError):
+                    daily_chg = 0
+                try:
+                    pe = float(s.get("PE", 0) or 0)
+                except (ValueError, TypeError):
+                    pe = 0
+                try:
+                    turnover = float(s.get("换手率", 0) or 0)
+                except (ValueError, TypeError):
+                    turnover = 0
+
+                risk_flags = []
+
+                # R1: 单日暴涨 >15%
+                if daily_chg > 15:
+                    risk_flags.append(f"单日涨幅{daily_chg:.1f}%>15%，短期过热")
+
+                # R2: PE异常（>80或负值）
+                if pe > 80:
+                    risk_flags.append(f"PE{pe:.0f}>80，估值偏高")
+                elif pe < 0 and pe != 0:
+                    risk_flags.append(f"PE{pe:.0f}为负，持续亏损")
+
+                # R3: 换手率异常高
+                if turnover > 12:
+                    risk_flags.append(f"换手率{turnover:.1f}%>12%，筹码松动")
+
+                # R4: 评分过低
+                if score <= 0:
+                    risk_flags.append(f"评分{score}分，已触及安全底线")
+                elif score < 50:
+                    risk_flags.append(f"评分{score}分<50，基本面存疑")
+
+                if risk_flags:
+                    simplified_blocked.append((code, name, risk_flags))
+                else:
+                    simplified_passed.append((code, name, score))
+
+            # 构建简化质疑报告
+            report_lines = [
+                f"# 【质疑审查报告】{____today}（弱市简化审查）",
+                "",
+                f"## 📊 审查概况",
+                f"- 审查范围：重点观察池 + S级操作池",
+                f"- 审查标的：{len(all_stocks_for_review)}只",
+                f"- 审查方法：弱市简化模式（纯规则，无LLM调用）",
+                f"- 风险规则：日涨幅>15%/PE>80或负/换手率>12%/评分<50",
+                "",
+            ]
+            if simplified_blocked:
+                report_lines.append(f"## 🔴 否决列表（{len(simplified_blocked)}只）")
+                for code, name, flags in simplified_blocked:
+                    report_lines.append(f"- **{name}**（{code}）：{'；'.join(flags)}")
+                    simplified_observations.append({
+                        "code": code, "name": name,
+                        "reason": "；".join(flags),
+                    })
+                report_lines.append("")
             else:
-                print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，无≥85分极致标的，跳过Skeptic+Decision阶段")
-                # 写入占位质疑报告
-                placeholder = (
-                    f"# 【质疑审查报告】{____today}\n"
-                    f"弱市模式（Skeptic跳过）：市场{_ms.get('state','')}，无≥85分极致标的。\n"
-                    f"否决列表：空\n"
-                )
-                try:
-                    (PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md").write_text(placeholder, encoding="utf-8")
-                except Exception:
-                    pass
-                results["skeptic"] = {
-                    "success": True, "skipped": True, "reason": "weak_market",
-                    "report": placeholder,
+                report_lines.append("## 🔴 否决列表")
+                report_lines.append("（无否决）")
+                report_lines.append("")
+
+            if simplified_passed:
+                report_lines.append(f"## ✅ 审查通过（{len(simplified_passed)}只）")
+                for code, name, score in simplified_passed:
+                    report_lines.append(f"- {name}（{code}）{score:.0f}分")
+                report_lines.append("")
+
+            # 写入质疑审查报告
+            report_content = "\n".join(report_lines)
+            try:
+                skeptic_report_path = PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md"
+                skeptic_report_path.write_text(report_content, encoding="utf-8")
+                print(f"  📝 已写入弱市简化审查报告")
+            except Exception as e:
+                print(f"  ⚠️ 写入审查报告失败: {e}")
+
+            # 写入质疑审查裁决（供 DecisionAgent Gate 读取）
+            try:
+                verdict_data = {
+                    "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "mode": "weak_market_simplified",
+                    "blocked": simplified_observations,
+                    "passed_codes": [c for c, _, _ in simplified_passed],
                 }
+                verdict_path = PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查裁决.json"
+                verdict_path.write_text(json.dumps(verdict_data, ensure_ascii=False, indent=2), encoding="utf-8")
+                print(f"  📝 已写入弱市审查裁决（否决{len(simplified_blocked)}只）")
+            except Exception as e:
+                print(f"  ⚠️ 写入审查裁决失败: {e}")
+
+            # 输出结果
+            results["skeptic"] = {
+                "success": True,
+                "challenges": simplified_observations,
+                "high_risk_stocks": simplified_observations,
+                "high_risk_count": len(simplified_blocked),
+                "report": report_content,
+                "skipped": False,
+                "mode": "weak_market_simplified",
+            }
+            record_success("skeptic")
+
+            # 决策方案
+            blocked_codes_set = {c for c, _, _ in simplified_blocked}
+            # 在≥85分的极致标的中排除被否决的
+            urgent_candidates = []
+            for code, name, score in simplified_passed:
+                if score >= 85 and code not in blocked_codes_set:
+                    urgent_candidates.append({"code": code, "name": name, "score": score})
+
+            if urgent_candidates and len(urgent_candidates) <= 3:
+                names = [c["name"] for c in urgent_candidates]
+                print(f"\n  📉 市场偏弱，但{len(urgent_candidates)}只标的通过简化审查，可关注")
+                results["decision"] = {
+                    "success": True,
+                    "report": "弱市可关注",
+                    "express_note": f"📉 市场偏弱建议谨慎，以下标的通过简化审查：\\n" +
+                                    "\\n".join([f"  • {c['name']}({c['code']}) {c['score']:.0f}分" for c in urgent_candidates])
+                }
+            else:
                 results["decision"] = {"success": True, "report": "弱市不操作"}
-                record_success("skeptic")
-                record_success("decision")
+            record_success("decision")
         else:
             # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
             pools = orch.get_pools()
