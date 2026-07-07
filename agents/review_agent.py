@@ -28,6 +28,7 @@ from pool_manager import PoolManager
 from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
 from schemas import REVIEW_SCHEMA
+from thresholds import AUTO_DOWNGRADE_SCORE, HARD_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -380,8 +381,8 @@ class ReviewAgent(BaseAgent):
                     original = sr.composite_score
                     sr.composite_score = gate_ret["adjusted_score"]
                     sr.core_logic += f" | 🚫 历史质检: {gate_ret['reason']}"
-                    # 如果通缩后低于55分→强制降级
-                    if sr.composite_score < 55:
+                    # 如果通缩后低于SCORE_C_LEVEL分→强制降级
+                    if sr.composite_score < SCORE_C_LEVEL:
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
                     print(f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
@@ -449,12 +450,12 @@ class ReviewAgent(BaseAgent):
         # 但原始flow_direction未同步更新，导致低分标的未降级
         _extra_demotions = []
         for sr in review_result.stocks:
-            if sr.composite_score < 65 and sr.flow_direction != "降级":
+            if sr.composite_score < AUTO_DOWNGRADE_SCORE and sr.flow_direction != "降级":
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
-                sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<60分阈值"
+                sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
                 _extra_demotions.append(sr)
-                print(f"[ReviewAgent] 🔴 评分调整后硬性降级: {sr.name}({sr.code}) {sr.composite_score}分<60分 → 边缘池")
+                print(f"[ReviewAgent] 🔴 评分调整后硬性降级: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
         if _extra_demotions:
             parsed_result.demotions.extend(_extra_demotions)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
@@ -464,12 +465,12 @@ class ReviewAgent(BaseAgent):
         # 扫描候选池中仍存在且评分<60的标的，强制迁入边缘池
         _pool_cleanup = []
         for sr in review_result.stocks:
-            if sr.composite_score is not None and sr.composite_score < 65 and sr.flow_direction not in ("降级", "淘汰"):
+            if sr.composite_score is not None and sr.composite_score < AUTO_DOWNGRADE_SCORE and sr.flow_direction not in ("降级", "淘汰"):
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
-                sr.core_logic += f" | 🔴 残留低分清理：{sr.composite_score}分<60分阈值"
+                sr.core_logic += f" | 🔴 残留低分清理：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
                 _pool_cleanup.append(sr)
-                print(f"[ReviewAgent] 🔴 残留低分清理: {sr.name}({sr.code}) {sr.composite_score}分<60分 → 边缘池")
+                print(f"[ReviewAgent] 🔴 残留低分清理: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
         if _pool_cleanup:
             parsed_result.demotions.extend(_pool_cleanup)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
@@ -1117,7 +1118,7 @@ class ReviewAgent(BaseAgent):
                         if any(kw in risk_note for kw in ["亏损", "pe<0", "pe为负", "连续亏损", "退市", "st", "商誉过高", "解禁"]):
                             risk_indicators.append(dim.note)
             
-            if risk_indicators and sr.composite_score >= 55:
+            if risk_indicators and sr.composite_score >= SCORE_C_LEVEL:
                 # 有风险信号但分数≥55，强制降级
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
@@ -1129,19 +1130,19 @@ class ReviewAgent(BaseAgent):
                 sr.driver_level = _score_to_level(sr.composite_score)
                 print(f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
             
-            # ── P0-降级延迟修复：硬性降级阈值（<65分强制降级）─────────
-            # 解决LLM提示词降级区间55-64与代码盲区60-64对齐问题
-            if sr.composite_score < 65:
+            # ── P0-降级延迟修复：硬性降级阈值（<AUTO_DOWNGRADE_SCORE分强制降级）─────────
+            # 解决LLM提示词降级区间55-64与代码盲区对齐问题
+            if sr.composite_score < AUTO_DOWNGRADE_SCORE:
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 if sr.action_advice == "":
                     sr.action_advice = "低分淘汰"
-                sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<60分阈值"
-                print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<60分 → 边缘池")
+                sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
+                print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
 
             # ── 黄色预警标记：60-74分且未降级的标的标记观察 ──
             # 25天悬空修复：代码级强制黄色预警，不依赖LLM诚实度
-            if sr.flow_direction != "降级" and 60 <= sr.composite_score < 75:
+            if sr.flow_direction != "降级" and YELLOW_ALERT_MIN <= sr.composite_score < DECISION_MIN_SCORE:
                 adv = f"黄色预警({sr.composite_score}分)"
                 if sr.action_advice:
                     sr.action_advice += " | " + adv

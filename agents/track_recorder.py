@@ -95,6 +95,7 @@ class TrackRecorder:
                     confidence=s.get("confidence", "中"),
                     hypothesis=hypothesis,
                     expected_logic=expected_logic,
+                    is_executed='此方案由兜底引擎自动生成' not in decision_result,
                 )
             print(f"[TrackRecorder] ✅ 已记录 {len(actionable)} 只标的决策到复盘系统")
         except Exception as e:

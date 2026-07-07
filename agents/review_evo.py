@@ -67,7 +67,8 @@ class ReviewEvo:
     def record_decision(self, stock_code: str, stock_name: str, reason: str, 
                       driver: str, tech_score: int, fundamental_score: int, 
                       recommendation: str, confidence: str, entry_price: float = 0,
-                      hypothesis: str = "", expected_logic: str = ""):
+                      hypothesis: str = "", expected_logic: str = "",
+                      is_executed: bool = True):
         """记录一次决策（包含可验证假设）"""
         log = safe_read_json(self.decision_log, default={"决策记录": [], "统计": {"总决策数": 0, "盈利数": 0, "胜率": 0}}, required=False, log_error=False)
         if log is None:
@@ -85,15 +86,14 @@ class ReviewEvo:
             "基本面评分": fundamental_score,
             "推荐价格": entry_price,
             "决策理由": reason,
-            # ↓ 新增：可验证假设字段
-            "假设": hypothesis,           # 核心假设，如"金价维持2400美元以上"
-            "预期逻辑": expected_logic,   # 推导链，如"通胀数据回落→金价支撑→股价跟涨"
-            "验证时间点": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),  # 7天后验证
-            # ↓ 复盘结果
+            "$is_executed": is_executed,  # 标记是否实际执行（非模板兜底）
+            "假设": hypothesis,
+            "预期逻辑": expected_logic,
+            "验证时间点": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
             "实际结果": None,
             "复盘日期": None,
-            "假设验证": None,  # ✅兑现 / ❌未兑现 / ⏳待验证
-            "实际涨跌": None, # 从API获取的实际涨跌幅
+            "假设验证": None,
+            "实际涨跌": None,
         }
         
         log["决策记录"].append(record)
@@ -127,13 +127,13 @@ class ReviewEvo:
                 "confidence": r.get("信心度", ""),
                 "tech_score": r.get("技术面评分", 0),
                 "fundamental_score": r.get("基本面评分", 0),
-                # 新增假设字段
+                "$is_executed": r.get("$is_executed", True),
                 "hypothesis": r.get("假设", ""),
                 "expected_logic": r.get("预期逻辑", ""),
                 "verify_date": r.get("验证时间点", ""),
                 "hypothesis_result": r.get("假设验证", None),
                 "actual_change": r.get("实际涨跌", None),
-                "reflection": r.get("反思", ""),  # 新增反思字段
+                "reflection": r.get("反思", ""),
             })
         
         success = safe_write_file(self.std_log, json.dumps(normalized, ensure_ascii=False, indent=2))

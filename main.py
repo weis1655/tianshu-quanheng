@@ -896,6 +896,22 @@ def main():
         pass  # 审计失败不阻断主流程
     # ──────────────────────────────────────────────────────
 
+    # ── F2: 全池低分标的降级扫描（降级延迟修复）────────────
+    try:
+        pm = PoolManager()
+        for pool_name in ["快筛候选池", "重点观察池"]:
+            data = pm.load_pool(pool_name)
+            if data and "stocks" in data:
+                demoted = pm._scan_and_downgrade(data)
+                if demoted:
+                    pm.save_pool(pool_name, data)
+                    print(f"  🧹 {pool_name}: {len(demoted)} 只低分标的(评分<65)已降级边缘池")
+                else:
+                    print(f"  ✅ {pool_name}: 无低分标的残留")
+    except Exception as e:
+        print(f"  ⚠️ 全池低分扫描异常（不影响主流程）: {e}")
+    # ──────────────────────────────────────────────────────
+
     # ── MemPalace 保存：五池状态+执行结果写入知识图谱 ─────────────
     try:
         pools_final = orch.get_pools()

@@ -643,7 +643,18 @@ def extract_decision_results(filepath):
     # 标记格式完整性
     result['_format'] = format_version
     result['_completeness'] = 'full' if (result['main_stocks'] or result['is_empty']) else 'partial'
-    
+
+    # ── 模板兜底污染检测 ─────────────────────────────────
+    # 检测决策报告是否包含模板兜底标记，标记对应主推标的来源
+    has_fallback = '此方案由兜底引擎自动生成' in content
+    if has_fallback:
+        for s in result['main_stocks']:
+            s['_source'] = 'fallback'
+    else:
+        for s in result['main_stocks']:
+            s['_source'] = 'llm'
+    # ─────────────────────────────────────────────────────
+
     return [result]
 
 
@@ -973,10 +984,13 @@ def generate_report(days=7, output_file=None):
     # === 实战验证（策略A）===
     load_price_cache(str(OUTPUT_DIR / '.price_cache.json'))
 
-    performance_map = {}
+    # ── 三源分离：review_perf_map / decision_perf_map / log_perf_map ──
+    performance_map = {}   # 合并版，仅用于P0检测兼容
+    review_perf_map = {}   # 审查升级验证（Source A）
+    decision_perf_map = {} # 决策主推验证（Source B）
     verified_stocks = []
 
-    # 验证审查层升级/保留标的
+    # 验证审查层升级标的（Source A）
     for r in review_results:
         if r.get('flow') == '升级' and r.get('date'):
             perf = verify_recommendation(r['code'], r['date'], hold_days=3)
@@ -985,11 +999,12 @@ def generate_report(days=7, output_file=None):
                 verified_stocks.append({**r, '_perf': perf})
                 key = f"{r['code']}_{r['date']}"
                 performance_map[key] = perf
+                review_perf_map[key] = perf
 
     # 加载 SkepticGate 阻塞数据（过滤 LLM 文本推荐中被质疑拦截的标的）
     blocked_map = load_skeptic_blocked_codes(trading_days)
 
-    # 验证决策层主推标的（过滤被 SkepticGate 阻塞的标的）
+    # 验证决策层主推标的（Source B：过滤模板兜底+SkepticGate阻塞）
     unverified_count = 0
     for d in decision_results:
         if not d['is_empty'] and d.get('date'):
@@ -998,19 +1013,22 @@ def generate_report(days=7, output_file=None):
             for s in d.get('main_stocks', []):
                 code = s.get('code', '')
                 if not code or code in blocked_today:
-                    continue  # 被 SkepticGate 阻塞 → 不计为有效决策
+                    continue  # 被 SkepticGate 阻塞 → 不计
+                if s.get('_source') == 'fallback':
+                    continue  # ⛔ 模板兜底假推荐 → 不计入准确率
                 perf = verify_recommendation(code, date, hold_days=3)
                 if perf:
                     key = f"{code}_{date}"
                     performance_map.setdefault(key, perf)
+                    decision_perf_map[key] = perf
                 else:
                     unverified_count += 1
 
     save_price_cache()
 
-    # ── 全量决策日志自动T+3验证 ──────────────────────────────
-    # 扫描 decision_log.json 中未验证的条目，补充回performance_map
+    # ── 全量决策日志自动T+3验证（Source C）──────────────────────────────
     decision_log_path = BASE_DIR / 'decision_log.json'
+    log_perf_map = {}
     if decision_log_path.exists():
         try:
             import json as _json
@@ -1019,10 +1037,11 @@ def generate_report(days=7, output_file=None):
             for entry in unverified:
                 key = f"{entry['code']}_{entry['date']}"
                 if key in performance_map:
-                    continue  # 已验证过
+                    continue  # 已通过Source A/B验证过
                 perf = verify_recommendation(entry['code'], entry['date'], hold_days=3)
                 if perf:
                     performance_map[key] = perf
+                    log_perf_map[key] = perf
                     # 写回决策日志
                     entry['actual_pnl'] = perf['change_pct']
                     entry['actual_change'] = perf['change_pct']
@@ -1036,22 +1055,34 @@ def generate_report(days=7, output_file=None):
     # 审查层准确率（传入 performance_map + review_results 做真实行情验证）
     review = calculate_review_accuracy(files, trading_days, performance_map=performance_map)
 
-    # 计算实战准确率
-    perf_profits = [p for p in performance_map.values() if p and p.get('is_profit')]
-    perf_total = [p for p in performance_map.values() if p]
+    # ── 三路准确率指标计算 ──────────────────────────────────
+    # 审查升级验证准确率
+    review_profits = [p for p in review_perf_map.values() if p and p.get('is_profit')]
+    review_total = [p for p in review_perf_map.values() if p]
+    review_accuracy = round(len(review_profits) / len(review_total) * 100, 1) if review_total else 0
+    review_avg_ret = round(sum(p['change_pct'] for p in review_total) / len(review_total), 2) if review_total else 0
+
+    # 决策主推验证准确率（不含模板兜底）
+    decision_profits = [p for p in decision_perf_map.values() if p and p.get('is_profit')]
+    decision_total = [p for p in decision_perf_map.values() if p]
+    decision_accuracy = round(len(decision_profits) / len(decision_total) * 100, 1) if decision_total else 0
+    decision_avg_ret = round(sum(p['change_pct'] for p in decision_total) / len(decision_total), 2) if decision_total else 0
+
+    # 实际执行验证准确率（仅 decision_log 中标记为已执行的记录）
+    log_profits = [p for p in log_perf_map.values() if p and p.get('is_profit')]
+    log_total = [p for p in log_perf_map.values() if p]
+    log_accuracy = round(len(log_profits) / len(log_total) * 100, 1) if log_total else 0
+    log_avg_ret = round(sum(p['change_pct'] for p in log_total) / len(log_total), 2) if log_total else 0
 
     # 检查本期是否空仓主导：决策结果中过半数为空仓
     total_decisions = len([d for d in decision_results if d])
     empty_decisions = len([d for d in decision_results if d and d.get('is_empty')])
-    is_empty_majority = empty_decisions > 0 and empty_decisions / max(total_decisions, 1) >= 0.5
-
-    if is_empty_majority:
-        # 空仓主导期，模拟持有收益冒充实绩 → 归零
-        actual_accuracy = 0.0
-        avg_return = 0.0
-    else:
-        actual_accuracy = round(len(perf_profits) / len(perf_total) * 100, 1) if perf_total else 0
-        avg_return = round(sum(p['change_pct'] for p in perf_total) / len(perf_total), 2) if perf_total else 0
+    # 空仓主导期不影响分源指标（审查/决策/执行三源已分离）
+    # 为保持兼容，构建合并版 accuracy 用于旧指标引用
+    # 实际上各源指标已独立计算于上方的 review_accuracy / decision_accuracy / log_accuracy
+    all_perf = {**review_perf_map, **decision_perf_map, **log_perf_map}
+    actual_accuracy = round(len([p for p in all_perf.values() if p and p.get('is_profit')]) / len([p for p in all_perf.values() if p]) * 100, 1) if [p for p in all_perf.values() if p] else 0
+    avg_return = round(sum(p['change_pct'] for p in all_perf.values() if p) / len([p for p in all_perf.values() if p]), 2) if [p for p in all_perf.values() if p] else 0
 
     # 检测P0级问题
     p0_issues = detect_p0_issues(review_results, decision_results, fast_screen_stocks,
@@ -1080,7 +1111,13 @@ def generate_report(days=7, output_file=None):
         'p1_count': p1_count,
         'actual_accuracy': actual_accuracy,
         'avg_return': avg_return,
-        'perf_sample_count': len(perf_total),
+        'perf_sample_count': len(all_perf),
+        'review_accuracy': review_accuracy,
+        'review_avg_ret': review_avg_ret,
+        'decision_accuracy': decision_accuracy,
+        'decision_avg_ret': decision_avg_ret,
+        'log_accuracy': log_accuracy,
+        'log_avg_ret': log_avg_ret,
         'p0_type_counts': dict(p0_type_counts)
     }
     
@@ -1089,7 +1126,7 @@ def generate_report(days=7, output_file=None):
     for key in ['p0_count', 'p1_count', 'fast_screen_count']:
         delta, val, trend = calc_trend(history, key, is_pct=False)
         trends[key] = {'delta': delta, 'trend': trend}
-    for key in ['upgrade_market_accuracy', 'upgrade_persistence_rate', 'downgrade_accuracy', 'actual_accuracy', 'avg_return']:
+    for key in ['upgrade_market_accuracy', 'upgrade_persistence_rate', 'downgrade_accuracy', 'actual_accuracy', 'avg_return', 'decision_accuracy', 'review_accuracy', 'decision_avg_ret', 'review_avg_ret']:
         delta, val, trend = calc_trend(history, key, is_pct=True)
         trends[key] = {'delta': delta, 'trend': trend}
     
@@ -1136,12 +1173,13 @@ def generate_report(days=7, output_file=None):
     if history:
         trend_rows = [
             ('P0问题', 'p0_count', f'{p0_count}个', True),
-            ('实战准确率', 'actual_accuracy', f'{actual_accuracy}%', False),
+            ('决策主推准确率', 'decision_accuracy', f'{decision_accuracy}%', False),
+            ('审查升级准确率', 'review_accuracy', f'{review_accuracy}%', False),
             ('升级市场准确率', 'upgrade_market_accuracy', f'{review["upgrade_market_accuracy"] if review else "N/A"}%', False),
             ('升级评分维持率', 'upgrade_persistence_rate', f'{review["upgrade_persistence_rate"]}%' if review and review["upgrade_persistence_rate"] is not None else 'N/A', False),
             ('降级准确率', 'downgrade_accuracy', f'{review["downgrade_accuracy"] if review else "N/A"}%', False),
             ('快筛数量', 'fast_screen_count', f'{fast_screen["total_predictions"] if fast_screen else 0}只', True),
-            ('平均收益', 'avg_return', f'{avg_return:+.2f}%', False),
+            ('决策平均收益', 'decision_avg_ret', f'{decision_avg_ret:+.2f}%', False),
         ]
 
         report += """## 📈 趋势对比（进化检测）
@@ -1299,19 +1337,37 @@ def generate_report(days=7, output_file=None):
         report += "⚠️ 未找到决策报告数据\n"
     
     # 四、实战回测（策略A：实战验证）
+    # 构建决策主推验证标的列表（用于相对收益计算）
+    decision_verified_stocks = []
+    for d in decision_results:
+        if not d['is_empty'] and d.get('date'):
+            date = d['date']
+            for s in d.get('main_stocks', []):
+                code = s.get('code', '')
+                if not code or s.get('_source') == 'fallback':
+                    continue
+                key = f"{code}_{date}"
+                perf = decision_perf_map.get(key)
+                if perf:
+                    decision_verified_stocks.append({
+                        'code': code,
+                        'name': s.get('name', ''),
+                        '_perf': perf,
+                    })
+
     # 计算大盘基准：获取每只验证股票对应时期的上证指数涨跌幅
     import urllib.request  # 确保导入
     index_changes = {}
-    for r in verified_stocks:
+    for r in decision_verified_stocks:
         p = r.get('_perf', {})
         if p and p.get('entry_date'):
             idx_chg = calc_index_change(p['entry_date'], hold_days=3)
             if idx_chg is not None:
                 index_changes[r['code']] = idx_chg
 
-    # 计算相对收益
+    # 计算相对收益（基于决策主推验证）
     relative_returns = []
-    for r in verified_stocks:
+    for r in decision_verified_stocks:
         p = r.get('_perf', {})
         if p and p.get('change_pct') is not None:
             stock_chg = p['change_pct']
@@ -1325,25 +1381,30 @@ def generate_report(days=7, output_file=None):
     all_idx_chgs = [v for v in index_changes.values() if v is not None]
     avg_index_return = round(sum(all_idx_chgs) / len(all_idx_chgs), 2) if all_idx_chgs else 0
 
-    # 空仓主导期：avg_return已归零，重算相对收益
-    if is_empty_majority:
-        avg_relative = round(0 - avg_index_return, 2)
-
     report += f"""
 |---
 
 ## 📊 四、实战回测（进化检测）
 
+### 三源准确率对比
+
+| 层级 | 验证数 | 盈利 | 准确率 | 平均收益 | 含义 |
+|------|:-----:|:----:|:-----:|:--------:|:----|
+| 🏗️ 审查升级验证 | {len(review_total)}只 | {len(review_profits)}只 | {review_accuracy}% | {review_avg_ret:+.2f}% | 审查说"升级"的票3日后涨跌 |
+| 🎯 决策主推验证 | {len(decision_total)}只 | {len(decision_profits)}只 | {decision_accuracy}% | {decision_avg_ret:+.2f}% | 决策说"买入"的票3日后涨跌（不含模板兜底） |
+| 📊 日志补验证 | {len(log_total)}只 | {len(log_profits)}只 | {log_accuracy}% | {log_avg_ret:+.2f}% | 旧决策日志T+3补充验证 |
+
 | 指标 | 数值 |
 |------|------|
-| 验证推荐总数 | {len(perf_total)}只 |
-| 盈利标的 | {len(perf_profits)}只 |
-| 亏损标的 | {len(perf_total) - len(perf_profits)}只 |
+| 验证推荐总数 | {len(all_perf)}只 |
 | 无法验证（退市/停牌） | {unverified_count}只 |
-|| 实战准确率(3日后涨) | {actual_accuracy}% |
-| 平均收益 | {avg_return:+.2f}% |
+| 合并准确率(参考) | {actual_accuracy}% |
+| 合并平均收益 | {avg_return:+.2f}% |
 | 上证指数同期均值 | {avg_index_return:+.2f}% |
 | 平均相对收益 | {avg_relative:+.2f}% |
+
+> ⚠️ 说明：准确率为模拟持有收益（假设T日收盘价买入、T+3收盘价卖出），非实际账户损益。
+> 实际账户盈亏请参考决策日志的 `actual_pnl` 字段。决策主推验证已剔除模板兜底生成的假推荐。
 
 ### 各标的实战表现
 
@@ -1439,14 +1500,14 @@ def generate_report(days=7, output_file=None):
     suggestions.append("P2: 建议新增'黄色预警'状态，减少降级延迟")
     suggestions.append("P2: 建议建立快筛-审查-决策闭环追踪机制")
     
-    # 实战验证相关建议
-    if perf_total:
-        if actual_accuracy < 60:
-            suggestions.append(f"P1: 实战准确率仅{actual_accuracy}%，3日后仅{len(perf_profits)}/{len(perf_total)}只盈利，建议复盘审查评分标准")
-        elif actual_accuracy < 80:
-            suggestions.append(f"P2: 实战准确率{actual_accuracy}%（{len(perf_profits)}/{len(perf_total)}），有提升空间，建议结合行情回测优化")
+    # 实战验证相关建议（基于决策主推验证，非合并指标）
+    if decision_total:
+        if decision_accuracy < 60:
+            suggestions.append(f"P1: 决策主推准确率仅{decision_accuracy}%，3日后仅{len(decision_profits)}/{len(decision_total)}只盈利，建议复盘审查评分标准")
+        elif decision_accuracy < 80:
+            suggestions.append(f"P2: 决策主推准确率{decision_accuracy}%（{len(decision_profits)}/{len(decision_total)}），有提升空间，建议结合行情回测优化")
         else:
-            suggestions.append(f"P2: 实战准确率{actual_accuracy}%（{len(perf_profits)}/{len(perf_total)}）表现良好")
+            suggestions.append(f"P2: 决策主推准确率{decision_accuracy}%（{len(decision_profits)}/{len(decision_total)}）表现良好")
     
     # 顽固问题告警
     if persistent_issues:

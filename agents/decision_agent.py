@@ -87,10 +87,16 @@ ROLE_PROMPT = """你是一个短线交易决策专家，专门为盟主制定完
 ```
 
 注意：
-- 如果没有审查通过的股票（评分<70），输出"今日暂无通过审查的股票，建议空仓等待"
+- 如果没有审查通过的股票（评分<75），输出"今日暂无通过审查的股票，建议空仓等待"
 - 单票仓位最高不超过30%，一般推荐10-20%
 - 止损和止盈必须明确写价格，不能只写百分比
-- 永远输出"不做的情况"，这是风控底线"""
+- 永远输出"不做的情况"，这是风控底线
+
+核心指令（必须遵守）：
+1. ⛔ **禁止输出推理过程**：不要出现"让我考虑""但是，我还需要考虑""让我重新审视""现在，让我输出"等元思考/自我对话式内容。直接输出交易方案。
+2. ⛔ **禁止自我重复**：同一论点（如"评分≥75分才能执行"）只出现一次，出现一次即停止讨论。已经确认过的条件不要再反复确认。
+3. ✅ **直接输出**：基于已有信息做最优判断，不需要反复确认信息完整性。
+4. ✅ **格式约束**：每只股票的方案严格遵循下方```格式，精确填写每个字段。"""
 
 
 USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票制定完整执行方案：
@@ -572,8 +578,13 @@ class DecisionAgent(BaseAgent):
             header_parts.append(dup_warning)
         # ────────────────────────────────────────────────────
         header_parts.append("请基于以上数据制定执行方案。\n")
+        # ═══ P0-8修复：剥离审查报告中的"重点观察池评估"表格，防止评分冲突死循环 ═══
+        _clean_report = review_report[:6000]
+        _strip_marker = "## 📋 重点观察池最新评估"
+        if _strip_marker in _clean_report:
+            _clean_report = _clean_report[:_clean_report.index(_strip_marker)].rstrip()
         header_parts.append(USER_PROMPT_TEMPLATE.format(
-            review_report=review_report[:6000],
+            review_report=_clean_report,
             market_env=market_env,
             candidate_pool=candidate_pool,
             history_dir=str(self.history_dir),
@@ -583,7 +594,7 @@ class DecisionAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-            max_tokens=3000
+            max_tokens=1500
         )
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
@@ -836,6 +847,31 @@ class DecisionAgent(BaseAgent):
         # 保存
         out_file = self.history_dir / f"{today}_决策报告.md"
         self.safe_write_text(out_file, report)
+
+        # ── F3: 决策报告有效性校验 ─────────────────────────────────
+        # 检查报告是否包含实际交易方案（防止LLM循环退化时生成无效报告）
+        if not re.search(r'【主推】|【备选】', report) and '空仓' not in report and '暂无通过审查' not in report:
+            print("[DecisionAgent] ⚠️ 决策报告未包含任何交易方案（LLM输出退化），标记为无效")
+            # 替换为空仓报告
+            fallback_report = (
+                f"# 【决策报告】{today}\n\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"## 指数环境判断\n\n"
+                f"### 今日行情\n"
+                f"{market_env}\n\n"
+                f"---\n\n"
+                f"⚠️ **LLM输出退化，未生成有效交易方案**\n\n"
+                f"今日决策Agent输出无实际交易内容，安全起见建议空仓。\n\n"
+                f"---\n\n"
+                f"### 📋 池联动确认\n"
+                f"- **S级操作池**: {s_pool_today}只今日主推标的\n"
+                f"- **重点观察池**: {kw_count}只持续跟踪中\n"
+                f"---\n"
+                f"决策执行时间：{datetime.now().strftime('%H:%M')}\n"
+            )
+            self.safe_write_text(out_file, fallback_report)
+            print(f"[DecisionAgent] ✅ 已替换为空仓报告：{out_file}")
+            report = fallback_report
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
         report = self.track_recorder.record_s_pool_eval(report, out_file)
