@@ -1039,6 +1039,20 @@ class PoolManager:
             raw_score = s.get("综合分")
             score = float(raw_score) if raw_score is not None else 0
             level = score_to_level(score)
+
+            # WO-002: 评分=0且入池≥3天的标的，直接降级（不等待自然衰减）
+            if score <= 0:
+                try:
+                    entry_date = s.get("纳入日期", "")
+                    if entry_date:
+                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                        if days_in_pool >= 3:
+                            to_demote.append(s)
+                            print(f"  [PoolManager] ⬇️ 强制降级 {s.get('名称','')}({s.get('代码','')}) 评分0滞留{days_in_pool}天 → 边缘池")
+                            continue
+                except (ValueError, TypeError):
+                    pass  # 日期格式异常，走常规降级逻辑
+
             if score < AUTO_DOWNGRADE_SCORE:  # 低于降级阈值，强制降级
                 to_demote.append(s)
                 print(f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < {AUTO_DOWNGRADE_SCORE} → 边缘池")

@@ -50,12 +50,25 @@ def sweep_all_pools(pm: PoolManager, dry_run: bool = False) -> dict:
         to_demote = []
         remaining = []
         for s in stocks:
-            raw_score = s.get("综合分")
             try:
+                raw_score = s.get("综合分")
                 score = float(raw_score) if raw_score is not None else 0
             except (TypeError, ValueError):
                 raw_score = "?"
                 score = 0
+
+            # WO-002: 评分=0且入池≥3天的标的，直接降级
+            if score <= 0:
+                try:
+                    entry_date = s.get("纳入日期", "")
+                    if entry_date:
+                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+                        if days_in_pool >= 3:
+                            to_demote.append(s)
+                            continue
+                except (ValueError, TypeError):
+                    pass
+
             if score < DOWNGRADE_THRESHOLD:
                 to_demote.append(s)
             else:
