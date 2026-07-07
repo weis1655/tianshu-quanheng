@@ -450,7 +450,7 @@ class ReviewAgent(BaseAgent):
         # 但原始flow_direction未同步更新，导致低分标的未降级
         _extra_demotions = []
         for sr in review_result.stocks:
-            if sr.composite_score < AUTO_DOWNGRADE_SCORE and sr.flow_direction != "降级":
+            if sr.composite_score < AUTO_DOWNGRADE_SCORE:
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
