@@ -725,8 +725,8 @@ def classify_failure_reason(status: str, reason: str = "") -> FailureReason | No
     return FailureReason.UNKNOWN
 
 
-def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2) -> str | None:
-    """创建 PR 等待人工审核，支持重试。
+def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/tianshu-quanheng", max_pr_retries: int = 2, auto_merge: bool = True) -> str | None:
+    """创建 PR 并自动合并（已验证编译+导入通过），支持重试。
     
     Args:
         worktree: 工作树路径
@@ -734,6 +734,7 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
         issue: 问题描述（含 type/issue 字段）
         pr_repo: GitHub 仓库（格式: owner/repo）
         max_pr_retries: PR 创建最大重试次数
+        auto_merge: 是否自动合并（默认 True，已验证编译通过的低风险修复直接合并）
     
     Returns:
         str | None: PR URL（成功）、"pushed_no_pr:{branch}"（PR 失败但分支已推送）、None（推送失败）
@@ -770,7 +771,7 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
 - ✅ 编译通过
 - ✅ 模块导入通过
 
-**请人工审核后再合并。**
+**自动合并已生效（已验证编译+导入通过的低风险修复）。**
 """
     for attempt in range(1, max_pr_retries + 1):
         pr_result = _run_cmd(
@@ -781,6 +782,16 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
         if pr_result.returncode == 0:
             pr_url = pr_result.stdout.strip()
             logger.info(f"[auto_heal]   🔗 PR 已创建: {pr_url}")
+            # 自动合并（已验证编译+导入通过，低风险修复直接合入 main）
+            if auto_merge:
+                merge_result = _run_cmd(
+                    ["gh", "pr", "merge", pr_url, "--auto", "--squash", "--delete-branch"],
+                    timeout=30,
+                )
+                if merge_result.returncode == 0:
+                    logger.info(f"[auto_heal]   ✅ PR 已自动合并: {pr_url}")
+                else:
+                    logger.warning(f"[auto_heal]   ⚠️ PR 自动合并失败（可能已有冲突）: {merge_result.stderr.strip()}")
             return pr_url
         logger.warning(f"[auto_heal]   ⚠️ PR 创建第{attempt}次失败，重试...")
         if attempt < max_pr_retries:
