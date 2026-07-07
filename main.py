@@ -113,8 +113,8 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
         print("🎭 执行质疑者（SkepticAgent）...")
         skeptic = SkepticAgent()
         # 读取审查报告
-        today = datetime.now().strftime("%Y-%m-%d")
-        review_file = PROJECT_ROOT / "data" / "历史记录" / f"{today}_审查报告.md"
+        ___today = datetime.now().strftime("%Y-%m-%d")
+        review_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_审查报告.md"
         review_report = ""
         try:
             review_report = review_file.read_text(encoding="utf-8") if review_file.exists() else ""
@@ -131,9 +131,21 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             # ⚠️ 无升级标的时跳过 Skeptic，避免宪法冲突
             # 详见：review无标的升级到重点池→重点池为空→静默降级候选池→LLM宪法冲突拒绝审查
             print("  ⏭️ 重点观察池为空（今日无review升级标的），跳过Skeptic阶段")
+            # 写入占位报告，确保DecisionAgent能读取到质疑记录
+            placeholder = (
+                f"# 【质疑审查报告】{___today}\n"
+                f"重点观察池为空（今日无review升级标的），SkepticAgent跳过。\n"
+                f"否决列表：空\n"
+            )
+            try:
+                skeptic_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_质疑审查报告.md"
+                skeptic_file.write_text(placeholder, encoding="utf-8")
+                print(f"  📝 已写入占位质疑报告（重点池为空）")
+            except Exception as e:
+                print(f"  ⚠️ 写入占位质疑报告失败: {e}")
             results["skeptic"] = {
                 "success": True, "challenges": [], "high_risk_stocks": [],
-                "high_risk_count": 0, "report": "",
+                "high_risk_count": 0, "report": placeholder,
                 "skipped": True, "reason": "no_upgrades_to_key_watch_pool"
             }
             print(f"  ✅ 完成（跳过，无升级标的）")
@@ -167,7 +179,7 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
         LLM_CALL_COUNT += 1
         results["skeptic"] = r
         # 写质疑结果供 DecisionAgent 注入（文件名与 DecisionAgent 读取一致）
-        skeptic_file = PROJECT_ROOT / "data" / "历史记录" / f"{today}_质疑审查报告.md"
+        skeptic_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_质疑审查报告.md"
         # P0修复：写入完整质疑报告（含所有股票的详细质疑），而非简化版
         # 简化版只含 high_risk_summary 和 summary，LLM无法获取审查通过的股票详情
         skeptic_content = r.get('report', '')
@@ -178,7 +190,7 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             challenges = r.get('challenges', [])
             
             lines = [
-                f"# 【质疑审查报告】{today}\n",
+                f"# 【质疑审查报告】{___today}\n",
                 f"## 📊 质疑概览\n",
                 f"- 总股票数: {len(challenges)}\n",
                 f"- 高风险股票: {high_risk_count}只\n",
@@ -231,8 +243,8 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             ts_main()
         
         # 读取生成的报告
-        today = datetime.now().strftime("%Y-%m-%d")
-        ts_file = PROJECT_ROOT / "data" / "历史记录" / f"{today}_时间序列分析.md"
+        ___today = datetime.now().strftime("%Y-%m-%d")
+        ts_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_时间序列分析.md"
         ts_report = ts_file.read_text(encoding="utf-8") if ts_file.exists() else ""
         
         r = {"success": True, "report": ts_report, "saved_to": str(ts_file)}
@@ -244,12 +256,12 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
 
 def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
     """构建飞书消息卡片"""
-    today = datetime.now().strftime("%Y-%m-%d")
+    ___today = datetime.now().strftime("%Y-%m-%d")
 
     card = {
         "config": {"wide_screen_mode": True},
         "header": {
-            "title": {"tag": "plain_text", "content": f"🦞 天枢权衡 | {today}"},
+            "title": {"tag": "plain_text", "content": f"🦞 天枢权衡 | {___today}"},
             "template": "blue"
         },
         "elements": [
@@ -539,9 +551,9 @@ def main():
         print("📰 阶段: news")
         print(f"{'='*40}")
         def run_news():
-            today = datetime.now().strftime("%Y-%m-%d")
+            ___today = datetime.now().strftime("%Y-%m-%d")
             # P2-4：先检查本地新闻联播分析文件（06:20由另一cron生成）
-            news_file = PROJECT_ROOT / "data" / "历史记录" / f"{today}_新闻联播投资分析.md"
+            news_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_新闻联播投资分析.md"
             if news_file.exists():
                 raw = news_file.read_text(encoding="utf-8")
                 if len(raw) >= 500 and "新闻联播核心内容速览" in raw:
@@ -746,6 +758,7 @@ def main():
 
         # ── 弱市极速模式（P2-1：非完全跳过）─────────────────────
         _ms = ReviewAgent()._get_market_state()
+        ____today = datetime.now().strftime("%Y-%m-%d")
         if _ms.get("state", "") in ("震荡偏弱", "偏空"):
             # 先检查重点池中是否有≥85分的极致标的
             key_pool_file = PROJECT_ROOT / "五池管理" / "重点观察池.json"
@@ -766,8 +779,20 @@ def main():
             if urgent_candidates and len(urgent_candidates) <= 3:
                 names = [s.get("名称", "?") for s in urgent_candidates]
                 print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，发现{len(urgent_candidates)}只≥85分标的，进入极速审查模式")
+                # 写入占位质疑报告
+                placeholder = (
+                    f"# 【质疑审查报告】{____today}\n"
+                    f"弱市极速审查模式（Skeptic跳过）。\n"
+                    f"≥85分极致标的：{', '.join(names)}\n"
+                    f"否决列表：空\n"
+                )
+                try:
+                    (PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md").write_text(placeholder, encoding="utf-8")
+                except Exception:
+                    pass
                 results["skeptic"] = {
                     "success": True, "skipped": True, "reason": "weak_market_express",
+                    "report": placeholder,
                     "note": f"弱市极速审查：{', '.join(names)}评分≥85",
                     "urgent_candidates": [{"code": s.get("代码",""), "name": s.get("名称",""),
                                            "score": s.get("综合评分",0)} for s in urgent_candidates]
@@ -781,7 +806,20 @@ def main():
                 record_success("decision")
             else:
                 print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，无≥85分极致标的，跳过Skeptic+Decision阶段")
-                results["skeptic"] = {"success": True, "skipped": True, "reason": "weak_market"}
+                # 写入占位质疑报告
+                placeholder = (
+                    f"# 【质疑审查报告】{____today}\n"
+                    f"弱市模式（Skeptic跳过）：市场{_ms.get('state','')}，无≥85分极致标的。\n"
+                    f"否决列表：空\n"
+                )
+                try:
+                    (PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md").write_text(placeholder, encoding="utf-8")
+                except Exception:
+                    pass
+                results["skeptic"] = {
+                    "success": True, "skipped": True, "reason": "weak_market",
+                    "report": placeholder,
+                }
                 results["decision"] = {"success": True, "report": "弱市不操作"}
                 record_success("skeptic")
                 record_success("decision")
@@ -896,18 +934,18 @@ def main():
         pass  # 审计失败不阻断主流程
     # ──────────────────────────────────────────────────────
 
-    # ── F2: 全池低分标的降级扫描（降级延迟修复）────────────
+    # ── F2: 全池低分标的降级扫描（降级延迟修复 — 使用独立扫描脚本，覆盖全部5池）──
     try:
+        from scripts.sweep_downgrade import sweep_all_pools
         pm = PoolManager()
-        for pool_name in ["快筛候选池", "重点观察池"]:
-            data = pm.load_pool(pool_name)
-            if data and "stocks" in data:
-                demoted = pm._scan_and_downgrade(data)
-                if demoted:
-                    pm.save_pool(pool_name, data)
-                    print(f"  🧹 {pool_name}: {len(demoted)} 只低分标的(评分<65)已降级边缘池")
-                else:
-                    print(f"  ✅ {pool_name}: 无低分标的残留")
+        report = sweep_all_pools(pm)
+        if report["total_demoted"] > 0:
+            print(f"  🧹 全池低分扫描: 共降级 {report['total_demoted']} 只低分标的(评分<{65})至边缘池")
+            for pool in report["scanned_pools"]:
+                if pool["demoted"] > 0:
+                    print(f"       {pool['pool']}: 降级 {pool['demoted']} 只")
+        else:
+            print(f"  ✅ 全池低分扫描: 无低分标的残留")
     except Exception as e:
         print(f"  ⚠️ 全池低分扫描异常（不影响主流程）: {e}")
     # ──────────────────────────────────────────────────────

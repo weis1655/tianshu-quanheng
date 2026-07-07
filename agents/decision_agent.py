@@ -359,18 +359,20 @@ class DecisionAgent(BaseAgent):
                 s_code = str(s.get("代码", s.get("股票代码", "")))
                 s_name = s.get("名称", s.get("股票名称", "?"))
                 if s_code not in existing_codes:
+                    # 使用真实评分，而非硬编码80分
+                    actual_score = float(s.get("综合分", s.get("综合评分", 0))) if s.get("综合分", s.get("综合评分")) else 0
                     scored_stocks.append({
                         "code": s_code,
                         "name": s_name,
-                        "score": 80,  # S级准入分
-                        "passed": True,
+                        "score": actual_score,  # 真实评分，交由后续≥75过滤
+                        "passed": actual_score >= 75,  # 只有≥75才算审查通过
                         "ml_score": None,
                     })
                     existing_codes.add(s_code)
                     self.logger.info("s_pool_merged_into_review",
-                                   code=s_code, name=s_name, score=80)
+                                   code=s_code, name=s_name, score=actual_score)
             if self._active_s_stocks:
-                print(f"[S级优先] 🔀 {len(self._active_s_stocks)} 只S级标的已合并入 scored_stocks（评分80分）")
+                print(f"[S级优先] 🔀 {len(self._active_s_stocks)} 只S级标的已合并入 scored_stocks（使用真实评分）")
         # ──────────────────────────────────────────────────────────────
 
         # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
