@@ -78,6 +78,9 @@ OVERHEAT_CRITICAL_QUARTER_CHG = 50 # 季涨跌 >50%
 OVERHEAT_W1_DAY_CHG = 8            # 日涨幅 >8%
 OVERHEAT_W1_SCORE = 75             # 评分门槛 >75
 
+# 盘中过热标记阈值（与W1语义不同：此阈值标记"本来不错但突然涨"的标的）
+INTRADAY_OVERHEAT_MIN_SCORE = 70   # 评分≥70的标的才触发盘中过热标记
+
 # WARNING-2 — 扣5分
 OVERHEAT_W2_DAY_CHG = 10           # 日涨幅 >10%
 
@@ -172,3 +175,26 @@ HISTORY_POOL_MAX_STOCKS = 200
 
 # 边缘池陈旧淘汰阈值（P2新增：入池>30天自动移除）
 EDGE_POOL_STALE_DAYS = 30
+
+
+# ═══════════════════════════════════════════════════════════════
+# 统一评分等级函数（SSOT — 所有文件应从这里调用）
+# ═══════════════════════════════════════════════════════════════
+def score_to_level(score: float) -> str:
+    """将综合分转换为评级等级，与 SCORE_LEVEL_LABELS 保持一致
+
+    Args:
+        score: 综合评分（0-100）
+
+    Returns:
+        等级标签：S级 / A级 / B级(黄色预警) / C级(观察区) / D级(淘汰)
+    """
+    if score >= SCORE_S_LEVEL:
+        return "S级"
+    if score >= SCORE_A_LEVEL:
+        return "A级"
+    if score >= SCORE_B_LEVEL:
+        return "B级(黄色预警)"
+    if score >= SCORE_C_LEVEL:
+        return "C级(观察区)"
+    return "D级(淘汰)"

@@ -13,6 +13,15 @@ from typing import Optional, Dict, List, Any
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 
+# 统一阈值管理（SSOT）
+from thresholds import (
+    SCORE_S_LEVEL, SCORE_A_LEVEL, SCORE_B_LEVEL, SCORE_C_LEVEL,
+    AUTO_DOWNGRADE_SCORE, SCORE_DECAY_DAYS, SCORE_DECAY_PER_DAY,
+    SCORE_DECAY_MAX, SCORE_DECAY_FLOOR, POOL_CAPACITY_LIMITS,
+    INTRADAY_OVERHEAT_MIN_SCORE,
+    score_to_level,
+)
+
 
 class PoolManager:
     """集中管理五池操作的类"""
@@ -27,13 +36,13 @@ class PoolManager:
         "S级操作池",
     ]
     
-    # 池容量限制（P0-2 + P2-1：代码级强制限制）
+    # 池容量限制（P0-2 + P2-1：代码级强制限制，引用 thresholds.py SSOT）
     POOL_CAPACITY_LIMITS = {
-        "快筛候选池": 20,
-        "重点观察池": 20,
-        "边缘池": 20,
-        "持仓池": None,  # 无上限
-        "S级操作池": 3,  # ≤3，当日决策主推标的
+        "快筛候选池": 20,      # 对应 thresholds.POOL_CAPACITY_FAST_SCREEN
+        "重点观察池": 20,      # 对应 thresholds.POOL_CAPACITY_KEY_WATCH
+        "边缘池": 30,          # 对应 thresholds.POOL_CAPACITY_EDGE（P2升级：原20→30）
+        "持仓池": None,        # 无上限
+        "S级操作池": 3,        # 对应 thresholds.POOL_CAPACITY_S_POOL
     }
     
     # 统一的字段名（标准格式）
@@ -1016,27 +1025,23 @@ class PoolManager:
             }
         }
     
-    # ── 评分等级转换 ────────────────────────────────────
+    # ── 评分等级转换（委托 thresholds.py SSOT）───────────────
     def _score_to_level(self, score: float) -> str:
-        """将综合分转换为评级等级"""
-        if score >= 90: return "S级"
-        if score >= 70: return "A级"
-        if score >= 65: return "B级(黄色预警)"
-        if score >= 55: return "C级(观察区)"
-        return "D级(淘汰)"
+        """将综合分转换为评级等级（委托 thresholds.score_to_level）"""
+        return score_to_level(score)
 
     def _scan_and_downgrade(self, data: dict) -> list:
-        """扫描池中评分<65的股票，自动降级到边缘池。返回被降级的股票列表。"""
+        """扫描池中低分股票（评分<AUTO_DOWNGRADE_SCORE），自动降级到边缘池。"""
         stocks = data.get("stocks", [])
         to_demote = []
         remaining = []
         for s in stocks:
             raw_score = s.get("综合分")
             score = float(raw_score) if raw_score is not None else 0
-            level = self._score_to_level(score) if hasattr(self, '_score_to_level') else None
-            if score < 65:  # C级(55-64) + D级(<55) 需降级
+            level = score_to_level(score)
+            if score < AUTO_DOWNGRADE_SCORE:  # 低于降级阈值，强制降级
                 to_demote.append(s)
-                print(f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < 65 → 边缘池")
+                print(f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < {AUTO_DOWNGRADE_SCORE} → 边缘池")
             else:
                 remaining.append(s)
 
@@ -1152,7 +1157,7 @@ class PoolManager:
         for stock in stocks:
             chg_str = stock.get("今日涨跌", "")
             orig_score = stock.get("综合分", 0)
-            if chg_str and isinstance(orig_score, (int, float)) and orig_score >= 70:
+            if chg_str and isinstance(orig_score, (int, float)) and orig_score >= INTRADAY_OVERHEAT_MIN_SCORE:
                 try:
                     chg = float(chg_str.replace("%", "").replace("+", ""))
                     if chg > 8:

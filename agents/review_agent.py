@@ -28,7 +28,7 @@ from pool_manager import PoolManager
 from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
 from schemas import REVIEW_SCHEMA
-from thresholds import AUTO_DOWNGRADE_SCORE, HARD_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE
+from thresholds import AUTO_DOWNGRADE_SCORE, HARD_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, score_to_level
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -389,7 +389,7 @@ class ReviewAgent(BaseAgent):
 
             # ML评分低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
             for sr in review_result.stocks:
-                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= 75:
+                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= DECISION_MIN_SCORE:
                     sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
                     print(f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
                     # ML评分降级：LLM高分但ML低分，说明模型不认可
@@ -907,11 +907,8 @@ class ReviewAgent(BaseAgent):
         stocks = {}
 
         def _score_to_level(score: int) -> str:
-            if score >= 90: return "S级"
-            if score >= 75: return "A级"
-            if score >= 65: return "B级(黄色预警)"
-            if score >= 55: return "C级(观察区)"
-            return "D级(淘汰)"
+            """委托 thresholds.score_to_level（SSOT）"""
+            return score_to_level(score)
         # 统一规范格式分割
         blocks = re.split(
             r'(?=##\s*\[?\d{6}\]?\s*[\u4e00-\u9fa5])',
@@ -961,11 +958,8 @@ class ReviewAgent(BaseAgent):
         from datetime import datetime as _dt
 
         def _score_to_level(score: int) -> str:
-            if score >= 90: return "S级"
-            if score >= 75: return "A级"
-            if score >= 65: return "B级(黄色预警)"
-            if score >= 55: return "C级(观察区)"
-            return "D级(淘汰)"
+            """委托 thresholds.score_to_level（SSOT）"""
+            return score_to_level(score)
 
         def _extract_dimensions(block: str) -> List[DimensionScore]:
             """提取四维评分"""
@@ -1023,7 +1017,7 @@ class ReviewAgent(BaseAgent):
             flow_dir, target_pool = _extract_flow(block)
 
             # ═══ P0: 硬阈值 — 分数<75即使LLM说升级也拒绝 ═══
-            if flow_dir == "升级" and score < 75:
+            if flow_dir == "升级" and score < DECISION_MIN_SCORE:
                 flow_dir = "保留"
                 target_pool = ""
             # ═══════════════════════════════════════════════════
@@ -1096,9 +1090,9 @@ class ReviewAgent(BaseAgent):
                     original_score = sr.composite_score
                     sr.composite_score = max(0, original_score - overheat_info["penalty"])
                     sr.driver_level = _score_to_level(sr.composite_score)
-                    # 过热WARNING降级：原评分70-74区间触发过热→自动降级
+                    # 过热WARNING降级：原评分INTRADAY_OVERHEAT_MIN_SCORE(70)-SCORE_A_LEVEL(75)区间触发过热→自动降级
                     # 解决RULE5.5(涨幅>8%+评分≥70)扣5分后70-73分不触发降级的漏检盲区
-                    if sr.composite_score <= 65 or (70 <= original_score < 75):
+                    if sr.composite_score <= AUTO_DOWNGRADE_SCORE or (INTRADAY_OVERHEAT_MIN_SCORE <= original_score < SCORE_A_LEVEL):
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
                         if not sr.action_advice:

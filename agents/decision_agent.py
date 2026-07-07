@@ -36,6 +36,7 @@ from pool_updater import PoolUpdater
 from track_recorder import TrackRecorder
 from gate_controller import GateController
 from decision_utils import extract_scores, build_empty_decision
+from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -371,7 +372,7 @@ class DecisionAgent(BaseAgent):
                         "code": s_code,
                         "name": s_name,
                         "score": actual_score,  # 真实评分，交由后续≥75过滤
-                        "passed": actual_score >= 75,  # 只有≥75才算审查通过
+                        "passed": actual_score >= DECISION_MIN_SCORE,  # 只有≥决策准入分才算审查通过
                         "ml_score": None,
                     })
                     existing_codes.add(s_code)
@@ -1081,20 +1082,20 @@ class DecisionAgent(BaseAgent):
                         "severity": "high"
                     })
 
-                # 冲突检测3：审查评分<60但决策推荐
-                if review_score < 60 and priority in ["主推", "推荐"]:
+                # 冲突检测3：审查评分<60（硬性降级线）但决策推荐
+                if review_score < HARD_DOWNGRADE_SCORE and priority in ["主推", "推荐"]:
                     consistency_issues.append({
                         "code": code, "name": plan.name,
-                        "issue": f"审查评分{review_score}分<60但决策推荐'{priority}'",
+                        "issue": f"审查评分{review_score}分<{HARD_DOWNGRADE_SCORE}（硬性降级线）但决策推荐'{priority}'",
                         "severity": "high"
                     })
 
                 # P0-2026-06-04: 阈值已同步为≥75（与审查升级阈值一致）
-                # 冲突检测4：审查评分60-74（黄色预警）但决策主推
-                if 60 <= review_score < 75 and priority == "主推":
+                # 冲突检测4：审查评分在硬性降级线和决策准入分之间（黄色预警）但决策主推
+                if HARD_DOWNGRADE_SCORE <= review_score < DECISION_MIN_SCORE and priority == "主推":
                     consistency_issues.append({
                         "code": code, "name": plan.name,
-                        "issue": f"审查评分{review_score}分（黄色预警）但决策主推",
+                        "issue": f"审查评分{review_score}分（黄色预警{HARD_DOWNGRADE_SCORE}-{DECISION_MIN_SCORE-1}）但决策主推",
                         "severity": "medium"
                     })
 

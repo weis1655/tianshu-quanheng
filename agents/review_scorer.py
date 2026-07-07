@@ -20,6 +20,7 @@ class OverheatDetector:
         OVERHEAT_CRITICAL_PE as CRITICAL_PE_LIMIT,
         OVERHEAT_CRITICAL_TURNOVER as CRITICAL_TURNOVER_PCT,
         OVERHEAT_CRITICAL_MONTH_CHG as MONTHLY_GAIN_PCT,
+        OVERHEAT_CRITICAL_SCORE as CRITICAL_SCORE,
         OVERHEAT_CRITICAL_QUARTER_CHG as QUARTERLY_GAIN_PCT,
         OVERHEAT_W1_DAY_CHG as WARN1_GAIN_PCT,
         OVERHEAT_W1_SCORE as WARN1_SCORE,
@@ -31,8 +32,8 @@ class OverheatDetector:
         OVERHEAT_W4_SCORE as WARN4_SCORE,
     )
 
-    # ── 以下为OverheatDetector私有常量（thresholds.py无对应项）──
-    WARN2_SCORE_FALLBACK = 70     # 涨幅>8%且评分>70的独立WARNING
+    # ── 以下为OverheatDetector私有常量（thresholds.py无直接对应项）──
+    WARN2_SCORE_FALLBACK = 70     # 涨幅>8%且评分>70的独立WARNING（同CRITICAL_SCORE）
     PENALTY_CRITICAL = 30         # CRITICAL 扣30分
     PENALTY_WARN1 = 10            # WARNING-1 扣10分
     PENALTY_WARN2 = 5             # WARNING-2 扣5分
@@ -95,10 +96,10 @@ class OverheatDetector:
                 ),
             }
 
-        # ── RULE 2: CRITICAL — 月涨跌>25% + 评分>=70（≥修复边界漏检）──
+        # ── RULE 2: CRITICAL — 月涨跌>25% + 评分>=CRITICAL_SCORE ──
         if (
             month_chg > OverheatDetector.MONTHLY_GAIN_PCT
-            and composite_score >= 70
+            and composite_score >= OverheatDetector.CRITICAL_SCORE
         ):
             return {
                 "overheat_level": OverheatDetector.LEVEL_CRITICAL,
