@@ -1543,9 +1543,12 @@ class DecisionAgent(BaseAgent):
         if new_entries:
             # 写回
             tracker_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tracker_path, "w", encoding="utf-8") as f:
-                json.dump(records, f, ensure_ascii=False, indent=2)
-            print(f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
+            try:
+                with open(tracker_path, "w", encoding="utf-8") as f:
+                    json.dump(records, f, ensure_ascii=False, indent=2)
+                print(f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
+            except (IOError, OSError) as e:
+                print(f"[推荐追踪器] ⚠️ 写入失败（不影响决策结果）: {e}")
         else:
             print(f"[推荐追踪器] ℹ️ {today}无推荐标的（空仓/无匹配）")
 

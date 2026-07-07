@@ -1,15 +1,16 @@
 {
   "batch": 1,
-  "checkpoint_time": "2026-07-07T18:03:00",
+  "checkpoint_time": "2026-07-07T18:10:00",
   "work_order_status": {
     "WO-001": {"status": "completed", "commit": "acf9cc6", "verified": true},
     "WO-002": {"status": "completed", "commit": "3c8e46f", "verified": true},
-    "WO-003": {"status": "pending", "commit": null, "verified": false},
+    "WO-003": {"status": "completed", "commit": "a274f8b", "verified": true},
     "WO-004": {"status": "pending", "commit": null, "verified": false},
     "WO-005": {"status": "pending", "commit": null, "verified": false},
     "WO-006": {"status": "pending", "commit": null, "verified": false},
-    "WO-007": {"status": "completed", "commit": "acf9cc6", "verified": true, "note": "含在WO-001中一起修了"}
+    "WO-007": {"status": "completed", "commit": "acf9cc6", "verified": true}
   },
-  "next_work_order": "WO-003",
-  "context": "阈值中心化完成，A级阈值70→75已修复，三份重复_score_to_level已消除。评分0分标的3天强制降级已生效。"
+  "next_work_order": "WO-004",
+  "verified_bare_except": 0,
+  "context": "阈值中心化、0分强制降级、bare except治理已完成。下一步WO-004 decision_agent裸open治理。"
 }
