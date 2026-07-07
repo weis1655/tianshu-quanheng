@@ -184,7 +184,7 @@ class DecisionAgent(BaseAgent):
         else:
             skeptic_missing = True
             print("[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
-            skeptic_section = ""
+            skeptic_section = "\n\n## ⚠️ 质疑审查报告缺失\nSkepticAgent未对本期候选股票进行质疑审查。决策时需自行评估风险，审慎制定方案。\n"
 
         return skeptic_section, blocked_codes, skeptic_missing, skeptic_empty, skeptic_content
 
