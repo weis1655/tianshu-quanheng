@@ -705,7 +705,7 @@ def classify_failure_reason(status: str, reason: str = "") -> FailureReason | No
     Returns:
         FailureReason | None: 失败根因枚举值，成功时返回 None
     """
-    if status in ("needs_review", "pushed_no_pr"):
+    if status in ("needs_review", "pushed_no_pr", "merged"):
         return None  # 成功
     if status == "skipped":
         return FailureReason.SKIPPED
@@ -785,7 +785,7 @@ def create_pr(worktree: str, branch: str, issue: dict, pr_repo: str = "weis1655/
             # 自动合并（已验证编译+导入通过，低风险修复直接合入 main）
             if auto_merge:
                 merge_result = _run_cmd(
-                    ["gh", "pr", "merge", pr_url, "--auto", "--squash", "--delete-branch"],
+                    ["gh", "pr", "merge", pr_url, "--auto", "--squash"],
                     timeout=30,
                 )
                 if merge_result.returncode == 0:
@@ -917,8 +917,8 @@ def verify_and_reconcile(worktree: str, branch: str, issue: dict, max_lines: int
         logger.warning(f"[auto_heal]   ⚠️ PR 创建失败，但分支已推送: {branch_name}")
         return {"status": "pushed_no_pr", "branch": branch_name}
     else:
-        logger.info(f"[auto_heal]   ⏸️ 等待人工审核 PR: {pr_result}")
-        return {"status": "needs_review", "pr_url": pr_result}
+        logger.info(f"[auto_heal]   ✅ 已自动合并 PR: {pr_result}")
+        return {"status": "merged", "pr_url": pr_result}
 
 
 def cleanup_worktree(worktree: str, branch: str, project: Path, safe_type: str | None = None, worktree_base: Path | None = None):
@@ -1263,14 +1263,14 @@ def run_iteration(cfg: dict, args: argparse.Namespace, paths: PathsConfig) -> Fi
     logger.info(f"\n{'='*50}")
     logger.info(f"📊 自动迭代汇总")
     logger.info(f"{'='*50}")
-    merged = sum(1 for r in run.results if r["status"] == "needs_review")
+    merged = sum(1 for r in run.results if r["status"] in ("merged", "needs_review"))
     skipped = sum(1 for r in run.results if r["status"] in ("skipped", "dry_run", "no_change"))
     failed = sum(1 for r in run.results if r["status"] == "failed")
     logger.info(f"  待审核: {merged}/{len(run.results)}")
     logger.info(f"  跳过:   {skipped}/{len(run.results)}")
     logger.info(f"  失败:   {failed}/{len(run.results)}")
     if merged > 0:
-        logger.info(f"\n  ✅ 生成 {merged} 个 PR 等待人工审核")
+            logger.info(f"  ✅ 生成 {merged} 个PR（已自动合并）")
     logger.info("")
 
     # 记录结果
