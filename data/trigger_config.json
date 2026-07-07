@@ -2,7 +2,7 @@
   "stop_loss_pct": 5.0,
   "take_profit_pct": 15.0,
   "max_position_pct": 10.0,
-  "min_score": 70,
-  "更新时间": "2026-06-03T12:00:00",
-  "说明": "触发器阈值配置。stop_loss_pct=5% 表示现价下跌5%触发止损；take_profit_pct=15% 表示上涨15%触发止盈；max_position_pct=10% 表示单票最大仓位；min_score=70 表示评分低于70不触发买入。"
+  "min_score": 75,
+  "更新时间": "2026-07-07T18:30:00",
+  "说明": "触发器阈值配置。min_score=75 与 thresholds.py DECISION_MIN_SCORE 对齐，所有阈值以 thresholds.py 为唯一真相来源。"
 }

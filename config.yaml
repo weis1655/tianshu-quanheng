@@ -23,7 +23,8 @@ api:
 
 ## 股票池配置
 pools:
-  # 最大持仓数
+  # 注意：以下为历史配置值，实际运行时池容量以 thresholds.py 的 POOL_CAPACITY_LIMITS 为准
+  # 如需修改池容量，请编辑 agents/thresholds.py
   max_holdings: 20
   max_candidates: 20
   max_watching: 15
