@@ -174,7 +174,10 @@ class DecisionAgent(BaseAgent):
             skeptic_content = self.safe_read_text(skeptic_file)
             if len(skeptic_content.strip()) < 50:
                 skeptic_empty = True
-                skeptic_section = ""
+                skeptic_section = (
+                    "\n\n## ⚠️ 质疑审查报告（空）\n"
+                    "SkepticAgent 生成了质疑报告但内容不足50字符，视为无有效质疑。\n"
+                )
             else:
                 skeptic_section = (
                     "\n\n## 📋 质疑审查报告（供参考）\n"
@@ -184,7 +187,10 @@ class DecisionAgent(BaseAgent):
         else:
             skeptic_missing = True
             print("[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
-            skeptic_section = ""
+            skeptic_section = (
+                "\n\n## ⚠️ 质疑审查报告（缺失）\n"
+                "今日未生成SkepticAgent质疑审查报告，系统视为无有效质疑，LLM在制定执行方案时需自行评估风险。\n"
+            )
 
         return skeptic_section, blocked_codes, skeptic_missing, skeptic_empty, skeptic_content
 
