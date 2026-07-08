@@ -290,10 +290,17 @@ if __name__ == "__main__":
 
 
 def ensure_agent_paths():
-    """F09: 统一添加 agents/ 和项目根目录到 sys.path（替代各文件头部的冗余插入）"""
+    """统一添加 agents/ 和项目根目录到 sys.path（替代各文件头部的冗余插入）"""
     import sys
     from pathlib import Path
     root = get_project_root()
     for p in [str(root), str(root / "agents")]:
         if p not in sys.path:
             sys.path.insert(0, p)
+
+
+def get_review_evo():
+    """统一导入 review_evo（替代散落在 8 个文件中的 from review_evo import）"""
+    ensure_agent_paths()
+    from review_evo import ReviewEvo
+    return ReviewEvo

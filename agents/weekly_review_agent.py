@@ -281,7 +281,8 @@ class WeeklyReviewAgent:
         - ❌未兑现：自动降级（候选→暂缓，重点→候选）
         - ✅兑现：记录，供后续权重修正参考
         """
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
         if pm is None:
             from pool_manager import PoolManager
@@ -431,7 +432,8 @@ class WeeklyReviewAgent:
     # ─────────────────────────────────────────────
     def adjust_weights(self) -> dict:
         """根据胜率自动调整决策权重"""
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
 
         report = []

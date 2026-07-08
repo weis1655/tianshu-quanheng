@@ -36,7 +36,7 @@ from pool_updater import PoolUpdater
 from track_recorder import TrackRecorder
 from gate_controller import GateController
 from decision_utils import extract_scores, build_empty_decision
-from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE
+from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE, YELLOW_ALERT_MIN, YELLOW_ALERT_MAX
 from thresholds import POSITION_PCT_STRONG, POSITION_PCT_NORMAL, POSITION_PCT_WEAK
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -112,7 +112,7 @@ USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票
 **原始新闻**见：{history_dir}/{today}_宏观前置分析.md
 
 请只对评分≥75分的股票制定执行方案。
-     如果无≥75分的股票，请输出"今日暂无通过审查的股票"，并列出60-74分（黄色预警）的备选观察标的及其关注要点。
+     如果无≥75分的股票，请输出"今日暂无通过审查的股票"，并列出{YELLOW_ALERT_MIN}-{YELLOW_ALERT_MAX}分（黄色预警）的备选观察标的及其关注要点。
      低于60分的不输出。"""
 
 
@@ -1006,12 +1006,11 @@ class DecisionAgent(BaseAgent):
 
         # 检查空仓状态（P2修复：增强空仓判断，增加备选策略）
         if any(k in raw_text for k in ["暂无", "空仓", "等待", "观望", "建议空仓"]):
-            no_action_reason = "无审查通过≥75分的股票，建议空仓等待"
-            # 备选策略：检查是否有60-74分的"黄色预警"股票可观察
+            no_action_reason = f"无审查通过≥{DECISION_MIN_SCORE}分的股票，建议空仓等待"
+            # 备选策略：检查是否有黄色预警区间的标的可观察
             yellow_watch = GateController.get_yellow_alerts(scored_stocks)
             if yellow_watch:
-                # P0-2026-06-04: 备选观察阈值扩为60-74（与≥75决策阈值对齐）
-                no_action_reason += f"\n🟡 备选观察（{len(yellow_watch)}只黄色预警标的，60-74分）："
+                no_action_reason += f"\n🟡 备选观察（{len(yellow_watch)}只黄色预警标的，{YELLOW_ALERT_MIN}-{YELLOW_ALERT_MAX}分）："
                 for i, s in enumerate(yellow_watch[:5], 1):
                     conf = s.get("confidence", "")
                     conf_str = f" [{conf}]" if conf else ""

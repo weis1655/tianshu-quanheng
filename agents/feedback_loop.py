@@ -87,7 +87,8 @@ class FeedbackLoopAgent(BaseAgent):
                 
                 # 待复盘数量
                 try:
-                    from review_evo import ReviewEvo
+                    from path_config import get_review_evo
+                    ReviewEvo = get_review_evo()
                     evo = ReviewEvo(root=self.root)
                     all_records = evo.get_decisions(days=30)
                     open_count = sum(1 for r in all_records if r.get("actual_pnl") is None and r.get("实际结果") is None)
@@ -221,7 +222,8 @@ class FeedbackLoopAgent(BaseAgent):
 
         委托给 ReviewEvo 计算（避免重复逻辑），只补充 by_type 字段。
         """
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
 
         # 读时间窗口配置（默认30天）
@@ -253,7 +255,8 @@ class FeedbackLoopAgent(BaseAgent):
 
     def calculate_multi_window_stats(self) -> Dict[str, Any]:
         """计算多窗口胜率对比（近7天 / 近30天 / 全量）"""
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
 
         windows = []
@@ -285,7 +288,8 @@ class FeedbackLoopAgent(BaseAgent):
 
     def _close_feedback_loop(self, holdings_data: List[Dict]) -> None:
         """将持仓盈亏回写至决策日志，闭合反馈闭环"""
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
 
         evo = ReviewEvo(root=self.root)
         today_str = datetime.now().strftime("%Y-%m-%d")
