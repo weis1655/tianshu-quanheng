@@ -1064,6 +1064,15 @@ def main():
             print(f"  ✅ 全池低分扫描: 无低分标的残留")
     except Exception as e:
         print(f"  ⚠️ 全池低分扫描异常（不影响主流程）: {e}")
+
+    # ── F3: 准确率模式刷新（WO-201）─────────────────────────
+    try:
+        from scripts.win_rate_analyzer import main as wr_main
+        wr_main()
+        print(f"  ✅ 准确率模式已刷新")
+    except Exception as e:
+        print(f"  ⚠️ 准确率模式刷新异常（不影响主流程）: {e}")
+    # ──────────────────────────────────────────────────────
     # ──────────────────────────────────────────────────────
 
     # ── MemPalace 保存：五池状态+执行结果写入知识图谱 ─────────────

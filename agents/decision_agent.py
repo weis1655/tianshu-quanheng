@@ -583,7 +583,16 @@ class DecisionAgent(BaseAgent):
         # ── P0-3：S级操作池优先注入（LLM可见）───────────────
         if s_pool_section:
             header_parts.append(s_pool_section)
-        # ── P0-重复推荐警告注入 ────────────────────────────
+        # ── WO-201: 历史准确率模式注入（基于实盘回测）───
+        try:
+            win_rate_file = self.root / "data" / "历史记录" / "准确率模式分析.md"
+            if win_rate_file.exists():
+                wr_content = win_rate_file.read_text(encoding="utf-8")
+                if len(wr_content) > 100:
+                    header_parts.append(f"\n\n{wr_content}")
+        except Exception:
+            pass
+        # ────────────────────────────────────────────────────
         if dup_warning:
             header_parts.append(dup_warning)
         # ────────────────────────────────────────────────────
