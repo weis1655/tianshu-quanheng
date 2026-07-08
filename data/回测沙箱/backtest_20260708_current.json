@@ -1,0 +1,35 @@
+{
+  "strategy": "当前策略(v6.2)",
+  "total_trades": 1,
+  "wins": 1,
+  "losses": 0,
+  "total_pnl": 3.57,
+  "max_drawdown": 0.0,
+  "avg_pnl_per_trade": 3.57,
+  "win_rate": 100.0,
+  "by_score_range": {
+    "80-89": [
+      3.57
+    ]
+  },
+  "top_gainers": [
+    {
+      "code": "601899",
+      "name": "紫金矿业",
+      "date": "2026-04-26",
+      "pnl": 3.57,
+      "score": 80,
+      "source": "verified"
+    }
+  ],
+  "top_losers": [
+    {
+      "code": "601899",
+      "name": "紫金矿业",
+      "date": "2026-04-26",
+      "pnl": 3.57,
+      "score": 80,
+      "source": "verified"
+    }
+  ]
+}
