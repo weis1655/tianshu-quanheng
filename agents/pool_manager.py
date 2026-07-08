@@ -1180,7 +1180,7 @@ class PoolManager:
                 except ValueError:
                     days_in_pool = 999
                 if days_in_pool > 7:
-                    decay = min(days_in_pool * 0.5, 15)
+                    decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
                     chg_str = stock.get("今日涨跌", "")
                     if chg_str and "+" in str(chg_str):
                         decay *= 0.5
@@ -1498,7 +1498,7 @@ class PoolManager:
                     except ValueError:
                         days_in_pool = 999
                     if days_in_pool > 7:
-                        decay = min(days_in_pool * 0.5, 15)
+                        decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
                         chg_str = stock.get("今日涨跌", "")
                         if chg_str and "+" in str(chg_str):
                             decay *= 0.5
@@ -1590,7 +1590,7 @@ class PoolManager:
                 except ValueError:
                     days_in_pool = 999
                 if days_in_pool > 7:
-                    decay = min(days_in_pool * 0.5, 15)
+                    decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
                     chg_str = stock.get("今日涨跌", "")
                     if chg_str and "+" in str(chg_str):
                         decay *= 0.5
@@ -1689,7 +1689,7 @@ class PoolManager:
                     except ValueError:
                         days_in_pool = 999
                     if days_in_pool > 7:
-                        decay = min(days_in_pool * 0.5, 15)
+                        decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
                         chg_str = stock.get("今日涨跌", "")
                         if chg_str and "+" in str(chg_str):
                             decay *= 0.5

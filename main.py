@@ -598,6 +598,19 @@ def main():
         # ── 周末守卫（兼容旧逻辑，非交易日守卫已覆盖）──────────
         now_weekday = datetime.now().weekday()
         is_weekend = now_weekday >= 5
+        # F08: 长假后恢复 — 检测距最近交易日间隔>3天则强制全量池刷新+跳过Skeptic
+        _post_holiday_mode = False
+        if not is_weekend:
+            try:
+                from agents.trading_calendar import get_prev_trading_day
+                prev_day = get_prev_trading_day(today_date, max_back=10)
+                if prev_day:
+                    gap = (today_date - prev_day).days
+                    if gap > 3:  # 长假间隔>3天
+                        _post_holiday_mode = True
+                        print(f"\n  📅 长假后恢复（距上个交易日{gap}天），强制全量池刷新+跳过Skeptic")
+            except Exception:
+                pass
         # ── 周末守卫结束 ─────────────────────────────────
 
         # ── 新闻分析（周末也执行，周末也有新闻） ────────────
