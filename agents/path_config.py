@@ -287,3 +287,13 @@ if __name__ == "__main__":
     print(f"\n便捷函数:")
     print(f"  pool_file('持仓池'): {pool_file('持仓池')}")
     print(f"  data_file('test.json'): {data_file('test.json')}")
+
+
+def ensure_agent_paths():
+    """F09: 统一添加 agents/ 和项目根目录到 sys.path（替代各文件头部的冗余插入）"""
+    import sys
+    from pathlib import Path
+    root = get_project_root()
+    for p in [str(root), str(root / "agents")]:
+        if p not in sys.path:
+            sys.path.insert(0, p)

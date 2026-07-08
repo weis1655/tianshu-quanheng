@@ -156,6 +156,9 @@ class TianshuMemory:
                     lines.append("  " + str(t))
                 lines.append("")
         except Exception:
+            # F11: 知识图谱读取失败不阻塞，记录日志
+            import logging
+            logging.getLogger("TianshuMemory").warning("知识图谱读取失败，跳过记忆恢复")
             pass
 
         # 读取当前五池快照

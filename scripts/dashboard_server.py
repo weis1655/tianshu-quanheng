@@ -103,6 +103,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if path == "/api/health":
             self._json_response(collect_health_data())
+        elif path == "/api/selfcheck":
+            self._json_response(self._run_selfcheck())
         elif path == "/":
             self._html_response(self._render_dashboard())
         else:
@@ -115,6 +117,73 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+
+    def _run_selfcheck(self) -> dict:
+        """F12: 系统自检 — 检查关键路径是否正常"""
+        checks = []
+        # 1. 五池目录
+        pool_dir = PROJECT_ROOT / "五池管理"
+        checks.append({
+            "name": "五池目录",
+            "status": "✅" if pool_dir.exists() else "❌",
+            "detail": str(pool_dir) if pool_dir.exists() else "目录不存在",
+        })
+        # 2. 核心agent文件
+        for agent in ["thresholds.py", "pool_manager.py", "decision_agent.py", "review_agent.py"]:
+            f = PROJECT_ROOT / "agents" / agent
+            checks.append({
+                "name": f"agent/{agent}",
+                "status": "✅" if f.exists() else "❌",
+                "detail": f"存在({f.stat().st_size}bytes)" if f.exists() else "文件缺失",
+            })
+        # 3. 配置文件
+        config = PROJECT_ROOT / "config.yaml"
+        checks.append({
+            "name": "config.yaml",
+            "status": "✅" if config.exists() else "❌",
+            "detail": "存在" if config.exists() else "缺失",
+        })
+        # 4. 决策日志
+        dlog = PROJECT_ROOT / "data" / "复盘记录" / "决策日志.json"
+        if dlog.exists():
+            import json as _json
+            try:
+                dl = _json.loads(dlog.read_text(encoding="utf-8"))
+                dc = len(dl.get("决策记录", []))
+                checks.append({"name": "决策日志", "status": "✅", "detail": f"{dc}条记录"})
+            except Exception:
+                checks.append({"name": "决策日志", "status": "⚠️", "detail": "格式异常"})
+        else:
+            checks.append({"name": "决策日志", "status": "❌", "detail": "文件缺失"})
+        # 5. ML模型
+        ml_dir = PROJECT_ROOT / "data" / "ml_model"
+        has_ml = ml_dir.exists() and any(ml_dir.glob("*.pkl"))
+        checks.append({
+            "name": "ML模型",
+            "status": "✅" if has_ml else "⚠️",
+            "detail": "模型就绪" if has_ml else "模型未训练",
+        })
+        # 6. 交易日历
+        cal = PROJECT_ROOT / "agents" / "trading_calendar.py"
+        checks.append({
+            "name": "交易日历",
+            "status": "✅" if cal.exists() else "❌" if cal.exists() else "缺失",
+            "detail": "就绪",
+        })
+        # 7. 日志目录
+        log_dir = PROJECT_ROOT / "logs"
+        checks.append({
+            "name": "日志目录",
+            "status": "✅" if log_dir.exists() else "⚠️",
+            "detail": f"{len(list(log_dir.glob('*.log')))}个日志文件" if log_dir.exists() else "未创建",
+        })
+        all_ok = all(c["status"] == "✅" for c in checks)
+        return {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "overall": "✅ 系统正常" if all_ok else "⚠️ 部分异常",
+            "checks": checks,
+            "healthy": all_ok,
+        }
 
     def _html_response(self, html):
         self.send_response(200)
