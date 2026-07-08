@@ -359,6 +359,27 @@ class DecisionAgent(BaseAgent):
         # 提前提取评分（二审制Gate需要）
         scored_stocks = self._extract_scores(review_report)
 
+        # ── F01: 从审查报告中提取ML评分，关联到scored_stocks ──
+        ml_map = self._extract_ml_scores(review_report)
+        for s in scored_stocks:
+            code = str(s.get("code", ""))
+            if code in ml_map:
+                ml_info = ml_map[code]
+                s["ml_score"] = ml_info["ml_score"]
+                s["ml_win_prob"] = ml_info["win_prob"]
+                # 标记ML-LLM一致性
+                llm_score = s.get("score", 0)
+                ml_score = ml_info["ml_score"]
+                if abs(llm_score - ml_score) > 20:
+                    s["ml_divergence"] = "high"
+                    s["recommendation_downgrade"] = True
+                    print(f"  [F01] ⚠️ ML-LLM严重背离: {s.get('name','?')}({code}) LLM{llm_score} vs ML{ml_score}")
+                elif abs(llm_score - ml_score) > 10:
+                    s["ml_divergence"] = "medium"
+                else:
+                    s["ml_divergence"] = "low"
+        # ────────────────────────────────────────────────────────
+
         # ── P0-3：将S级操作池有效标的合并入评分列表（优先于审查报告）─
         if self._active_s_stocks:
             existing_codes = {str(s.get("code", s.get("代码", ""))) for s in scored_stocks}
@@ -564,6 +585,22 @@ class DecisionAgent(BaseAgent):
             header_parts.append(realtime_section)
         if scored_summary:
             header_parts.append(scored_summary)
+        # ── F01: ML-LLM评分背离提示注入 ────────────────
+        ml_divergences = [s for s in scored_stocks if s.get("ml_divergence") in ("high", "medium")]
+        if ml_divergences:
+            div_lines = ["\n\n## 🤖 ML-LLM评分交叉验证"]
+            for s in ml_divergences:
+                name = s.get("name", "?")
+                code = s.get("code", "")
+                llm = s.get("score", 0)
+                ml = s.get("ml_score", "—")
+                wp = s.get("ml_win_prob", "—")
+                level = s.get("ml_divergence", "")
+                emoji = "🔴" if level == "high" else "🟡"
+                div_lines.append(f"{emoji} {name}({code}) LLM{llm}分 vs ML{ml}分(胜率{wp})")
+            if div_lines:
+                header_parts.append("\n".join(div_lines))
+        # ────────────────────────────────────────────────
         if evo_history:
             header_parts.append(evo_history)
         # Level-2b：下跌市防御品种提示
@@ -1443,6 +1480,43 @@ class DecisionAgent(BaseAgent):
     def _extract_scores(self, review_report: str) -> list[dict]:
         """从审查报告中提取结构化评分（委托 decision_utils.extract_scores）"""
         return extract_scores(review_report)
+
+    def _extract_ml_scores(self, review_report: str) -> dict:
+        """从审查报告的ML评分对比表中提取ML评分
+
+        ML对比表格式（由review_agent追加）:
+        | 股票 | LLM综合分 | ML评分 | 上涨概率 | 核心因子 |
+        | 紫金矿业(601899) | 78 | 65 | 55% | 波动2.3 20日涨5.1 |
+
+        Returns:
+            {code: {"ml_score": int, "win_prob": float}, ...}
+        """
+        if not review_report:
+            return {}
+        import re
+        ml_map = {}
+        # 定位ML评分对比表
+        table_start = review_report.find("## 🤖 ML评分 vs LLM评分对比")
+        if table_start < 0:
+            return ml_map
+        table_section = review_report[table_start:]
+        # 解析表格行: | 名称(code) | llm分 | ml分 | 胜率% | 因子 |
+        for line in table_section.split("\n"):
+            if "|" not in line:
+                continue
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 4:
+                # 尝试解析: "紫金矿业(601899)"
+                name_part = parts[0]
+                code_match = re.search(r'(\d{6})', name_part)
+                ml_match = re.search(r'(\d+)', parts[2] if len(parts) > 2 else "")
+                win_match = re.search(r'(\d+)%?', parts[3] if len(parts) > 3 else "")
+                if code_match:
+                    code = code_match.group(1)
+                    ml_score = int(ml_match.group(1)) if ml_match else 0
+                    win_prob = float(win_match.group(1)) / 100 if win_match else 0
+                    ml_map[code] = {"ml_score": ml_score, "win_prob": win_prob}
+        return ml_map
 
     def _extract_skeptic_covered_codes(self, skeptic_content: str) -> set:
         """从质疑审查报告中提取所有被审查的股票代码（双源提取，无LLM）
