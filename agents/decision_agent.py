@@ -1166,13 +1166,19 @@ class DecisionAgent(BaseAgent):
             for issue in consistency_issues:
                 print(f"   - {issue['name']}({issue['code']}): {issue['issue']} [{issue['severity']}]")
 
-            # 高严重性冲突：自动降级推荐优先级
+            # R04: 黄色预警标的（评分<DECISION_MIN_SCORE）若被决策主推，强制降级为备选
             for issue in consistency_issues:
                 if issue["severity"] == "high":
                     for plan in plans:
                         if plan.code == issue["code"]:
                             plan.priority = "备选"
                             plan.risk_notes.append(f"⚠️ 一致性校验: {issue['issue']}")
+                # R04: medium冲突（评分<75但决策主推）也强制降级，避免决策越权
+                if issue["severity"] == "medium":
+                    for plan in plans:
+                        if plan.code == issue["code"]:
+                            plan.priority = "备选"
+                            plan.risk_notes.append(f"⚠️ 一致性校验(越权): {issue['issue']}，强制降级为备选")
 
         decision_output = DecisionOutput(
             raw_text=raw_text,

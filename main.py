@@ -183,8 +183,13 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             except Exception as e:
                 print(f"  ⚠️ S级操作池读取失败: {e}")
         _ms = ReviewAgent()._get_market_state()
-        r = skeptic.run(stock_list=stocks, review_report=review_report, market_context={"市场状态": _ms.get("state", "震荡"), "上证涨跌": f"{_ms.get('sh_chg',0):+.2f}%"})
-        LLM_CALL_COUNT += 1
+        # R03: 质疑审查 — 加 try/except 兜底，确保报告文件始终生成
+        try:
+            r = skeptic.run(stock_list=stocks, review_report=review_report, market_context={"市场状态": _ms.get("state", "震荡"), "上证涨跌": f"{_ms.get('sh_chg',0):+.2f}%"})
+            LLM_CALL_COUNT += 1
+        except Exception as e:
+            print(f"  ❌ SkepticAgent 执行失败: {e}，写入占位报告")
+            r = {"success": False, "error": str(e), "high_risk_count": 0, "high_risk_stocks": [], "challenges": [], "report": ""}
         results["skeptic"] = r
         # 写质疑结果供 DecisionAgent 注入（文件名与 DecisionAgent 读取一致）
         skeptic_file = PROJECT_ROOT / "data" / "历史记录" / f"{___today}_质疑审查报告.md"
