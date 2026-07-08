@@ -548,7 +548,18 @@ def main():
         else:
             record_failure("news_only")
     elif phase == "full_cycle":
-        # ── 周末守卫：新闻分析照跑，跳过交易相关阶段 ──────
+        # ── 交易日守卫：判断是否为A股交易日 ───────────────────
+        from agents.trading_calendar import is_trading_day
+        today_date = datetime.now().date()
+        if not is_trading_day(today_date):
+            print(f"\n  📅 今日 {today_date} 非交易日，跳过交易相关阶段，仅执行新闻分析")
+            # 只跑新闻，跳过交易阶段
+            results["news"] = run_phase("news_only", pools, wake_ctx=wake_ctx).get("news", {})
+            card = build_feishu_card(phase, results, orch.get_pools())
+            print("📱 飞书卡片内容预览:")
+            print(json.dumps(card, ensure_ascii=False, indent=2))
+            return results
+        # ── 周末守卫（兼容旧逻辑，非交易日守卫已覆盖）──────────
         now_weekday = datetime.now().weekday()
         is_weekend = now_weekday >= 5
         # ── 周末守卫结束 ─────────────────────────────────
