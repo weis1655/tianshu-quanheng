@@ -24,27 +24,11 @@ if env_path.exists():
                     k, _, v = line.partition("=")
                     os.environ.setdefault(k.strip(), v.strip())
 
-# 绕过 __init__.py 的 orcherstrator 依赖，直接载入 pool_manager
-import importlib.util
-spec = importlib.util.spec_from_file_location(
-    "pool_manager",
-    str(PROJECT_ROOT / "agents" / "pool_manager.py")
-)
-mod = importlib.util.module_from_spec(spec)
-sys.modules["pool_manager"] = mod
-spec.loader.exec_module(mod)
+# 正常导入（验证通过，无循环依赖）
+from pool_manager import PoolManager
+from market_agent import fetch_quotes
 
-# 也载入 market_agent 用于 fetch_quotes
-spec2 = importlib.util.spec_from_file_location(
-    "market_agent",
-    str(PROJECT_ROOT / "agents" / "market_agent.py")
-)
-ma = importlib.util.module_from_spec(spec2)
-sys.modules["market_agent"] = ma
-spec2.loader.exec_module(ma)
-
-pm = mod.PoolManager()
-from market_agent import fetch_quotes, to_api
+pm = PoolManager()
 
 pool_dir = PROJECT_ROOT / "五池管理"
 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
