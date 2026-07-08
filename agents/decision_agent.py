@@ -37,6 +37,7 @@ from track_recorder import TrackRecorder
 from gate_controller import GateController
 from decision_utils import extract_scores, build_empty_decision
 from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE
+from thresholds import POSITION_PCT_STRONG, POSITION_PCT_NORMAL, POSITION_PCT_WEAK
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -606,12 +607,26 @@ class DecisionAgent(BaseAgent):
         # Level-2b：下跌市防御品种提示
         if market_state.get("state") in ["震荡偏弱", "偏空"]:
             header_parts.append(
-                "\n\n## ⚠️ 市场偏弱提示\n"
-                "当前市场环境偏弱，建议：\n"
-                "1. 减少开仓，控制仓位\n"
-                "2. 回避追高风险\n"
-                "3. 如要推荐，优先考虑防御型品种（高股息/公用事业/消费龙头）\n"
-                "4. S级操作池今日建议不超过1只\n"
+                f"\n\n## ⚠️ 市场偏弱提示\n"
+                f"当前市场环境偏弱，定量仓位限制：\n"
+                f"1. 单票仓位≤{POSITION_PCT_WEAK}%（弱市定量限制）\n"
+                f"2. 总仓位≤10%（弱市总量控制）\n"
+                f"3. 回避追高风险，优先考虑防御型品种（高股息/公用事业/消费龙头）\n"
+                f"4. S级操作池今日建议不超过1只\n"
+            )
+        elif market_state.get("state") in ["震荡"]:
+            header_parts.append(
+                f"\n\n## ℹ️ 市场震荡提示\n"
+                f"当前市场震荡，定量仓位限制：\n"
+                f"1. 单票仓位≤{POSITION_PCT_NORMAL}%（震荡市半仓试探）\n"
+                f"2. 分批低吸，首次1/2仓位，确认后补1/2\n"
+            )
+        else:
+            header_parts.append(
+                f"\n\n## ℹ️ 市场偏强提示\n"
+                f"当前市场偏强，定量仓位限制：\n"
+                f"1. 单票仓位≤{POSITION_PCT_STRONG}%（强市适度积极）\n"
+                f"2. 可适度追涨强势板块，但单板块不超过2只\n"
             )
         if skeptic_section:
             header_parts.append(skeptic_section)
