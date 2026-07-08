@@ -23,12 +23,15 @@ api:
 
 ## 股票池配置
 pools:
-  # 注意：以下为历史配置值，实际运行时池容量以 thresholds.py 的 POOL_CAPACITY_LIMITS 为准
-  # 如需修改池容量，请编辑 agents/thresholds.py
-  max_holdings: 20
-  max_candidates: 20
-  max_watching: 15
-  
+  # 池容量限制（从 thresholds.py 同步，可通过此处热加载覆盖）
+  # 如果不配置或配置缺失，pool_manager 自动回退到 thresholds.py 的 POOL_CAPACITY_LIMITS
+  capacity:
+    快筛候选池: 20
+    重点观察池: 20
+    边缘池: 30
+    S级操作池: 3
+    # 持仓池无上限
+
   # 字段映射（标准化）
   field_mapping:
     code: "股票代码"

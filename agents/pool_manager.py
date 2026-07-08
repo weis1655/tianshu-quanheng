@@ -36,15 +36,34 @@ class PoolManager:
         "S级操作池",
     ]
     
-    # 池容量限制（P0-2 + P2-1：代码级强制限制，引用 thresholds.py SSOT）
+    # 池容量限制（P0-2 + P2-1：优先从 config.yaml 加载，回退 thresholds.py）
     POOL_CAPACITY_LIMITS = {
-        "快筛候选池": 20,      # 对应 thresholds.POOL_CAPACITY_FAST_SCREEN
-        "重点观察池": 20,      # 对应 thresholds.POOL_CAPACITY_KEY_WATCH
-        "边缘池": 30,          # 对应 thresholds.POOL_CAPACITY_EDGE（P2升级：原20→30）
-        "持仓池": None,        # 无上限
-        "S级操作池": 3,        # 对应 thresholds.POOL_CAPACITY_S_POOL
+        "快筛候选池": 20,
+        "重点观察池": 20,
+        "边缘池": 30,
+        "持仓池": None,
+        "S级操作池": 3,
     }
-    
+
+    @classmethod
+    def _init_capacity_limits(cls):
+        """从 config.yaml 加载池容量（热加载），失败时回退硬编码值"""
+        try:
+            config_path = PROJECT_ROOT / "config.yaml"
+            if config_path.exists():
+                import yaml
+                with open(config_path, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f)
+                yaml_caps = cfg.get("pools", {}).get("capacity", {})
+                if yaml_caps and isinstance(yaml_caps, dict):
+                    for pool_name, cap in yaml_caps.items():
+                        if pool_name in cls.POOL_CAPACITY_LIMITS:
+                            cls.POOL_CAPACITY_LIMITS[pool_name] = cap
+                            print(f"[PoolManager] 📋 池容量已加载: {pool_name}={cap}")
+        except Exception as e:
+            # 加载失败不阻塞，使用硬编码值
+            print(f"[PoolManager] ⚠️ config.yaml 加载失败，使用默认池容量: {e}")
+
     # 统一的字段名（标准格式）
     STANDARD_FIELDS = {
         "code": "股票代码",
@@ -1746,3 +1765,6 @@ if __name__ == "__main__":
         print(f"  {name}: {len(stocks)}只")
     
     print("\\n✅ PoolManager 测试完成!")
+
+# 模块加载时执行一次：从 config.yaml 加载池容量（热加载）
+PoolManager._init_capacity_limits()
