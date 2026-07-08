@@ -1075,6 +1075,10 @@ class PoolManager:
             if score < AUTO_DOWNGRADE_SCORE:  # 低于降级阈值，强制降级
                 to_demote.append(s)
                 print(f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < {AUTO_DOWNGRADE_SCORE} → 边缘池")
+            # F03: 止损自动降级 — 已跌破止损的标的移入边缘池
+            elif s.get("操作建议") == "已跌破止损，建议调出":
+                to_demote.append(s)
+                print(f"  [PoolManager] ⬇️ 止损降级 {s.get('名称','')}({s.get('代码','')}) 已触发止损 → 边缘池")
             else:
                 remaining.append(s)
 
