@@ -3,7 +3,7 @@
 天枢权衡 — 自动迭代编排器（Auto-Heal Pipeline）
 
 ## 触发条件
-- Cron: 每个工作日 15:05 自动触发
+- Cron: 每个工作日 15:30 自动触发
 - 手动: `python3 auto_heal.py [--dry-run]`
 
 ## 依赖项
@@ -18,7 +18,12 @@
 3. 通过 CodeGraphContext 定位代码位置
 4. 在隔离 worktree 中调用 OpenCode 修复
 5. 验证修复（编译 + 导入检查）
-6. 创建 PR 等待人工审核
+6. 创建 PR 并自动合并
+
+## 超时管理（WO-106）
+- 单次 OpenCode 修复: 15分钟（从10min上调）
+- 总超时: 45分钟（从30min上调）
+- 进度心跳: 每60秒打印一次进度标记
 
 ## 版本历史
 - v1 (2026-06-04): 初始版本
@@ -42,6 +47,7 @@ import argparse
 import yaml
 import logging
 import signal
+import threading
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from enum import Enum
@@ -599,15 +605,16 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
     return prompt
 
 
-def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retries: int = 3, total_timeout_min: int = 30) -> tuple[bool, str]:
+def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 15, max_retries: int = 3, total_timeout_min: int = 45) -> tuple[bool, str]:
     """在工作树中运行 OpenCode 修复。
-    
+
     Args:
         worktree: 工作树路径
         prompt: OpenCode 提示词
-        timeout_min: 单次运行超时（分钟）
+        timeout_min: 单次运行超时（分钟），默认15min（WO-106: 从10min上调）
         max_retries: 最大重试次数
-    
+        total_timeout_min: 总超时（分钟），默认45min（WO-106: 从30min上调）
+
     Returns:
         tuple[bool, str]: (是否成功, 失败原因/成功消息)
     """
@@ -628,11 +635,31 @@ def run_opencode_fix(worktree: str, prompt: str, timeout_min: int = 10, max_retr
                 logger.warning(f"[auto_heal]   ⏰ 总超时 ({total_timeout_min}min)，停止重试")
                 return False, f"total_timeout ({total_timeout_min}min), elapsed {elapsed_total:.0f}s"
 
-            result = _run_cmd(
-                ["opencode", "run", prompt_text],
-                cwd=worktree,
-                timeout=timeout_min * 60,
-            )
+            # WO-106: 进度心跳线程（每60秒打印一次）
+            _heartbeat_stop = threading.Event()
+            _attempt_num = attempt
+            _attempt_start = time.time()
+
+            def _heartbeat():
+                while not _heartbeat_stop.is_set():
+                    _heartbeat_stop.wait(60)
+                    if _heartbeat_stop.is_set():
+                        break
+                    elapsed_hb = time.time() - _attempt_start
+                    logger.info(f"[auto_heal]   💓 第{_attempt_num}次修复进行中... ({elapsed_hb:.0f}s)")
+
+            hb_thread = threading.Thread(target=_heartbeat, daemon=True)
+            hb_thread.start()
+
+            try:
+                result = _run_cmd(
+                    ["opencode", "run", prompt_text],
+                    cwd=worktree,
+                    timeout=timeout_min * 60,
+                )
+            finally:
+                _heartbeat_stop.set()
+                hb_thread.join(timeout=5)
 
             elapsed = time.time() - start
             logger.info(f"[auto_heal]   ⏱ 第{attempt}次尝试 | {elapsed:.0f}秒 | 退出码: {result.returncode}")
