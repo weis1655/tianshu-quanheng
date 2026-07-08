@@ -1,15 +1,15 @@
 {
   "batch": 1,
-  "checkpoint_time": "2026-07-07T18:28:00",
+  "checkpoint_time": "2026-07-07T18:32:00",
   "work_order_status": {
     "WO-001": {"status": "completed", "commit": "acf9cc6", "verified": true},
     "WO-002": {"status": "completed", "commit": "3c8e46f", "verified": true},
     "WO-003": {"status": "completed", "commit": "a274f8b", "verified": true},
     "WO-004": {"status": "completed", "commit": "44dc896", "verified": true},
     "WO-005": {"status": "completed", "commit": "63e22e7", "verified": true},
-    "WO-006": {"status": "pending", "commit": null, "verified": false},
+    "WO-006": {"status": "completed", "commit": "6bc97b2", "verified": true},
     "WO-007": {"status": "completed", "commit": "acf9cc6", "verified": true}
   },
-  "next_work_order": "WO-006",
-  "context": "批次1: 5/7 已完成。WO-005弱市简化审查上线：弱市不再跳过Skeptic，改为规则引擎检查4项风险信号，写裁决JSON。"
+  "batch_complete": true,
+  "context": "批次1已全部完成。共7个工单，6次提交，7个文件修改。"
 }

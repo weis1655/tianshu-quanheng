@@ -1577,17 +1577,24 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='天枢回头看自动化模块 v3')
-    parser.add_argument('--days', type=int, default=7, help='回顾天数（默认7天）')
+    parser.add_argument('--days', type=int, default=7, help='回顾天数（默认7天，日常复盘用此值）')
+    parser.add_argument('--extended', type=int, nargs='?', const=30, default=None,
+                        help='扩展模式：扫描30或60个交易日（默认30，传--extended 60 可扫60天）。用于深度复盘，日常复盘建议用默认7天')
     parser.add_argument('--output', action='store_true', help='保存报告到文件')
     parser.add_argument('--cron', action='store_true', help='Cron模式（无交互输出）')
-    
+
     args = parser.parse_args()
-    
+
+    # 实际使用的天数：--extended 覆盖 --days
+    actual_days = args.extended if args.extended is not None else args.days
+    if args.extended:
+        print(f"[回头看] 📊 扩展模式：扫描 {args.extended} 个交易日（日常复盘建议用默认7天）")
+
     output_file = None
     if args.output:
-        output_file = OUTPUT_DIR / f"{datetime.now().strftime('%Y-%m-%d')}_回头看报告_v3.md"
-    
-    report = generate_report(days=args.days, output_file=output_file)
+        output_file = OUTPUT_DIR / f"{datetime.now().strftime('%Y-%m-%d')}_回头看报告_v3{'_extended' if args.extended else ''}.md"
+
+    report = generate_report(days=actual_days, output_file=output_file)
     
     if not args.cron:
         print(report)
