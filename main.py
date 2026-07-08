@@ -262,8 +262,128 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
 
 
 def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
-    """构建飞书消息卡片"""
+    """构建飞书消息卡片（交互式版 v2 — WO-203）"""
     ___today = datetime.now().strftime("%Y-%m-%d")
+
+    # 池数量统计
+    pool_stats = {}
+    for name, data in pools.items():
+        stocks = data.get("stocks", [])
+        pool_stats[name] = len(stocks) if stocks else 0
+
+    # 构建标记
+    stage_emojis = {
+        "full_cycle": "🔄",
+        "news_only": "📰",
+        "screen": "🔍",
+        "review": "🔎",
+        "skeptic": "🎭",
+        "decision": "💡",
+    }
+
+    elements = [
+        {
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": (
+                    f"**阶段**: {stage_emojis.get(phase, '🔄')} {phase}\n"
+                    f"**LLM 调用**: {LLM_CALL_COUNT} 次\n"
+                    f"**五池合计**: {sum(pool_stats.values())} 只"
+                )
+            }
+        },
+        {"tag": "hr"},
+    ]
+
+    # ─── 五池状态（用表格形式，比列表更紧凑）───
+    pool_emoji = {
+        "重点观察池": "👀", "快筛候选池": "🔬", "边缘池": "📦",
+        "持仓池": "💰", "S级操作池": "⭐",
+    }
+    pool_lines = ["| 池 | 数量 | 明细 |"]
+    pool_lines.append("|---|:----:|------|")
+    for name in ["重点观察池", "快筛候选池", "S级操作池", "边缘池", "持仓池"]:
+        data = pools.get(name, {})
+        stocks = data.get("stocks", []) if isinstance(data, dict) else []
+        count = len(stocks)
+        if stocks and count > 0:
+            top3 = " ".join([f"{s.get('名称','?')}({s.get('综合分','-')})" for s in stocks[:3]])
+            detail = top3[:40]
+        else:
+            detail = "空"
+        emoji = pool_emoji.get(name, "📊")
+        pool_lines.append(f"| {emoji} {name} | {count} | {detail} |")
+    elements.append({
+        "tag": "markdown",
+        "content": "### 🗂️ 五池状态\n" + "\n".join(pool_lines),
+    })
+
+    # ─── 行情快照 ───
+    if "market" in results and results["market"].get("success"):
+        analyzed = results["market"].get("analyzed", [])[:3]
+        if analyzed:
+            market_lines = ["### 📊 实时行情"]
+            for s in analyzed:
+                score = s.get("技术面评分", 0)
+                emoji = "🟢" if score >= 75 else "🟡" if score >= 65 else "🔴"
+                market_lines.append(
+                    f"**{s['名称']}({s['代码']})** {s['现价']}元 {s['涨跌幅']:+.2f}% {emoji}{score}分"
+                )
+            elements.append({"tag": "markdown", "content": "\n".join(market_lines)})
+
+    # ─── 审查结果摘要 ───
+    if "review" in results and results["review"].get("success"):
+        review_text = f"### 🔎 审查结果\n✅ 审查完成"
+        # 如有截断标记
+        if results["review"].get("truncated"):
+            review_text += "\n⚠️ 报告存在截断"
+        saved = results["review"].get("saved_to", "")
+        if saved:
+            review_text += f"\n📄 `{saved.split('/')[-1]}`"
+        elements.append({"tag": "markdown", "content": review_text})
+
+    # ─── 决策方案（增强版）───
+    if "decision" in results and results["decision"].get("success"):
+        expr = results["decision"].get("express_note", "")
+        report_path = results["decision"].get("saved_to", "")
+        default_report = results["decision"].get("report", "弱市不操作")
+
+        if expr:
+            content = expr.replace("\\\\n", "\n")
+            status = "🟡 弱市模式"
+        elif report_path:
+            content = f"✅ 决策完成\n📄 `{report_path.split('/')[-1]}`"
+            status = "✅ 正常"
+        else:
+            content = f"✅ {default_report}"
+            status = "⏭️ 跳过"
+
+        elements.append({
+            "tag": "markdown",
+            "content": f"### 💡 决策方案\n{status}\n{content}"
+        })
+
+    # ─── Skeptic 质疑结果 ───
+    if "skeptic" in results and results["skeptic"].get("success"):
+        hrc = results["skeptic"].get("high_risk_count", 0)
+        skipped = results["skeptic"].get("skipped", False)
+        if skipped:
+            reason = results["skeptic"].get("reason", "")
+            sk_text = f"⏭️ Skeptic跳过（{reason}）"
+        else:
+            sk_text = f"{'🔴' if hrc > 0 else '🟢'} Skeptic完成，高风险{hrc}只"
+        elements.append({"tag": "markdown", "content": f"### 🎭 质疑审查\n{sk_text}"})
+
+    # ─── 收盘提示（快筛+边缘池清理完成）───
+    elements.append({"tag": "hr"})
+    elements.append({
+        "tag": "note",
+        "elements": [{
+            "tag": "plain_text",
+            "content": f"🏛️ 天枢权衡 v6.2 | {___today} | 自动执行，仅供参考"
+        }]
+    })
 
     card = {
         "config": {"wide_screen_mode": True},
@@ -271,93 +391,8 @@ def build_feishu_card(phase: str, results: dict, pools: dict) -> dict:
             "title": {"tag": "plain_text", "content": f"🦞 天枢权衡 | {___today}"},
             "template": "blue"
         },
-        "elements": [
-            {
-                "tag": "markdown",
-                "content": f"**执行阶段**: {phase} | **LLM调用**: {LLM_CALL_COUNT}次"
-            },
-            {"tag": "hr"},
-        ]
+        "elements": elements,
     }
-
-    # 行情数据
-    if "market" in results and results["market"].get("success"):
-        analyzed = results["market"].get("analyzed", [])[:4]
-        if analyzed:
-            lines = ["### 📊 技术面（实时）"]
-            for s in analyzed:
-                score = s.get("技术面评分", 0)
-                emoji = "🟢" if score >= 70 else "🟡" if score >= 50 else "🔴"
-                lines.append(f"- **{s['名称']}({s['代码']})** {s['现价']}元 {s['涨跌幅']:+.2f}% {emoji}{score}分")
-            card["elements"].append({"tag": "markdown", "content": "\n".join(lines)})
-            card["elements"].append({"tag": "hr"})
-
-    # 新闻分析结果
-    if "news" in results and results["news"].get("success"):
-        card["elements"].append({
-            "tag": "markdown",
-            "content": f"### 📰 新闻分析\n✅ 已完成，报告长度 {results['news']['news_length']} 字\n📄 {results['news']['saved_to'].split('/')[-1]}"
-        })
-        card["elements"].append({"tag": "hr"})
-
-    # 快筛结果
-    if "screen" in results and results["screen"].get("success"):
-        report = results["screen"]["report"]
-        # 截取前500字作为摘要
-        summary = report[:400] + "..." if len(report) > 400 else report
-        card["elements"].append({
-            "tag": "markdown",
-            "content": f"### 🔍 快筛结果\n```\n{summary}\n```"
-        })
-        card["elements"].append({"tag": "hr"})
-
-    # 审查结果
-    if "review" in results and results["review"].get("success"):
-        card["elements"].append({
-            "tag": "markdown",
-            "content": f"### 🔎 审查结果\n✅ 审查完成\n📄 {results['review']['saved_to'].split('/')[-1]}"
-        })
-        card["elements"].append({"tag": "hr"})
-
-    # 决策结果
-    if "decision" in results and results["decision"].get("success"):
-        decision_report = results["decision"].get("saved_to", "")
-        express_note = results["decision"].get("express_note", "")
-        if express_note:
-            decision_msg = "🟡 弱市极速审查（有高分标的）"
-            report_link = express_note.replace("\\n", "\\\\n")
-        else:
-            decision_msg = "✅ 决策完成" if decision_report else "✅ 跳过（弱市不操作）"
-            report_link = f"📄 {decision_report.split('/')[-1]}" if decision_report else ""
-        card["elements"].append({
-            "tag": "markdown",
-            "content": f"### 💡 决策方案\\\\n{decision_msg}\\\\n{report_link}"
-        })
-
-    # 五池状态
-    card["elements"].append({"tag": "hr"})
-    pool_lines = ["### 📊 五池状态"]
-    for name, data in pools.items():
-        stocks = data.get("stocks", [])
-        count = len(stocks) if stocks else 0
-        if count > 0 and name in ("S级操作池", "重点观察池", "持仓池"):
-            names = "、".join(
-                f"{s.get('名称','?')}({s.get('代码','?')})" 
-                for s in stocks[:3]
-            )
-            suffix = f"（{names}）" if names else ""
-        else:
-            suffix = ""
-        pool_lines.append(f"- **{name}**: {count}只{suffix}")
-    card["elements"].append({"tag": "markdown", "content": "\n".join(pool_lines)})
-
-    # 底部
-    card["elements"].append({
-        "tag": "note",
-        "elements": [
-            {"tag": "plain_text", "content": f"生成时间: {datetime.now().strftime('%H:%M:%S')} | 🦞 天枢权衡 Multi-Agent"}
-        ]
-    })
 
     return card
 
