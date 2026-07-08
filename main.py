@@ -73,6 +73,7 @@ from agents.error_handling import check_circuit_breaker, record_success, record_
 
 # 统一日志（初始化根日志器）
 from agents.logger import setup_root_logger, plog
+from agents.thresholds import CANDIDATE_EXPIRE_DAYS, EDGE_POOL_STALE_DAYS
 setup_root_logger(level="INFO", log_dir=str(PROJECT_ROOT / "logs"))
 
 
@@ -666,7 +667,31 @@ def main():
             print(f"\n{'='*40}")
             print(f"📅 周末模式 (weekday={now_weekday})：新闻已分析，跳过交易相关阶段")
             print(f"{'='*40}")
-            print("  执行：池健康检查（降级停留≥14天的陈旧标的）")
+            # F04: 实际执行池维护（降级停留≥14天的陈旧标的 + 边缘池清理）
+            try:
+                pm = PoolManager()
+                # 候选池过期清理
+                pm.clean_expired_candidates(max_age_days=CANDIDATE_EXPIRE_DAYS)
+                print(f"  ✅ 候选池过期清理完成（>={CANDIDATE_EXPIRE_DAYS}天）")
+            except Exception as e:
+                print(f"  ⚠️ 候选池清理异常: {e}")
+            try:
+                pm = PoolManager()
+                clean_result = pm.clean_expired_edge_pool(max_age_days=EDGE_POOL_STALE_DAYS)
+                removed = len(clean_result.get("removed", []))
+                print(f"  ✅ 边缘池清理完成：移除{removed}只过期标的")
+            except Exception as e:
+                print(f"  ⚠️ 边缘池清理异常: {e}")
+            try:
+                from scripts.sweep_downgrade import sweep_all_pools
+                pm = PoolManager()
+                sweep_report = sweep_all_pools(pm)
+                if sweep_report["total_demoted"] > 0:
+                    print(f"  🧹 全池降级扫描: {sweep_report['total_demoted']}只已降级")
+                else:
+                    print(f"  ✅ 全池降级扫描: 无低分滞留")
+            except Exception as e:
+                print(f"  ⚠️ 全池扫描异常: {e}")
             results["weekend_mode"] = True
             card = build_feishu_card(phase, results, orch.get_pools())
             print("📱 飞书卡片内容预览:")
