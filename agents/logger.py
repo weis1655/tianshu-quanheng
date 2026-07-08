@@ -208,6 +208,81 @@ class log_execution:
         return False  # 不阻止异常传播
 
 
+# ── 简易print替代函数 ──────────────────────────────
+# 用法: plog("INFO", "新闻分析完成")   → 输出到stdout + 日志文件
+# 级别: ERROR > WARNING > INFO > DEBUG
+
+_LOG_LEVEL_MAP = {
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+}
+
+_ROOT_LOGGER_SETUP = False
+
+
+def setup_root_logger(level: str = "INFO", log_dir: str = None) -> None:
+    """配置根日志器（只执行一次）
+
+    确保 logging.getLogger(__name__) 在所有模块中都能输出到文件+控制台。
+
+    Args:
+        level: 日志级别
+        log_dir: 日志目录（默认 projects/logs/）
+    """
+    global _ROOT_LOGGER_SETUP
+    if _ROOT_LOGGER_SETUP:
+        return
+    _ROOT_LOGGER_SETUP = True
+
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, level.upper(), logging.INFO))
+    root.handlers.clear()
+
+    fmt = logging.Formatter(DEFAULT_FORMAT)
+
+    # Console handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(fmt)
+    root.addHandler(ch)
+
+    # File handler
+    log_dir_path = Path(log_dir) if log_dir else LOG_DIR
+    log_dir_path.mkdir(parents=True, exist_ok=True)
+    fh = logging.FileHandler(
+        log_dir_path / f"{datetime.now().strftime('%Y-%m-%d')}.log",
+        encoding="utf-8",
+    )
+    fh.setFormatter(fmt)
+    root.addHandler(fh)
+
+
+def plog(level: str, message: str, module: str = "天枢") -> None:
+    """print() 替代函数 — 带级别前缀输出到stdout + 日志文件
+
+    格式: [module] message  (保持与现有 print 输出风格兼容)
+
+    Args:
+        level: ERROR / WARNING / INFO / DEBUG
+        message: 日志内容
+        module: 模块名称（显示用）
+    """
+    # 确保根日志器已初始化
+    setup_root_logger()
+
+    level_upper = level.upper()
+    log_level = _LOG_LEVEL_MAP.get(level_upper, logging.INFO)
+    prefix = {"ERROR": "❌", "WARNING": "⚠️", "INFO": "•", "DEBUG": "🔍"}.get(level_upper, "•")
+
+    # 输出到stdout（保留print的视觉风格，不带时间戳，适合cron/human阅读）
+    print(f"{prefix} [{module}] {message}")
+
+    # 输出到日志文件（带完整时间戳和级别）
+    logger = logging.getLogger(module)
+    logger.log(log_level, "%s %s", prefix, message)
+
+
 if __name__ == "__main__":
     # 测试日志
     logger = get_logger("TestLogger")

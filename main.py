@@ -71,6 +71,10 @@ from skeptic_agent import SkepticAgent
 from pool_manager import PoolManager
 from agents.error_handling import check_circuit_breaker, record_success, record_failure
 
+# 统一日志（初始化根日志器）
+from agents.logger import setup_root_logger, plog
+setup_root_logger(level="INFO", log_dir=str(PROJECT_ROOT / "logs"))
+
 
 LLM_CALL_COUNT = 0  # 追踪本次运行的LLM调用次数
 
@@ -80,29 +84,32 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
     global LLM_CALL_COUNT
     results = {}
 
-    print(f"\n{'='*40}")
-    print(f"🔔 阶段: {phase}")
-    print(f"{'='*40}")
+    # ── 阶段标记（统一日志）──
+    plog("INFO", f"{'='*36}", module="phase")
+    plog("INFO", f"阶段开始: {phase}", module="phase")
+    plog("INFO", f"{'='*36}", module="phase")
 
     if phase == "news_only":
-        print("📰 执行新闻分析...")
+        plog("INFO", "执行新闻分析...", module="news")
         agent = NewsAgent()
         r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["news"] = r
         ok = "✅" if r.get("success") else "❌"
-        print(f"  {ok} 完成（LLM调用: {LLM_CALL_COUNT}次） | {r.get('error', r.get('source', ''))}")
+        plog("INFO" if r.get("success") else "ERROR",
+             f"{ok} 完成（LLM调用: {LLM_CALL_COUNT}次） | {r.get('error', r.get('source', ''))}",
+             module="news")
 
     elif phase == "screen":
-        print("🔍 执行快筛...")
+        plog("INFO", "执行快筛...", module="screen")
         agent = ScreenAgent()
         r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
         results["screen"] = r
-        print(f"  ✅ 完成（LLM调用: {LLM_CALL_COUNT}次）")
+        plog("INFO", f"✅ 完成（LLM调用: {LLM_CALL_COUNT}次）", module="screen")
 
     elif phase == "review":
-        print("🔎 执行审查...")
+        plog("INFO", "执行审查...", module="review")
         agent = ReviewAgent()
         r = agent.run(wake_ctx=wake_ctx)
         LLM_CALL_COUNT += 1
