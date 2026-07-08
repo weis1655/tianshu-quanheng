@@ -1515,6 +1515,29 @@ class ReviewAgent(BaseAgent):
                 code = s.get("代码", s.get("股票代码", "?"))
                 print(f"[ReviewAgent] 📦 {name}({code}) → {source_pool}历史池")
 
+    def _compute_ml_scores(self, review_result, factor_map):
+        """F05: 从_run_impl提取的ML评分计算子函数"""
+        from scripts.ml_scorer import predict_ml_score
+        for sr in review_result.stocks:
+            fd = factor_map.get(sr.code, {})
+            detail = fd.get("factor_details", {}) if isinstance(fd, dict) else {}
+            if detail and isinstance(detail, dict):
+                ml_factors = {
+                    "ma5_div": round((detail.get("factor_ma5", 1) - 1) * 100, 2),
+                    "ma10_div": round((detail.get("factor_ma10", 1) - 1) * 100, 2),
+                    "ret5": round(detail.get("factor_ret5", 0) * 100, 2),
+                    "ret20": round(detail.get("factor_ret20", 0) * 100, 2),
+                    "vol20": detail.get("factor_vol20", 0),
+                    "vol_ratio": detail.get("factor_turn", 1),
+                    "day_range": detail.get("day_range", 0),
+                    "ma20_pos": detail.get("ma20_pos", 0),
+                }
+                ml_result = predict_ml_score(ml_factors, llm_score=sr.composite_score)
+                sr.ml_score = ml_result["ml_score"]
+                sr.ml_win_prob = ml_result["win_prob"]
+                sr.core_logic += f" | 🤖 ML{sr.ml_score}分(胜{sr.ml_win_prob*100:.0f}%)"
+                print(f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+
 
 if __name__ == "__main__":
     agent = ReviewAgent()
