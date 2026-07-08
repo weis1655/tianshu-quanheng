@@ -1033,6 +1033,11 @@ def generate_report(days=7, output_file=None):
         try:
             import json as _json
             log_data = _json.loads(decision_log_path.read_text(encoding='utf-8'))
+            # WO-102: 防御 log_data 为 None 或非列表（空JSON/null/字典格式）
+            if not isinstance(log_data, list):
+                actual_type = type(log_data).__name__
+                print(f"[回头看] ⚠️ 决策日志格式异常（类型={actual_type}），已重置为空列表")
+                log_data = []
             unverified = [e for e in log_data if e.get('actual_pnl') is None and e.get('code') and e.get('date')]
             for entry in unverified:
                 key = f"{entry['code']}_{entry['date']}"
