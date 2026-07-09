@@ -19,6 +19,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from logger import plog
 
 from safe_file_utils import safe_read_json
 
@@ -65,7 +66,21 @@ def fetch_current_price(codes: list[str]) -> dict[str, float]:
 
 
 class WeeklyReviewAgent:
-    """周复盘 Agent"""
+    """
+    周度复盘 Agent — 执行周度池卫生、假设验证、权重调整和报告生成。
+
+    当前职责（职责过载，需重构拆分）：
+    1. pool_hygiene：池卫生检查（淘汰/降级/清理过期标的）
+    2. verify_hypotheses：假设验证（扫描池+核对历史假设）
+    3. adjust_weights：权重调整（策略有效性评估+权重更新）
+    4. run：周度报告生成
+
+    T-L04 标注：上述4项职责耦合在同一 Agent 中，建议拆分为：
+    - PoolHygieneAgent（池卫生）
+    - HypothesisVerifyAgent（假设验证）
+    - WeightAdjustAgent（权重调整）
+    - WeeklyReportAgent（报告生成）
+    """
 
     # 池卫生规则
     CANDIDATE_STALE_DAYS = 14      # 候选池超14天未升级 → 降级/淘汰
@@ -281,7 +296,8 @@ class WeeklyReviewAgent:
         - ❌未兑现：自动降级（候选→暂缓，重点→候选）
         - ✅兑现：记录，供后续权重修正参考
         """
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
         if pm is None:
             from pool_manager import PoolManager
@@ -431,7 +447,8 @@ class WeeklyReviewAgent:
     # ─────────────────────────────────────────────
     def adjust_weights(self) -> dict:
         """根据胜率自动调整决策权重"""
-        from review_evo import ReviewEvo
+        from path_config import get_review_evo
+        ReviewEvo = get_review_evo()
         evo = ReviewEvo(root=self.root)
 
         report = []
@@ -481,7 +498,7 @@ class WeeklyReviewAgent:
         """
         # D3：周五约束 — 非周五仅检查不执行流程
         if self.today.weekday() >= 5:
-            print(f"📅 周末模式：周复盘跳过（{self.today.strftime('%A')}），仅做池健康检查")
+            plog("INFO", f"📅 周末模式：周复盘跳过（{self.today.strftime('%A')}），仅做池健康检查")
             hygiene = self.pool_hygiene()
             return {
                 "success": True,
@@ -493,13 +510,13 @@ class WeeklyReviewAgent:
                 "driver_stats": {},
             }
         if self.today.weekday() != 4:  # 4=Friday
-            print(f"  ⚠️ 周复盘设计为周五运行（今天{self.today.strftime('%A')}），继续执行但可能缺少整周数据")
-        print("📋 开始周复盘...")
+            plog("INFO", f"  ⚠️ 周复盘设计为周五运行（今天{self.today.strftime('%A')}），继续执行但可能缺少整周数据")
+        plog("INFO", "📋 开始周复盘...")
 
         # Step 1: 池卫生检查
         hygiene = self.pool_hygiene()
         pm = hygiene["pool_manager"]
-        print(f"  🧹 池卫生：{len(hygiene['actions'])} 条待处理")
+        plog("INFO", f"  🧹 池卫生：{len(hygiene['actions'])} 条待处理")
 
         # D2：执行边缘池自动回归（≥14天 → 移入快筛候选池）
         regression_actions = [a for a in hygiene["actions"]
@@ -510,9 +527,9 @@ class WeeklyReviewAgent:
             name = stock.get("股票名称") or stock.get("名称", "?")
             ok = pm.move_stock("边缘池", "快筛候选池", code)
             if ok:
-                print(f"  ✅ [D2] 边缘池回归：{name}({code}) → 快筛候选池")
+                plog("INFO", f"  ✅ [D2] 边缘池回归：{name}({code}) → 快筛候选池")
             else:
-                print(f"  ⚠️ [D2] 回归失败：{name}({code})")
+                plog("INFO", f"  ⚠️ [D2] 回归失败：{name}({code})")
 
         # D3：执行hygiene降级流转——仅硬上限触发的执行，软上限仅报告
         # ── 彻底淘汰（超硬上限）──
@@ -523,7 +540,7 @@ class WeeklyReviewAgent:
             code = stock.get("代码") or stock.get("股票代码", "")
             name = stock.get("股票名称") or stock.get("名称", "?")
             ok = pm.remove_stock(da["pool"], code)
-            print(f"  {'✅' if ok else '⚠️'} [hygiene] 彻底淘汰: {name}({code}) → 已删除")
+            plog("INFO", f"  {'✅' if ok else '⚠️'} [hygiene] 彻底淘汰: {name}({code}) → 已删除")
 
         # ── 软上限降级跳过（仅报告，暂不执行）──
         skip_actions = [a for a in hygiene["actions"]
@@ -535,9 +552,9 @@ class WeeklyReviewAgent:
             days = da["days"]
             soft_limit = self._get_stale_threshold(da["pool"])
             if dry_run:
-                print(f"  📋 [hygiene] {da['action']}: {name}({code}) 在池{days}天 (dry-run)")
+                plog("INFO", f"  📋 [hygiene] {da['action']}: {name}({code}) 在池{days}天 (dry-run)")
             else:
-                print(f"  ⚠️ [hygiene] 跳过(未超硬上限): {name}({code}) 在池{days}天(软上限{soft_limit}天)")
+                plog("INFO", f"  ⚠️ [hygiene] 跳过(未超硬上限): {name}({code}) 在池{days}天(软上限{soft_limit}天)")
 
         # ── 超量降级处理（候选池超15只上限）──
         overflow_actions = [a for a in hygiene["actions"]
@@ -547,29 +564,29 @@ class WeeklyReviewAgent:
             code = stock.get("代码") or stock.get("股票代码", "")
             name = stock.get("股票名称") or stock.get("名称", "?")
             ok = pm.remove_stock(oa["pool"], code)
-            print(f"  {'✅' if ok else '⚠️'} [hygiene] 超量清理: {name}({code}) 已从{oa['pool']}移除")
+            plog("INFO", f"  {'✅' if ok else '⚠️'} [hygiene] 超量清理: {name}({code}) 已从{oa['pool']}移除")
 
         # D4：S级操作池过期清理
         if not dry_run:
             s_result = pm.clean_expired_s_pool()
             if s_result.get("cleaned"):
-                print(f"  🧹 S级操作池：已清理 {len(s_result['removed'])} 只过期标的")
+                plog("INFO", f"  🧹 S级操作池：已清理 {len(s_result['removed'])} 只过期标的")
         else:
-            print(f"  📋 [dry-run] S级操作池清理跳过")
+            plog("INFO", f"  📋 [dry-run] S级操作池清理跳过")
 
         # Step 2: 假设验证
         verify = self.verify_hypotheses(pm=pm)
-        print(f"  🔬 假设验证：{len(verify['verified'])} 条已验证")
+        plog("INFO", f"  🔬 假设验证：{len(verify['verified'])} 条已验证")
 
         # Step 3: 权重修正
         weights = self.adjust_weights()
-        print(f"  ⚖️ 权重修正：完成")
+        plog("INFO", f"  ⚖️ 权重修正：完成")
 
         # Step 4: 执行池流转动作（假设验证触发）
         pool_actions = verify.get("pool_actions", [])
         executed = []
         if dry_run:
-            print(f"  🔄 DRY-RUN：跳过实际流转，共 {len(pool_actions)} 条待执行")
+            plog("INFO", f"  🔄 DRY-RUN：跳过实际流转，共 {len(pool_actions)} 条待执行")
         else:
             for pa in pool_actions:
                 code = pa.get("code", "")
@@ -579,7 +596,7 @@ class WeeklyReviewAgent:
                 if from_pool and to_pool:
                     ok = pm.move_stock(from_pool, to_pool, code)
                     status = "✅" if ok else "❌"
-                    print(f"  {status} 流转：{name}({code}) {from_pool} → {to_pool}")
+                    plog("INFO", f"  {status} 流转：{name}({code}) {from_pool} → {to_pool}")
                     executed.append({**pa, "success": ok})
 
         # 合并报告
@@ -587,7 +604,7 @@ class WeeklyReviewAgent:
         
         # ── P1: 自动ML重训（每周复盘触发）─────────────────────
         if not dry_run:
-            print("  🤖 触发ML模型自动重训...")
+            plog("INFO", "  🤖 触发ML模型自动重训...")
             try:
                 import subprocess
                 # Step1: 拉最新数据
@@ -601,10 +618,10 @@ class WeeklyReviewAgent:
                         if "条" in line or "记录" in line:
                             n_records = line.strip()
                             break
-                    print(f"  ✅ ML数据拉取完成: {n_records}")
+                    plog("INFO", f"  ✅ ML数据拉取完成: {n_records}")
                     all_lines.append(f"- 🤖 ML数据更新: {n_records}")
                 else:
-                    print(f"  ⚠️ ML数据拉取异常: {r1.stderr[-200:]}")
+                    plog("INFO", f"  ⚠️ ML数据拉取异常: {r1.stderr[-200:]}")
                     all_lines.append(f"- ⚠️ ML数据更新失败: {r1.stderr[-100:]}")
                     raise Exception("ML数据拉取失败")
                     
@@ -620,16 +637,16 @@ class WeeklyReviewAgent:
                         if "准确率" in line or "accuracy" in line.lower() or "Acc" in line:
                             acc = line.strip()
                             break
-                    print(f"  ✅ ML模型重训完成: {acc}")
+                    plog("INFO", f"  ✅ ML模型重训完成: {acc}")
                     all_lines.append(f"- 🤖 ML模型重训: {acc}")
                 else:
-                    print(f"  ⚠️ ML重训异常: {r2.stderr[-200:]}")
+                    plog("INFO", f"  ⚠️ ML重训异常: {r2.stderr[-200:]}")
                     all_lines.append(f"- ⚠️ ML重训失败: {r2.stderr[-100:]}")
             except subprocess.TimeoutExpired:
-                print("  ⚠️ ML重训超时(300s)，跳过")
+                plog("INFO", "  ⚠️ ML重训超时(300s)，跳过")
                 all_lines.append("- ⚠️ ML重训超时，跳过")
             except Exception as e:
-                print(f"  ⚠️ ML重训异常: {e}")
+                plog("INFO", f"  ⚠️ ML重训异常: {e}")
                 all_lines.append(f"- ⚠️ ML重训异常: {e}")
         # ────────────────────────────────────────────────────────
         all_lines.extend(hygiene["report_lines"])
@@ -657,7 +674,7 @@ class WeeklyReviewAgent:
         # 保存报告
         week_file = self.report_dir / f"{self.today.strftime('%Y-%m-%d')}_周复盘报告.md"
         week_file.write_text(report_content, encoding="utf-8")
-        print(f"  💾 报告已保存：{week_file.name}")
+        plog("INFO", f"  💾 报告已保存：{week_file.name}")
 
         return {
             "success": True,
@@ -675,5 +692,5 @@ if __name__ == "__main__":
     agent = WeeklyReviewAgent()
     result = agent.run()
     if result["success"]:
-        print("\n✅ 周复盘完成")
-        print(f"📄 {result['saved_to']}")
+        plog("INFO", "\n✅ 周复盘完成")
+        plog("INFO", f"📄 {result['saved_to']}")

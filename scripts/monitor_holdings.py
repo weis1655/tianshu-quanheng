@@ -233,7 +233,8 @@ class HoldingsMonitor:
             已回填的股票代码列表
         """
         try:
-            from review_evo import ReviewEvo
+            from path_config import get_review_evo
+            ReviewEvo = get_review_evo()
         except Exception:
             return []
 

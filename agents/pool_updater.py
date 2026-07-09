@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+from logger import plog
 
 
 class PoolUpdater:
@@ -31,19 +32,19 @@ class PoolUpdater:
 
         matches = re.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
         # ── P0: debug日志——验证【主推】正则匹配 ──
-        print(f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
+        plog("INFO", f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
         if not matches:
-            print(f"[PoolUpdater] 📄 报告末尾300字符: ...{decision_result[-300:]}")
+            plog("INFO", f"[PoolUpdater] 📄 报告末尾300字符: ...{decision_result[-300:]}")
             # 检查是否包含"主推"字样但不匹配格式
             if "主推" in decision_result:
-                print(f"[PoolUpdater] ⚠️ 发现「主推」字样但正则未匹配，可能是格式异常")
+                plog("INFO", f"[PoolUpdater] ⚠️ 发现「主推」字样但正则未匹配，可能是格式异常")
                 # 宽松匹配：找StockName(Code)格式
                 broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
                 if broad:
-                    print(f"[PoolUpdater] 💡 宽松匹配到{broad}，但缺乏【主推】标记")
+                    plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但缺乏【主推】标记")
             return
         elif len(matches) > 0:
-            print(f"[PoolUpdater] ✅ 成功匹配: {[(n,c) for n,c in matches]}")
+            plog("INFO", f"[PoolUpdater] ✅ 成功匹配: {[(n,c) for n,c in matches]}")
 
         today = datetime.now().strftime("%Y-%m-%d")
         # 获取当前行情作为入场参考价
@@ -62,11 +63,11 @@ class PoolUpdater:
                     q = fetch_quotes([to_api(code)])
                     if q and len(q) > 0:
                         entry_price = q[0].get("现价", 0)
-                except Exception:
+                except Exception:  # 安全降级: 价格获取失败→保持默认价格，不影响池更新
                     pass
             position_warning = self._check_price_position(code, entry_price)
             if position_warning:
-                print(f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
+                plog("INFO", f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
                 continue
 
             # 新条目
@@ -84,7 +85,7 @@ class PoolUpdater:
                 "评价": None,
             }
             new_stocks.append(s)
-            print(f"[PoolUpdater] ✅ {name}({code}) → S级操作池 (记事本模式)")
+            plog("INFO", f"[PoolUpdater] ✅ {name}({code}) → S级操作池 (记事本模式)")
 
         self._check_s_pool_overlap(new_stocks)
 
@@ -130,7 +131,7 @@ class PoolUpdater:
             })
 
         self._safe_write_json(pool_file, data)
-        print(f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
+        plog("INFO", f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
 
     def _check_price_position(self, code: str, current_price: float) -> str:
             """检查当前价格在52周中的位置，返回空字符串表示通过，非空表示警告。
@@ -161,7 +162,7 @@ class PoolUpdater:
                             if not ma5 and not ma10:
                                 # API不返回MA数据，无法判断趋势，放行不拦截
                                 return ""
-                    except Exception:
+                    except Exception:  # 安全降级: 池记录读取失败→返回空字符串，不影响更新
                         pass
                     # 阈值从85%放宽到92%（P1-3放松）
                     if ratio > 0.92:
@@ -169,7 +170,7 @@ class PoolUpdater:
                     return ""
                 return ""
             except Exception as e:
-                print(f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
+                plog("INFO", f"[PoolUpdater] ⚠️ 价格位置检查失败({code}): {e}")
                 return ""
 
     def _get_market_state(self) -> dict:
@@ -204,7 +205,7 @@ class PoolUpdater:
                 "s_pool_cap": cap_map.get(state, 2),
                 "suggestion": sug_map.get(state, "标准"),
             }
-        except Exception:
+        except Exception:  # 安全降级: 池读取失败→返回空pool，不影响流转
             pass
         # 兜底：直接从 shared_memory.json 读取（原逻辑的降级版）
         try:
@@ -224,7 +225,7 @@ class PoolUpdater:
                             return {"state": "震荡偏弱", "s_pool_cap": 2}
                         else:
                             return {"state": "偏空", "s_pool_cap": 1}
-        except Exception:
+        except Exception:  # 安全降级: 市场状态获取失败→降级为偏空，保守处理
             pass
         return {"state": "震荡", "s_pool_cap": 2}
 
@@ -242,13 +243,13 @@ class PoolUpdater:
                     if pool_name == "重点观察池":
                         # P1-2026-06-04: 晋级S级=移出重点池，防跨池重复
                         removed = self.pool_manager.remove_stock("重点观察池", code) if self.pool_manager else False
-                        print(f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
+                        plog("INFO", f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
                     elif pool_name == "快筛候选池":
                         # P1-2026-06-04: 晋级S级也应从快筛候选池移除（该标的不应同时在候选池和S级池）
                         removed = self.pool_manager.remove_stock("快筛候选池", code) if self.pool_manager else False
-                        print(f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
+                        plog("INFO", f"[PoolUpdater] ⬆️ {name}({code}) 已从{pool_name}移除（晋级S级操作池）{'✅' if removed else '⚠️未成功'}")
                     else:
-                        print(f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非活跃池，仅警告）")
+                        plog("INFO", f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非活跃池，仅警告）")
 
     def _extract_logic_snippet(self, name: str, decision_result: str) -> str:
         """提取该股票决策报告中的核心逻辑"""
@@ -319,7 +320,7 @@ class PoolUpdater:
         try:
             if path.exists():
                 return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception:  # 安全降级: JSON文件读取失败→返回空dict，不影响后续
             pass
         return default
 

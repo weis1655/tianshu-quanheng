@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 import requests
+from logger import plog
 
 from base_agent import BaseAgent, build_agent_system_prompt
 from logger import StructuredLogger
@@ -103,7 +104,7 @@ def fetch_from_duckburn() -> tuple[str, str]:
                 # 质量检查：必须有新闻联播关键字
                 if "新闻联播" in r.text or "联播" in r.text or "主要内容" in r.text:
                     return r.text, f"DuckBurn({date_str})"
-        except Exception:
+        except Exception:  # 安全降级: DuckBurn API 失败→降级到下一个数据源
             pass
     return "", "DuckBurn"
 
@@ -129,7 +130,7 @@ def fetch_from_govopendata() -> tuple[str, str]:
                 continue
             if len(text) > 500 and ("联播" in text or "新闻" in text[:500]):
                 return text[:5000], f"govopendata({date_str})"
-        except Exception:
+        except Exception:  # 安全降级: govopendata API 失败→降级到下一个数据源
             pass
     return "", "govopendata"
 
@@ -153,7 +154,7 @@ def fetch_from_sina_news() -> tuple[str, str]:
         ]
         if today_items:
             return "\n".join(today_items), "sina_news"
-    except Exception:
+    except Exception:  # 安全降级: 新浪新闻 API 失败→降级到下一个数据源
         pass
     return "", "sina_news"
 
@@ -184,7 +185,7 @@ def fetch_from_tonghuashun() -> tuple[str, str]:
         if news_items:
             content = f"=== 同花顺财经快讯 {today_str} ===\n" + "\n".join(f"- {t}" for t in news_items[:25])
             return content, "tonghuashun"
-    except Exception:
+    except Exception:  # 安全降级: 同花顺 API 失败→降级到下一个数据源
         pass
     return "", "tonghuashun"
 
@@ -231,7 +232,7 @@ def fetch_from_eastmoney() -> tuple[str, str]:
                 text_clean = re.sub(r'\s+', '\n', text_clean).strip()
                 if len(text_clean) > 200:
                     return text_clean[:5000], "eastmoney"
-        except Exception:
+        except Exception:  # 安全降级: 东方财富 API 失败→降级到下一个数据源
             pass
     return "", "eastmoney"
 
@@ -256,7 +257,7 @@ def fetch_news_broadcast() -> tuple[str, str]:
         for name, fetcher in fast_sources:
             content, detail = fetcher()
             valid, reason = is_valid_news(content, min_len=300, min_items=3)
-            print(f"  [News] {name}: {reason}")
+            plog("INFO", f"  [News] {name}: {reason}")
             if valid:
                 fast_results.append((name, detail, content))
 
@@ -279,7 +280,7 @@ def fetch_news_broadcast() -> tuple[str, str]:
     for name, fetcher in broadcast_sources:
         content, detail = fetcher()
         valid, reason = is_valid_news(content, min_len=500, min_items=3)
-        print(f"  [News] {name}: {reason}")
+        plog("INFO", f"  [News] {name}: {reason}")
         if valid:
             # 联播太短时，用快讯补充
             if len(content) < 1000:
@@ -300,7 +301,7 @@ def fetch_news_broadcast() -> tuple[str, str]:
     for name, fetcher in all_sources:
         content, detail = fetcher()
         valid, reason = is_valid_news(content, min_len=300, min_items=3)
-        print(f"  [News] (兜底) {name}: {reason}")
+        plog("INFO", f"  [News] (兜底) {name}: {reason}")
         if valid:
             return content, detail
 
@@ -381,7 +382,7 @@ class NewsAgent(BaseAgent):
         # 1. 获取新闻（若无外部传入）
         with self.logger.agent_action("fetch_news"):
             if news_content is None:
-                print("[News] 开始获取新闻（多源探测）...")
+                plog("INFO", "[News] 开始获取新闻（多源探测）...")
                 news_content, source_desc = fetch_news_broadcast()
             else:
                 source_desc = "manual"
@@ -390,7 +391,7 @@ class NewsAgent(BaseAgent):
             valid, reason = is_valid_news(news_content, min_len=300, min_items=3)
             if not valid:
                 msg = f"新闻质量不合格: {reason}，终止后续流程"
-                print(f"[News] ❌ {msg}")
+                plog("INFO", f"[News] ❌ {msg}")
                 self.logger.warning("news_quality_failed", reason=reason, length=len(news_content) if news_content else 0)
                 return {
                     "success": False,
@@ -398,7 +399,7 @@ class NewsAgent(BaseAgent):
                     "source": source_desc,
                     "quality_check": reason,
                 }
-            print(f"[News] ✅ 质量通过: {reason}")
+            plog("INFO", f"[News] ✅ 质量通过: {reason}")
             # ── 门控结束 ─────────────────────────────────
 
         # 2. LLM 分析
@@ -629,9 +630,9 @@ if __name__ == "__main__":
     agent = NewsAgent()
     result = agent.run()
     if result["success"]:
-        print(f"✅ 新闻分析完成 | 来源: {result['source']}")
-        print(f"📄 保存: {result['saved_to']}")
-        print("\n" + "=" * 40)
-        print(result["report"][:1000])
+        plog("INFO", f"✅ 新闻分析完成 | 来源: {result['source']}")
+        plog("INFO", f"📄 保存: {result['saved_to']}")
+        plog("INFO", "\n" + "=" * 40)
+        plog("INFO", result["report"][:1000])
     else:
-        print(f"❌ 失败: {result.get('error')}")
+        plog("INFO", f"❌ 失败: {result.get('error')}")

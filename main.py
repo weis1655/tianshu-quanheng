@@ -926,6 +926,34 @@ def main():
                 elif score < 50:
                     risk_flags.append(f"评分{score}分<50，基本面存疑")
 
+                # R5: 量比过大（>5，主力出货信号）
+                try:
+                    vol_ratio = float(s.get("量比", s.get("vol_ratio", 0)) or 0)
+                    if vol_ratio > 5:
+                        risk_flags.append(f"量比{vol_ratio:.1f}>5，放量出货嫌疑")
+                except (ValueError, TypeError):
+                    pass
+
+                # R6: 价格处于近20日高位（>80%分位，追高风险）
+                try:
+                    high_20d = float(s.get("近20日最高", s.get("high_20d", 0)) or 0)
+                    cur_price = float(s.get("当前价", s.get("close", 0)) or 0)
+                    if high_20d > 0 and cur_price > 0:
+                        pct = cur_price / high_20d
+                        if pct > 0.85:
+                            risk_flags.append(f"价格处于20日高位{pct*100:.0f}%，追高风险")
+                except (ValueError, TypeError):
+                    pass
+
+                # R7: 成交量异常放大（今日量>5日均量3倍）
+                try:
+                    vol_today = float(s.get("今日量", s.get("vol", 0)) or 0)
+                    vol_avg5 = float(s.get("5日均量", s.get("vol_avg5", 0)) or 0)
+                    if vol_avg5 > 0 and vol_today > vol_avg5 * 3:
+                        risk_flags.append(f"成交量异常放大(今日量/5日均量={vol_today/vol_avg5:.1f}倍)")
+                except (ValueError, TypeError):
+                    pass
+
                 if risk_flags:
                     simplified_blocked.append((code, name, risk_flags))
                 else:
@@ -939,7 +967,7 @@ def main():
                 f"- 审查范围：重点观察池 + S级操作池",
                 f"- 审查标的：{len(all_stocks_for_review)}只",
                 f"- 审查方法：弱市简化模式（纯规则，无LLM调用）",
-                f"- 风险规则：日涨幅>15%/PE>80或负/换手率>12%/评分<50",
+                f"- 风险规则：日涨幅>15%/PE>80或负/换手率>12%/评分<50/量比>5/价格处20日高位>85%/成交量放大>3倍",
                 "",
             ]
             if simplified_blocked:

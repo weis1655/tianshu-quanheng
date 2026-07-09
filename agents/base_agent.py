@@ -156,7 +156,7 @@ class BaseAgent(ABC):
             if response:
                 content += f"\n## LLM 回复（前500字）\n{response[:500]}\n"
             fname.write_text(content, encoding="utf-8")
-        except Exception:
+        except Exception:  # 安全降级: 日志写入失败→静默降级，不影响主流程（已有注释）
             pass  # 日志失败不影响主流程
 
     def _call_llm_opencode(self, prompt: str, system: str, max_tokens: int,

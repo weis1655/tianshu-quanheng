@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
+from logger import plog
 
 
 class ScheduleType(Enum):
@@ -54,39 +55,54 @@ class CronParser:
         self.month = self.parts[3]
         self.weekday = self.parts[4]
 
-    def matches(self, dt: datetime) -> bool:
-        """检查给定时间是否匹配 Cron 表达式"""
-        return (
-            self._match_field(self.minute, dt.minute, 0, 59) and
-            self._match_field(self.hour, dt.hour, 0, 23) and
-            self._match_field(self.day, dt.day, 1, 31) and
-            self._match_field(self.month, dt.month, 1, 12) and
-            self._match_field(self.weekday, dt.weekday(), 0, 6)
-        )
+        # T-L02: 预计算每个字段的匹配集合，避免每次调用都重新解析
+        self._minute_set = self._parse_to_set(self.minute, 0, 59)
+        self._hour_set = self._parse_to_set(self.hour, 0, 23)
+        self._day_set = self._parse_to_set(self.day, 1, 31)
+        self._month_set = self._parse_to_set(self.month, 1, 12)
+        self._weekday_set = self._parse_to_set(self.weekday, 0, 6)
 
-    def _match_field(self, field: str, value: int, min_val: int, max_val: int) -> bool:
-        """匹配单个字段"""
+    @staticmethod
+    def _parse_to_set(field: str, min_val: int, max_val: int) -> Optional[set]:
+        """预解析单个字段为匹配集合。None 表示通配（全部匹配）"""
         if field == "*":
-            return True
+            return None  # 通配
 
-        # 处理列表 (如 1,3,5)
+        result = set()
+
+        # 处理列表
         if "," in field:
-            return value in [int(x) for x in field.split(",")]
+            for x in field.split(","):
+                result.update(CronParser._parse_to_set(x, min_val, max_val))
+            return result
 
-        # 处理范围 (如 1-5)
+        # 处理范围
         if "-" in field:
             start, end = field.split("-")
-            return int(start) <= value <= int(end)
+            return {v for v in range(int(start), int(end) + 1) if min_val <= v <= max_val}
 
-        # 处理步长 (如 */5)
+        # 处理步长
         if "/" in field:
             base, step = field.split("/")
             base = int(base) if base != "*" else min_val
             step = int(step)
-            return (value - base) % step == 0
+            return {v for v in range(base, max_val + 1, step)}
 
         # 精确值
-        return int(field) == value
+        return {int(field)}
+
+    def matches(self, dt: datetime) -> bool:
+        """检查给定时间是否匹配 Cron 表达式（T-L02优化：预计算集合O(1)查找）"""
+        # 月份和星期预先快速过滤
+        if self._month_set is not None and dt.month not in self._month_set:
+            return False
+        if self._weekday_set is not None and dt.weekday() not in self._weekday_set:
+            return False
+        return (
+            (self._minute_set is None or dt.minute in self._minute_set) and
+            (self._hour_set is None or dt.hour in self._hour_set) and
+            (self._day_set is None or dt.day in self._day_set)
+        )
 
     def get_next_run(self, from_time: datetime) -> datetime:
         """获取下次执行时间 - 优化版：增量搜索"""
@@ -224,7 +240,7 @@ class EnhancedScheduler:
         self._thread = threading.Thread(target=self._run_loop, args=(check_interval,))
         self._thread.daemon = True
         self._thread.start()
-        print(f"📅 调度器已启动，检查间隔 {check_interval} 秒")
+        plog("INFO", f"📅 调度器已启动，检查间隔 {check_interval} 秒")
 
     def stop(self):
         """停止调度器"""
@@ -253,10 +269,10 @@ class EnhancedScheduler:
 
                         # 计算下次执行时间
                         entry.next_run = self._calc_next_run_for_entry(entry, now)
-                        print(f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
+                        plog("INFO", f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
 
                     except Exception as e:
-                        print(f"❌ 任务 {entry.name} 执行失败: {e}")
+                        plog("INFO", f"❌ 任务 {entry.name} 执行失败: {e}")
 
                         # 计算下次执行时间（即使失败也要继续调度）
                         entry.next_run = self._calc_next_run_for_entry(entry, now)
@@ -328,7 +344,7 @@ def create_scheduler_from_config() -> EnhancedScheduler:
     # 从配置读取时间窗口并创建调度任务
     windows = cfg.get("schedule.windows", {})
     for name, window in windows.items():
-        print(f"  📅 调度任务: {name} -> {window}")
+        plog("INFO", f"  📅 调度任务: {name} -> {window}")
 
     return scheduler
 
@@ -346,33 +362,33 @@ def get_scheduler() -> EnhancedScheduler:
 
 
 if __name__ == "__main__":
-    print("=== 增强型调度器测试 ===\n")
+    plog("INFO", "=== 增强型调度器测试 ===\n")
 
     scheduler = EnhancedScheduler()
 
     # 添加 Cron 任务
     scheduler.add_cron(
         "daily_report",
-        lambda: print("📊 生成日报"),
+        lambda: plog("INFO", "📊 生成日报"),
         "30 7 * * *"  # 每天 7:30
     )
 
     # 添加间隔任务
     scheduler.add_interval(
         "health_check",
-        lambda: print("🏥 健康检查"),
+        lambda: plog("INFO", "🏥 健康检查"),
         seconds=300  # 每5分钟
     )
 
     # 添加时间窗口任务
     scheduler.add_time_window(
         "morning_cycle",
-        lambda: print("🌅 执行早间流程"),
+        lambda: plog("INFO", "🌅 执行早间流程"),
         "06:20-06:35"
     )
 
-    print("\n📋 调度任务列表:")
+    plog("INFO", "\n📋 调度任务列表:")
     for entry in scheduler.list_entries():
-        print(f"  [{entry['type']}] {entry['name']} - 下次: {entry['next_run']}")
+        plog("INFO", f"  [{entry['type']}] {entry['name']} - 下次: {entry['next_run']}")
 
-    print("\n✅ 调度器配置完成")
+    plog("INFO", "\n✅ 调度器配置完成")

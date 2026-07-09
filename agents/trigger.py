@@ -19,6 +19,7 @@ import logging
 import requests
 from datetime import datetime
 from pathlib import Path
+from logger import plog
 
 from safe_file_utils import safe_read_json, safe_write_file
 
@@ -62,7 +63,7 @@ def save_trigger_config(config: dict) -> None:
 
 def check_limit_up() -> list:
     """检查涨停股"""
-    print("=== 📈 涨停检查 ===")
+    plog("INFO", "=== 📈 涨停检查 ===")
     config = check_trigger_config()
     
     # 获取涨幅榜
@@ -70,7 +71,7 @@ def check_limit_up() -> list:
     try:
         resp = requests.get("https://qt.gtimg.cn/q=flashing_china", timeout=10)
         if resp.status_code != 200:
-            print(f"请求涨停数据失败，状态码: {resp.status_code}")
+            plog("INFO", f"请求涨停数据失败，状态码: {resp.status_code}")
             return []
         content = resp.content.decode("gbk", errors="replace")
         
@@ -95,21 +96,21 @@ def check_limit_up() -> list:
                     })
         
         if limit_ups:
-            print(f"发现 {len(limit_ups)} 只涨停股")
+            plog("INFO", f"发现 {len(limit_ups)} 只涨停股")
             for s in limit_ups[:5]:
-                print(f"  {s['code']} {s['name']} {s['change_pct']:+.2f}%")
+                plog("INFO", f"  {s['code']} {s['name']} {s['change_pct']:+.2f}%")
         else:
-            print("无涨停股")
+            plog("INFO", "无涨停股")
         
         return limit_ups
     except Exception as e:
-        print(f"检查失败: {e}")
+        plog("INFO", f"检查失败: {e}")
         return []
 
 
 def check_volume_surge() -> list:
     """检查量能异动"""
-    print("=== 📊 量能检查 ===")
+    plog("INFO", "=== 📊 量能检查 ===")
     config = check_trigger_config()
     
     # 获取沪深成交额前20
@@ -118,7 +119,7 @@ def check_volume_surge() -> list:
     try:
         resp = requests.get("https://qt.gtimg.cn/q=sh000001,sz399001", timeout=10)
         if resp.status_code != 200:
-            print(f"请求量能数据失败，状态码: {resp.status_code}")
+            plog("INFO", f"请求量能数据失败，状态码: {resp.status_code}")
             return []
         content = resp.content.decode("gbk", errors="replace")
         
@@ -137,26 +138,25 @@ def check_volume_surge() -> list:
                 # 简化：没有历史数据对比，暂跳过
                 # TODO: 接入历史数据对比
         
-        print("需接入历史数据")
+        plog("INFO", "需接入历史数据")
         return []
     except Exception as e:
-        print(f"检查失败: {e}")
+        plog("INFO", f"检查失败: {e}")
         return []
 
 
 def check_north_money() -> dict:
-    """检查北向资金"""
-    print("=== 🌍 北向资金检查 ===")
-    # 这个需要付费数据，暂时跳过
-    # TODO: 接入北向资金数据
-    
-    print("需接入北向资金数据源")
+    """检查北向资金异动"""
+    plog("INFO", "=== 🌍 北向资金检查 ===")
+    # TODO: 接入北向资金数据（东方财富接口）
+    # 当前为占位实现，返回空列表表示无异常
+    plog("INFO", "需接入北向资金数据源（占位实现，返回空）")
     return {}
 
 
 def check_news_trigger() -> list:
     """检查新闻S级驱动"""
-    print("=== 📰 新闻驱动检查 ===")
+    plog("INFO", "=== 📰 新闻驱动检查 ===")
     
     # 检查最近的新闻分析
     today = datetime.now().strftime("%Y-%m-%d")
@@ -168,7 +168,7 @@ def check_news_trigger() -> list:
         news_file = PROJECT_ROOT / "data" / "历史记录" / f"{yesterday}_宏观前置分析.md"
     
     if not news_file.exists():
-        print("无新闻分析文件")
+        plog("INFO", "无新闻分析文件")
         return []
     
     content = news_file.read_text(encoding="utf-8")
@@ -181,20 +181,20 @@ def check_news_trigger() -> list:
         triggers.append({"type": "S级驱动", "content": drive.strip()})
     
     if triggers:
-        print(f"发现 {len(triggers)} 个S级驱动")
+        plog("INFO", f"发现 {len(triggers)} 个S级驱动")
         for t in triggers:
-            print(f"  {t['content']}")
+            plog("INFO", f"  {t['content']}")
     else:
-        print("无S级驱动")
+        plog("INFO", "无S级驱动")
     
     return triggers
 
 
 def check_all_triggers() -> dict:
     """检查所有触发条件"""
-    print("=" * 40)
-    print("🔍 触发条件检查")
-    print("=" * 40)
+    plog("INFO", "=" * 40)
+    plog("INFO", "🔍 触发条件检查")
+    plog("INFO", "=" * 40)
     
     result = {
         "triggered": False,
@@ -215,9 +215,9 @@ def check_all_triggers() -> dict:
     
     # 返回
     if result["triggered"]:
-        print("\n⚠️ 触发条件满足！")
+        plog("INFO", "\n⚠️ 触发条件满足！")
     else:
-        print("\n✅ 无触发条件")
+        plog("INFO", "\n✅ 无触发条件")
     
     return result
 
@@ -261,4 +261,4 @@ def suggest_action(triggers: dict) -> str:
 
 if __name__ == "__main__":
     result = check_all_triggers()
-    print(f"\n建议动作: {suggest_action(result)}")
+    plog("INFO", f"\n建议动作: {suggest_action(result)}")

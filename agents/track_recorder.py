@@ -19,7 +19,8 @@ class TrackRecorder:
         """
         try:
             sys.path.insert(0, str(self.root / "agents"))
-            from review_evo import ReviewEvo
+            from path_config import get_review_evo
+            ReviewEvo = get_review_evo()
         except Exception:
             return ""
 
@@ -59,7 +60,8 @@ class TrackRecorder:
         """
         try:
             sys.path.insert(0, str(self.root / "agents"))
-            from review_evo import ReviewEvo
+            from path_config import get_review_evo
+            ReviewEvo = get_review_evo()
             evo = ReviewEvo(root=self.root)
 
             actionable = [s for s in scored_stocks if s.get("score", 0) >= 70]

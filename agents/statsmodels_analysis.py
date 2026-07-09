@@ -14,6 +14,7 @@ import json
 import argparse
 from datetime import datetime, timedelta
 from pathlib import Path
+from logger import plog
 
 import numpy as np
 import pandas as pd
@@ -33,8 +34,8 @@ try:
     import matplotlib.pyplot as plt
     import yfinance as yf
 except ImportError as e:
-    print(f"缺少依赖: {e}")
-    print("请运行: uv pip install statsmodels pandas numpy matplotlib yfinance")
+    plog("INFO", f"缺少依赖: {e}")
+    plog("INFO", "请运行: uv pip install statsmodels pandas numpy matplotlib yfinance")
     sys.exit(1)
 
 
@@ -59,7 +60,7 @@ def fetch_stock_history(code: str, period: str = "6mo") -> pd.DataFrame:
         df['log_returns'] = np.log(df['close'] / df['close'].shift(1)).dropna()
         return df
     except Exception as e:
-        print(f"  获取 {code} 数据失败: {e}")
+        plog("INFO", f"  获取 {code} 数据失败: {e}")
         return None
 
 
@@ -162,7 +163,7 @@ def analyze_stock(code: str, name: str = "", period: str = "6mo") -> dict:
     """
     对单只股票进行完整的时间序列分析
     """
-    print(f"\n📊 分析 {code} {name} ...")
+    plog("INFO", f"\n📊 分析 {code} {name} ...")
     
     # 1. 获取数据
     df = fetch_stock_history(code, period)
@@ -354,7 +355,7 @@ def generate_report(results: list, output_path: str = None) -> str:
     
     if output_path:
         Path(output_path).write_text(report, encoding="utf-8")
-        print(f"📄 报告已保存: {output_path}")
+        plog("INFO", f"📄 报告已保存: {output_path}")
     
     return report
 
@@ -368,9 +369,9 @@ def main():
     parser.add_argument("--pool", type=str, default="重点观察池", help="池子名称")
     args = parser.parse_args()
     
-    print("=" * 50)
-    print("📊 statsmodels 时间序列分析")
-    print("=" * 50)
+    plog("INFO", "=" * 50)
+    plog("INFO", "📊 statsmodels 时间序列分析")
+    plog("INFO", "=" * 50)
     
     # 确定要分析的代码列表
     if args.code:
@@ -383,15 +384,15 @@ def main():
             stocks = data.get("stocks", [])
             codes = [(s.get("代码", ""), s.get("名称", "")) for s in stocks if s.get("代码")]
         else:
-            print(f"❌ 未找到池文件: {pool_file}")
+            plog("INFO", f"❌ 未找到池文件: {pool_file}")
             sys.exit(1)
     
     codes = [(c, n) for c, n in codes if c]
-    print(f"待分析股票：{len(codes)}只")
+    plog("INFO", f"待分析股票：{len(codes)}只")
     for c, n in codes[:5]:
-        print(f"  • {c} {n}")
+        plog("INFO", f"  • {c} {n}")
     if len(codes) > 5:
-        print(f"  ... 等{len(codes)}只")
+        plog("INFO", f"  ... 等{len(codes)}只")
     
     # 逐个分析
     results = []
@@ -403,19 +404,19 @@ def main():
     output_path = args.output or str(PROJECT_ROOT / "data" / "历史记录" / f"{datetime.now().strftime('%Y-%m-%d')}_时间序列分析.md")
     report = generate_report(results, output_path)
     
-    print("\n" + "=" * 50)
-    print("✅ 分析完成")
-    print("=" * 50)
+    plog("INFO", "\n" + "=" * 50)
+    plog("INFO", "✅ 分析完成")
+    plog("INFO", "=" * 50)
     
     # 打印摘要
     valid = [r for r in results if "error" not in r]
-    print(f"\n📊 摘要：")
-    print(f"  成功建模：{len(valid)}/{len(results)}只")
+    plog("INFO", f"\n📊 摘要：")
+    plog("INFO", f"  成功建模：{len(valid)}/{len(results)}只")
     
     for r in valid:
         trend = r.get("trend", {})
         vol = r.get("volatility", {})
-        print(f"  • {r['code']} {r['name']}: 5日{trend.get('5d_trend','N/A')}({trend.get('5d_change_pct',0):+.1f}%), 年化波动{vol.get('annualized_vol',0):.1f}%")
+        plog("INFO", f"  • {r['code']} {r['name']}: 5日{trend.get('5d_trend','N/A')}({trend.get('5d_change_pct',0):+.1f}%), 年化波动{vol.get('annualized_vol',0):.1f}%")
     
     return results
 
