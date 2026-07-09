@@ -89,7 +89,7 @@ class QualityGate:
                         reason = f"上次推荐{last_rec}距今仅{days_since}天<冷却{self.RE_RECOMMEND_COOLDOWN_DAYS}天"
                         failures.append(reason)
                         print(f"[QualityGate] 🚫 {name}({code}) {reason}")
-                except ValueError:
+                except ValueError:  # 安全降级: 数值类型转换失败→跳过该标的，不影响准入
                     pass
 
         # ── 3. 过热二次检测（调用 OverheatDetector） ────────────
@@ -175,7 +175,7 @@ class QualityGate:
                             quarter_chg=float(s.get("季涨跌幅", 0)),
                             composite_score=int(s.get("评分", 0)),
                         )
-        except ImportError:
+        except ImportError:  # 安全降级: ML评分模块未安装→跳过ML检查，仅用规则检查
             pass
         except Exception as e:
             print(f"[QualityGate] ⚠️ 过热检测异常({code}): {e}")

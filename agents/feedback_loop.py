@@ -95,7 +95,7 @@ class FeedbackLoopAgent(BaseAgent):
                     if open_count > 0:
                         lines.append(f"")
                         lines.append(f"⏳ 近30天待复盘: {open_count}笔")
-                except Exception:
+                except Exception:  # 安全降级: 闭环追踪读取失败→使用默认待复盘数0，不影响反馈
                     pass
                 
                 report_text = "\n".join(lines)

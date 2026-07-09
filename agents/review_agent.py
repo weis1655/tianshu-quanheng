@@ -21,6 +21,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+from logger import plog
 
 from base_agent import BaseAgent, build_agent_system_prompt
 from logger import StructuredLogger
@@ -197,7 +198,7 @@ class ReviewAgent(BaseAgent):
                     str(s.get("代码") or s.get("股票代码", ""))
                 ) == today]
                 if len(raw) < _before:
-                    print(f"[ReviewAgent] ⏭ 过滤 {_before - len(raw)} 只快筛未覆盖滞留股（近次快筛非今日）")
+                    plog("INFO", f"[ReviewAgent] ⏭ 过滤 {_before - len(raw)} 只快筛未覆盖滞留股（近次快筛非今日）")
         else:
             raw = []
 
@@ -218,12 +219,12 @@ class ReviewAgent(BaseAgent):
                         factor_map[code] = factors  # 存全量因子, 供ML评分使用
                         sig = factors.get("factor_signal", 0)
                         if sig >= 3:
-                            print(f"[ReviewAgent] 📈 因子信号: {s.get('名称','?')}({code}) {sig}/6")
+                            plog("INFO", f"[ReviewAgent] 📈 因子信号: {s.get('名称','?')}({code}) {sig}/6")
                 if factor_map:
                     good = sum(1 for v in factor_map.values() if v.get("factor_signal", 0) >= 3)
-                    print(f"[ReviewAgent] 📈 因子信号预计算: {len(factor_map)} 只, {good} 只达标(≥3/6)")
+                    plog("INFO", f"[ReviewAgent] 📈 因子信号预计算: {len(factor_map)} 只, {good} 只达标(≥3/6)")
             except Exception as e:
-                print(f"[ReviewAgent] ⚠️ 因子计算异常: {e}")
+                plog("INFO", f"[ReviewAgent] ⚠️ 因子计算异常: {e}")
 
         # 注入实时行情（表格）
         realtime_section = self._build_realtime_section(raw, qmap)
@@ -317,9 +318,9 @@ class ReviewAgent(BaseAgent):
                     logger.warning(f"[ReviewAgent] 追加审查报告失败: {out_file}")
                 # 同时更新内存中的 report，供上游主流程返回
                 report += appendix
-                print(f"[ReviewAgent] ✅ 重点观察池 {len(kw_stocks)} 只评估结果已同步到审查报告.md")
+                plog("INFO", f"[ReviewAgent] ✅ 重点观察池 {len(kw_stocks)} 只评估结果已同步到审查报告.md")
         except Exception as e:
-            print(f"[ReviewAgent] ⚠️ 重点观察池评估写入审查报告失败: {e}")
+            plog("INFO", f"[ReviewAgent] ⚠️ 重点观察池评估写入审查报告失败: {e}")
 
         self.logger.info("review_complete",
                         stocks_reviewed=self._count_stocks(candidate_stocks),
@@ -338,7 +339,7 @@ class ReviewAgent(BaseAgent):
                     bonus = min(round(sig * 0.5, 0), 3)
                     sr.composite_score = min(sr.composite_score + bonus, 100)
                     sr.core_logic += f" | 📈 因子信号{sig}/6，加{bonus:.0f}分"
-                    print(f"[ReviewAgent] 📈 因子信号加分: {sr.name}({sr.code}) {sig}/6 → +{bonus:.0f}分")
+                    plog("INFO", f"[ReviewAgent] 📈 因子信号加分: {sr.name}({sr.code}) {sig}/6 → +{bonus:.0f}分")
 
         # ═══ P0-修复（2026-06-10）：评分膨胀 — 市场状态评分通缩 ═══
         market_state = self._get_market_state()
@@ -351,7 +352,7 @@ class ReviewAgent(BaseAgent):
                 sr.composite_score = max(40, sr.composite_score - deflation)
                 sr.core_logic += f" | 📉 市场{market_state.get('state','?')}通缩-{deflation}分({original}→{sr.composite_score})"
                 deflated_count += 1
-            print(f"[ReviewAgent] 📉 市场状态[{market_state.get('state','?')}] 评分通缩: {deflated_count}只各减{deflation}分")
+            plog("INFO", f"[ReviewAgent] 📉 市场状态[{market_state.get('state','?')}] 评分通缩: {deflated_count}只各减{deflation}分")
         # 因子信号加分在弱市中减半
         if market_state.get("state") in ["偏空", "震荡偏弱"] and factor_map and review_result.stocks:
             for sr in review_result.stocks:
@@ -365,7 +366,7 @@ class ReviewAgent(BaseAgent):
                     sr.composite_score = max(40, sr.composite_score - diff)
                     sr.core_logic = sr.core_logic.replace(f"因子信号{sig}/6，加{original_bonus:.0f}分",
                                                            f"因子信号{sig}/6，弱市减半加{half_bonus:.0f}分")
-                    print(f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
+                    plog("INFO", f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
         # ════════════════════════════════════════════════════════════════
 
         # ═══ P2-修复（2026-06-10）：QualityGate 上移 — 审查阶段历史表现检查 ═══
@@ -385,20 +386,20 @@ class ReviewAgent(BaseAgent):
                     if sr.composite_score < SCORE_C_LEVEL:
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
-                    print(f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
+                    plog("INFO", f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
 
             # ML评分低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
             for sr in review_result.stocks:
                 if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= DECISION_MIN_SCORE:
                     sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
-                    print(f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+                    plog("INFO", f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
                     # ML评分降级：LLM高分但ML低分，说明模型不认可
                     if sr.flow_direction == "升级":
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
                         sr.core_logic += f" | 📉 ML{sr.ml_score}分<45，LLM高分背离，降级"
-                        print(f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
-        except ImportError:
+                        plog("INFO", f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
+        except ImportError:  # 安全降级: ML评分模块未安装→跳过ML降级，仅用LLM评分
             pass
         # ═══════════════════════════════════════════════════════════════════════
 
@@ -410,11 +411,11 @@ class ReviewAgent(BaseAgent):
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🚫 ML{sr.ml_score}分<45，前置拦截"
                 _ml_blocked.append(sr)
-                print(f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
+                plog("INFO", f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
         if _ml_blocked:
             parsed_result.demotions.extend(_ml_blocked)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
-            print(f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
+            plog("INFO", f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
         # ═══════════════════════════════════════════════════════════════════════
 
         # ═══ ML评分模型 — 并列显示（2026-06-11）═══════════════════════════
@@ -440,9 +441,9 @@ class ReviewAgent(BaseAgent):
                     sr.ml_score = ml_score
                     sr.ml_win_prob = win_prob
                     sr.core_logic += f" | 🤖 ML{ml_score}分(胜{win_prob*100:.0f}%)"
-                    print(f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{ml_score}分 胜率{win_prob*100:.0f}%")
+                    plog("INFO", f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{ml_score}分 胜率{win_prob*100:.0f}%")
         except Exception as e:
-            print(f"[ReviewAgent] ⚠️ ML评分异常: {e}")
+            plog("INFO", f"[ReviewAgent] ⚠️ ML评分异常: {e}")
         # ════════════════════════════════════════════════════════════════════
 
         # ═══ P0-降级延迟修复：评分调整后重新检查硬性降级阈值 ═══
@@ -455,7 +456,7 @@ class ReviewAgent(BaseAgent):
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 评分调整后硬性降级：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
                 _extra_demotions.append(sr)
-                print(f"[ReviewAgent] 🔴 评分调整后硬性降级: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
+                plog("INFO", f"[ReviewAgent] 🔴 评分调整后硬性降级: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
         if _extra_demotions:
             parsed_result.demotions.extend(_extra_demotions)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
@@ -470,11 +471,11 @@ class ReviewAgent(BaseAgent):
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🔴 残留低分清理：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
                 _pool_cleanup.append(sr)
-                print(f"[ReviewAgent] 🔴 残留低分清理: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
+                plog("INFO", f"[ReviewAgent] 🔴 残留低分清理: {sr.name}({sr.code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
         if _pool_cleanup:
             parsed_result.demotions.extend(_pool_cleanup)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
-            print(f"[ReviewAgent] 🧹 候选池清理: {len(_pool_cleanup)} 只低分股已降级")
+            plog("INFO", f"[ReviewAgent] 🧹 候选池清理: {len(_pool_cleanup)} 只低分股已降级")
 
         # ML评分附录 — 追加到审查报告（2026-06-11）
         try:
@@ -502,10 +503,10 @@ class ReviewAgent(BaseAgent):
                 from safe_file_utils import safe_append_file
                 success = safe_append_file(str(out_file), ml_appendix)
                 if success:
-                    print(f"[ReviewAgent] 🤖 ML评分对比表已追加到审查报告（{len(ml_lines)-3} 只）")
+                    plog("INFO", f"[ReviewAgent] 🤖 ML评分对比表已追加到审查报告（{len(ml_lines)-3} 只）")
                 report += ml_appendix
         except Exception as e:
-            print(f"[ReviewAgent] ⚠️ ML评分附录异常: {e}")
+            plog("INFO", f"[ReviewAgent] ⚠️ ML评分附录异常: {e}")
 
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
@@ -599,7 +600,7 @@ class ReviewAgent(BaseAgent):
         try:
             for item in fetch_quotes(api_codes):
                 qmap[item["代码"]] = item
-        except Exception:
+        except Exception:  # 安全降级: 单条行情解析失败→跳过该标的
             pass
 
         for s in stocks:
@@ -657,10 +658,10 @@ class ReviewAgent(BaseAgent):
             cfg = get_config()
             api_key = cfg.get("llm", {}).get("api_key", "") or cfg.get("opencode", {}).get("api_key", "")
             if not api_key:
-                print("[ReviewAgent] ⚠️ 未配置 LLM API Key，跳过重点观察池批量评估")
+                plog("INFO", "[ReviewAgent] ⚠️ 未配置 LLM API Key，跳过重点观察池批量评估")
                 return {}
         except Exception:
-            print("[ReviewAgent] ⚠️ config_loader 加载失败，跳过重点观察池批量评估")
+            plog("INFO", "[ReviewAgent] ⚠️ config_loader 加载失败，跳过重点观察池批量评估")
             return {}
 
         text = PoolManager._call_llm_for_limits(stocks_text, system, prompt, timeout=120, max_tokens=3000)
@@ -834,7 +835,7 @@ class ReviewAgent(BaseAgent):
                     if sh:
                         sh_chg = float(sh.get("涨跌幅", 0))
                         return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -1 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
-        except Exception:
+        except Exception:  # 安全降级: 市场状态计算失败→使用默认"震荡"
             pass
         return {"state": "震荡", "s_pool_cap": 2, "sh_chg": 0}
 
@@ -1085,7 +1086,7 @@ class ReviewAgent(BaseAgent):
                     sr.action_advice = "回避"
                     sr.composite_score = max(0, sr.composite_score - overheat_info["penalty"])
                     sr.driver_level = _score_to_level(sr.composite_score)
-                    print(f"[ReviewAgent] 🔥 过热检测 CRITICAL: {name}({code}) - {overheat_info['reason']}")
+                    plog("INFO", f"[ReviewAgent] 🔥 过热检测 CRITICAL: {name}({code}) - {overheat_info['reason']}")
                 elif overheat_info["overheat_level"] == "warning":
                     original_score = sr.composite_score
                     sr.composite_score = max(0, original_score - overheat_info["penalty"])
@@ -1098,8 +1099,8 @@ class ReviewAgent(BaseAgent):
                         if not sr.action_advice:
                             sr.action_advice = "过热降级"
                         sr.core_logic += f" | ⚠️ 过热WARNING降级: 原分{original_score}扣{sr.composite_score}>降级区"
-                        print(f"[ReviewAgent] ⚠️ 过热WARNING降级: {name}({code}) 原{original_score}→{sr.composite_score}分 → 边缘池")
-                    print(f"[ReviewAgent] ⚠️ 过热检测 WARNING: {name}({code}) - {overheat_info['reason']}")
+                        plog("INFO", f"[ReviewAgent] ⚠️ 过热WARNING降级: {name}({code}) 原{original_score}→{sr.composite_score}分 → 边缘池")
+                    plog("INFO", f"[ReviewAgent] ⚠️ 过热检测 WARNING: {name}({code}) - {overheat_info['reason']}")
 
             # ── P1-2：一票否决强制降级（解决沪硅产业降级延迟问题）──────
             # 对有亏损/一票否决风险但评分≥60的标的强制降级
@@ -1122,7 +1123,7 @@ class ReviewAgent(BaseAgent):
                 # 评分降至55以下，确保不会误升级
                 sr.composite_score = max(0, min(sr.composite_score, 54))
                 sr.driver_level = _score_to_level(sr.composite_score)
-                print(f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
+                plog("INFO", f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
             
             # ── P0-降级延迟修复：硬性降级阈值（<AUTO_DOWNGRADE_SCORE分强制降级）─────────
             # 解决LLM提示词降级区间55-64与代码盲区对齐问题
@@ -1132,7 +1133,7 @@ class ReviewAgent(BaseAgent):
                 if sr.action_advice == "":
                     sr.action_advice = "低分淘汰"
                 sr.core_logic += f" | 🔴 硬性降级：{sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分阈值"
-                print(f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
+                plog("INFO", f"[ReviewAgent] 🔴 硬性降级: {name}({code}) {sr.composite_score}分<{AUTO_DOWNGRADE_SCORE}分 → 边缘池")
 
             # ── 黄色预警标记：60-74分且未降级的标的标记观察 ──
             # 25天悬空修复：代码级强制黄色预警，不依赖LLM诚实度
@@ -1290,7 +1291,7 @@ class ReviewAgent(BaseAgent):
             pool["统计"]["持仓数"] = len(new_stocks)
             pool["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.pool_manager.save_pool(pool_name, pool)
-            print("ReviewAgent:", f"remove_from_pool", f"{pool_name}: 移除 {codes}")
+            plog("INFO", "ReviewAgent:", f"remove_from_pool", f"{pool_name}: 移除 {codes}")
 
     def _apply_pool_updates(self, result: str, upgrades_sr: list = None, demotions_sr: list = None):
         """
@@ -1340,7 +1341,7 @@ class ReviewAgent(BaseAgent):
             upgrade_stocks = []
             for name, code in upgrades:
                 meta = parsed.get(code, {})
-                print("ReviewAgent:", f"ReviewAgent", f"✅ {name}({code}) 审查完成：{meta.get('综合分','?')}分")
+                plog("INFO", "ReviewAgent:", f"ReviewAgent", f"✅ {name}({code}) 审查完成：{meta.get('综合分','?')}分")
                 # 先从候选池移除（无论在哪）
                 self._remove_from_pool("快筛候选池", [code])
                 upgrade_stocks.append({
@@ -1433,9 +1434,10 @@ class ReviewAgent(BaseAgent):
                 if code in batch_result:
                     s.update(batch_result[code])
                     r = batch_result[code]
-                    print(f"[ReviewAgent] ✅ {name}({code}) 重点观察池评估："
-                          f"买入:{r.get('推荐买入价')} 止损:{r.get('止损触发')} "
-                          f"目标:{r.get('第一目标')}/{r.get('第二目标')} → {r.get('操作建议')}")
+                    plog("INFO",
+                         f"[ReviewAgent] ✅ {name}({code}) 重点观察池评估："
+                         f"买入:{r.get('推荐买入价')} 止损:{r.get('止损触发')} "
+                         f"目标:{r.get('第一目标')}/{r.get('第二目标')} → {r.get('操作建议')}")
 
         # ── 溢出处理：超容量时最旧的移入对应历史池 ────────────
         capacity = 20  # 默认容量
@@ -1444,7 +1446,7 @@ class ReviewAgent(BaseAgent):
             all_stocks = existing + filtered
             if len(all_stocks) > capacity:
                 keep = all_stocks[-capacity:]  # 保留最新的
-                print(f"[ReviewAgent] ⚠️ {pool_name} 超{capacity}只，溢出{len(all_stocks)-capacity}只丢弃")
+                plog("INFO", f"[ReviewAgent] ⚠️ {pool_name} 超{capacity}只，溢出{len(all_stocks)-capacity}只丢弃")
             else:
                 keep = all_stocks
         else:
@@ -1453,7 +1455,7 @@ class ReviewAgent(BaseAgent):
                 overflow = all_stocks[:-capacity]  # 最旧的移出
                 keep = all_stocks[-capacity:]      # 最新的保留
                 self._archive_to_history(pool_name, overflow)
-                print(f"[ReviewAgent] ⚠️ {pool_name} 超{capacity}只，{len(overflow)}只移入历史池")
+                plog("INFO", f"[ReviewAgent] ⚠️ {pool_name} 超{capacity}只，{len(overflow)}只移入历史池")
             else:
                 keep = all_stocks
 
@@ -1513,7 +1515,7 @@ class ReviewAgent(BaseAgent):
             for s in new_archive:
                 name = s.get("名称", s.get("股票名称", "?"))
                 code = s.get("代码", s.get("股票代码", "?"))
-                print(f"[ReviewAgent] 📦 {name}({code}) → {source_pool}历史池")
+                plog("INFO", f"[ReviewAgent] 📦 {name}({code}) → {source_pool}历史池")
 
     def _compute_ml_scores(self, review_result, factor_map):
         """F05: 从_run_impl提取的ML评分计算子函数"""
@@ -1536,13 +1538,13 @@ class ReviewAgent(BaseAgent):
                 sr.ml_score = ml_result["ml_score"]
                 sr.ml_win_prob = ml_result["win_prob"]
                 sr.core_logic += f" | 🤖 ML{sr.ml_score}分(胜{sr.ml_win_prob*100:.0f}%)"
-                print(f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+                plog("INFO", f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
 
 
 if __name__ == "__main__":
     agent = ReviewAgent()
     result = agent.run()
     if result["success"]:
-        print(f"✅ 审查完成")
-        print(f"📄 保存: {result['saved_to']}")
-        print("\n" + result["report"][:800])
+        plog("INFO", f"✅ 审查完成")
+        plog("INFO", f"📄 保存: {result['saved_to']}")
+        plog("INFO", "\n" + result["report"][:800])

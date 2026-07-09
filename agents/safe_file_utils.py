@@ -314,7 +314,7 @@ def scan_sensitive_files(
                             'type': desc,
                             'match': m.group()[:80] + ('...' if len(m.group()) > 80 else ''),
                         })
-            except Exception:
+            except Exception:  # 安全降级: 单条记录写入失败→跳过该条，不影响其他
                 pass
     
     return findings

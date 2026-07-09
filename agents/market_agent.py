@@ -16,6 +16,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from logger import plog
 
 
 # =============================================================================
@@ -873,33 +874,33 @@ if __name__ == "__main__":
     agent = MarketAgent(root=_ROOT)
 
     # 演示：获取三一重工(600031) 三个维度数据
-    print("=" * 55)
-    print("📊 MarketAgent 演示 — 三一重工(600031)")
-    print("=" * 55)
+    plog("INFO", "=" * 55)
+    plog("INFO", "📊 MarketAgent 演示 — 三一重工(600031)")
+    plog("INFO", "=" * 55)
 
     # 1. 实时行情（腾讯API，已有）
-    print("\n🔴 [1] 实时行情（腾讯API）...")
+    plog("INFO", "\n🔴 [1] 实时行情（腾讯API）...")
     r1 = agent.run(codes=["sh600031"])
     if r1["success"]:
-        print(f"   ✅ 获取 {r1['count']} 只，保存至 {r1['saved_to']}")
+        plog("INFO", f"   ✅ 获取 {r1['count']} 只，保存至 {r1['saved_to']}")
     else:
-        print(f"   ⚠️  {r1.get('error')}")
+        plog("INFO", f"   ⚠️  {r1.get('error')}")
 
     # 2. 日K历史（新浪财经，新增）
-    print("\n📈 [2] 日K历史（新浪财经）...")
+    plog("INFO", "\n📈 [2] 日K历史（新浪财经）...")
     r2 = agent.run_history("sh600031", period="day", num=20)
     if r2["success"]:
-        print(f"   ✅ 获取 {r2['count']} 条，保存至 {r2['saved_to']}")
-        print(f"   最新收盘: {r2['latest'].get('收盘')} 元")
+        plog("INFO", f"   ✅ 获取 {r2['count']} 条，保存至 {r2['saved_to']}")
+        plog("INFO", f"   最新收盘: {r2['latest'].get('收盘')} 元")
     else:
-        print(f"   ⚠️  {r2.get('error')}")
+        plog("INFO", f"   ⚠️  {r2.get('error')}")
 
     # 3. 最新公告（东方财富，新增）
-    print("\n📋 [3] 最新公告（东方财富）...")
+    plog("INFO", "\n📋 [3] 最新公告（东方财富）...")
     r3 = agent.run_news("600031", max_items=5)
     if r3["success"]:
-        print(f"   ✅ 获取 {r3['count']} 条，保存至 {r3['saved_to']}")
+        plog("INFO", f"   ✅ 获取 {r3['count']} 条，保存至 {r3['saved_to']}")
     else:
-        print(f"   ⚠️  {r3.get('error')}")
+        plog("INFO", f"   ⚠️  {r3.get('error')}")
 
-    print("\n" + "=" * 55)
+    plog("INFO", "\n" + "=" * 55)

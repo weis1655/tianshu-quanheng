@@ -8,6 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+from logger import plog
 
 # 确保能找到其他agents
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -59,10 +60,10 @@ class PoolManager:
                     for pool_name, cap in yaml_caps.items():
                         if pool_name in cls.POOL_CAPACITY_LIMITS:
                             cls.POOL_CAPACITY_LIMITS[pool_name] = cap
-                            print(f"[PoolManager] 📋 池容量已加载: {pool_name}={cap}")
+                            plog("INFO", f"[PoolManager] 📋 池容量已加载: {pool_name}={cap}")
         except Exception as e:
             # 加载失败不阻塞，使用硬编码值
-            print(f"[PoolManager] ⚠️ config.yaml 加载失败，使用默认池容量: {e}")
+            plog("INFO", f"[PoolManager] ⚠️ config.yaml 加载失败，使用默认池容量: {e}")
 
     # 统一的字段名（标准格式）
     STANDARD_FIELDS = {
@@ -109,7 +110,7 @@ class PoolManager:
             data = json.loads(pool_file.read_text(encoding="utf-8"))
             return data
         except Exception as e:
-            print(f"[PoolManager] 加载池失败 {pool_name}: {e}")
+            plog("INFO", f"[PoolManager] 加载池失败 {pool_name}: {e}")
             return self._empty_pool(pool_name)
     
     def save_pool(self, pool_name: str, data: Dict[str, Any]) -> bool:
@@ -141,11 +142,11 @@ class PoolManager:
                         stocks_sorted = sorted(stocks, key=get_date, reverse=True)
                         data["stocks"] = stocks_sorted[:limit]
                         removed = stocks_sorted[limit:]
-                        print(f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，移除最旧标的: {[s.get('代码', s.get('股票代码', '?')) for s in removed]}")
+                        plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，移除最旧标的: {[s.get('代码', s.get('股票代码', '?')) for s in removed]}")
                     else:
                         # 其他池：保留最新的
                         data["stocks"] = stocks[-limit:]
-                        print(f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，已自动截断")
+                        plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，已自动截断")
             
             # ── 入池后自动排序：按综合分降序（无分值的排最后）──
             self._maybe_sort_pool(data, pool_name)
@@ -160,7 +161,7 @@ class PoolManager:
             )
             return True
         except Exception as e:
-            print(f"[PoolManager] 保存池失败 {pool_name}: {e}")
+            plog("INFO", f"[PoolManager] 保存池失败 {pool_name}: {e}")
             return False
 
     # ── 需要自动排序的池（按综合分降序）─────────────────────
@@ -210,13 +211,13 @@ class PoolManager:
         code = stock.get("股票代码") or stock.get("代码") or ""
         
         if not code:
-            print(f"[PoolManager] 股票信息缺少代码: {stock}")
+            plog("INFO", f"[PoolManager] 股票信息缺少代码: {stock}")
             return False
         
         # 检查是否已存在
         existing_codes = {s.get("股票代码") or s.get("代码", "") for s in stocks}
         if code in existing_codes:
-            print(f"[PoolManager] 股票 {code} 已存在于 {pool_name}")
+            plog("INFO", f"[PoolManager] 股票 {code} 已存在于 {pool_name}")
             return False
         
         # P2-1：容量限制（使用常量或参数）
@@ -227,14 +228,14 @@ class PoolManager:
         existing_codes = {s.get("代码", s.get("股票代码", "")) for s in stocks}
         stock_code = stock.get("代码", stock.get("股票代码", ""))
         if stock_code in existing_codes:
-            print(f"[PoolManager] ⚠️ {stock_code} 已在 {pool_name} 中，跳过重复添加")
+            plog("INFO", f"[PoolManager] ⚠️ {stock_code} 已在 {pool_name} 中，跳过重复添加")
             return True
         stocks.append(stock)
         
         # 限制数量
         if len(stocks) > max_stocks:
             stocks = stocks[-max_stocks:]
-            print(f"[PoolManager] ⚠️ {pool_name} 超容量({len(stocks)+1}>{max_stocks})，自动移除最旧标的")
+            plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超容量({len(stocks)+1}>{max_stocks})，自动移除最旧标的")
         
         # 保存
         data["stocks"] = stocks  # 统一用 stocks，与 review_agent.py 保持一致
@@ -265,7 +266,7 @@ class PoolManager:
         ]
         
         if len(new_stocks) == len(stocks):
-            print(f"[PoolManager] 股票 {stock_code} 不存在于 {pool_name}")
+            plog("INFO", f"[PoolManager] 股票 {stock_code} 不存在于 {pool_name}")
             return False
         
         # 保存
@@ -318,7 +319,7 @@ class PoolManager:
         holding_data = self.load_pool("持仓池")
         existing = {str(s.get("代码", "")): s for s in holding_data.get("stocks", [])}
         if code in existing:
-            print(f"[PoolManager] {name}({code}) 已在持仓池中，跳过")
+            plog("INFO", f"[PoolManager] {name}({code}) 已在持仓池中，跳过")
             return None
 
         # ── Step 3：拉实时行情 ─────────────────────────────
@@ -326,7 +327,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes([api_code])
         except Exception as e:
-            print(f"[PoolManager] 拉行情失败 {code}: {e}")
+            plog("INFO", f"[PoolManager] 拉行情失败 {code}: {e}")
             quotes = []
 
         q = next((q for q in quotes if q.get("代码") == code), {})
@@ -380,9 +381,9 @@ class PoolManager:
 
         self.save_pool("持仓池", holding_data)
 
-        print(f"[PoolManager] ✅ {name}({code}) 建仓成功")
-        print(f"   成本:{cost} 现价:{cur_price}({chg_pct:+.2f}%) 浮盈:{profit_pct}%")
-        print(f"   止损:{stop_loss} 一止:{tp1} 二止:{tp2} 操作:{advice}")
+        plog("INFO", f"[PoolManager] ✅ {name}({code}) 建仓成功")
+        plog("INFO", f"   成本:{cost} 现价:{cur_price}({chg_pct:+.2f}%) 浮盈:{profit_pct}%")
+        plog("INFO", f"   止损:{stop_loss} 一止:{tp1} 二止:{tp2} 操作:{advice}")
         return record
 
     # ── P0-2：S级操作池 T+1 过期清理 ──────────────────────
@@ -434,9 +435,9 @@ class PoolManager:
                 "移除标的": [r["代码"] for r in removed],
             })
             self.save_pool("S级操作池", data)
-            print(f"[PoolManager] 🧹 S级操作池 T+1清理：移除 {len(removed)} 只过期标的")
+            plog("INFO", f"[PoolManager] 🧹 S级操作池 T+1清理：移除 {len(removed)} 只过期标的")
             for r in removed:
-                print(f"   - {r['名称']}({r['代码']}) 停留{r['停留天数']}天")
+                plog("INFO", f"   - {r['名称']}({r['代码']}) 停留{r['停留天数']}天")
         
         return {"removed": removed, "remaining": remaining, "cleaned": len(removed) > 0}
 
@@ -514,11 +515,11 @@ class PoolManager:
                         refeed_stock = {"代码": r_item.get("代码", ""), "名称": r_item.get("名称", ""), "综合分": r_score, "纳入日期": today.strftime("%Y-%m-%d"), "驱动来源": "边缘池回流", "核心逻辑": f"边缘池清理回流（评分{r_score}分>60）"}
                         self.add_stock("快筛候选池", refeed_stock)
                         refeed_count += 1
-                        print(f"  [边缘池回流] ⬆️ {r_item.get('名称','?')}({r_item.get('代码','?')}) 评分{r_score}→快筛候选池")
+                        plog("INFO", f"  [边缘池回流] ⬆️ {r_item.get('名称','?')}({r_item.get('代码','?')}) 评分{r_score}→快筛候选池")
                 except (TypeError, ValueError):
                     pass
             if refeed_count:
-                print(f"  [PoolManager] ⬆️ {refeed_count} 只边缘池高评分标的回流到快筛候选池")
+                plog("INFO", f"  [PoolManager] ⬆️ {refeed_count} 只边缘池高评分标的回流到快筛候选池")
 
             data["stocks"] = remaining
             data["历史记录"] = data.get("历史记录", [])
@@ -533,11 +534,11 @@ class PoolManager:
             data["统计"]["持仓数"] = len(remaining)
             data["统计"]["更新日期"] = today.strftime("%Y-%m-%d %H:%M:%S")
             self.save_pool("边缘池", data)
-            print(f"[PoolManager] 🧹 边缘池清理：移除 {len(removed)} 只标的")
+            plog("INFO", f"[PoolManager] 🧹 边缘池清理：移除 {len(removed)} 只标的")
             for r in reasons:
-                print(r)
+                plog("INFO", r)
         else:
-            print(f"[PoolManager] ✅ 边缘池无需清理（{len(stocks)} 只均符合条件）")
+            plog("INFO", f"[PoolManager] ✅ 边缘池无需清理（{len(stocks)} 只均符合条件）")
 
         return {
             "removed": removed,
@@ -675,13 +676,13 @@ class PoolManager:
             api_url = cfg.get("llm", {}).get("api_url", "") or cfg.get("opencode", {}).get("api_url", "")
             model = cfg.get("llm", {}).get("model", "") or cfg.get("opencode", {}).get("model", "")
             if not api_url:
-                print("[PoolManager] ⚠️  未配置 LLM API URL，跳过止损止盈评估，使用硬编码兜底")
+                plog("INFO", "[PoolManager] ⚠️  未配置 LLM API URL，跳过止损止盈评估，使用硬编码兜底")
                 return None, None, None, "持有"
             if not api_key:
-                print("[PoolManager] ⚠️  未配置 LLM API Key，跳过止损止盈评估，使用硬编码兜底")
+                plog("INFO", "[PoolManager] ⚠️  未配置 LLM API Key，跳过止损止盈评估，使用硬编码兜底")
                 return None, None, None, "持有"
         except Exception as e:
-            print(f"[PoolManager] ⚠️  config_loader 加载失败 ({e})，跳过止损止盈评估，使用硬编码兜底")
+            plog("INFO", f"[PoolManager] ⚠️  config_loader 加载失败 ({e})，跳过止损止盈评估，使用硬编码兜底")
             return None, None, None, "持有"
 
         headers = {
@@ -757,7 +758,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes([api_code])
         except Exception as e:
-            print(f"[PoolManager] 重点观察池拉行情失败 {code}: {e}")
+            plog("INFO", f"[PoolManager] 重点观察池拉行情失败 {code}: {e}")
             quotes = []
 
         q = next((q for q in quotes if q.get("代码") == code), {})
@@ -804,7 +805,7 @@ class PoolManager:
             api_key = cfg.get("llm", {}).get("api_key", "") or cfg.get("opencode", {}).get("api_key", "")
             api_url = cfg.get("llm", {}).get("api_url", "") or cfg.get("opencode", {}).get("api_url", "")
             model = cfg.get("llm", {}).get("model", "") or cfg.get("opencode", {}).get("model", "")
-        except Exception:
+        except Exception:  # 安全降级: LLM配置读取失败→使用默认空模型名，不影响LLM调用
             pass
 
         # ── 第2层：环境变量 ──────────────────────────────────────
@@ -824,7 +825,7 @@ class PoolManager:
         # ── 第3层：硬编码兜底（OpenCode Zen 免费端点）──────────────
         if not api_url or not api_key:
             # P0-降级延迟修复：即使无API也返回结构化提示，让调用方能走硬编码降级逻辑
-            print("[PoolManager] ⚠️  LLM API 完全未配置，跳过 LLM 评估，使用硬编码兜底降级规则")
+            plog("INFO", "[PoolManager] ⚠️  LLM API 完全未配置，跳过 LLM 评估，使用硬编码兜底降级规则")
             return ""
 
         headers = {
@@ -907,7 +908,7 @@ class PoolManager:
         # 共享 LLM 调用（P0-2）
         text = PoolManager._call_llm_for_limits(holding_text, system, prompt, timeout=60)
         if not text:
-            print("[PoolManager] ⚠️  LLM 调用失败/未配置，使用硬编码兜底")
+            plog("INFO", "[PoolManager] ⚠️  LLM 调用失败/未配置，使用硬编码兜底")
             buy_zone = round(cur_price * 1.01, 2) if cur_price else None
             stop_trigger = round(buy_zone * 0.95, 2) if buy_zone else None
             target1 = round(buy_zone * 1.10, 2) if buy_zone else None
@@ -970,7 +971,7 @@ class PoolManager:
         )
         
         if not stock:
-            print(f"[PoolManager] 股票 {stock_code} 不存在于 {from_pool}")
+            plog("INFO", f"[PoolManager] 股票 {stock_code} 不存在于 {from_pool}")
             return False
         
         # 移除 from 源池
@@ -1067,18 +1068,18 @@ class PoolManager:
                         days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
                         if days_in_pool >= 3:
                             to_demote.append(s)
-                            print(f"  [PoolManager] ⬇️ 强制降级 {s.get('名称','')}({s.get('代码','')}) 评分0滞留{days_in_pool}天 → 边缘池")
+                            plog("INFO", f"  [PoolManager] ⬇️ 强制降级 {s.get('名称','')}({s.get('代码','')}) 评分0滞留{days_in_pool}天 → 边缘池")
                             continue
                 except (ValueError, TypeError):
                     pass  # 日期格式异常，走常规降级逻辑
 
             if score < AUTO_DOWNGRADE_SCORE:  # 低于降级阈值，强制降级
                 to_demote.append(s)
-                print(f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < {AUTO_DOWNGRADE_SCORE} → 边缘池")
+                plog("INFO", f"  [PoolManager] ⬇️ 降级 {s.get('名称','')}({s.get('代码','')}) 综合分{score} < {AUTO_DOWNGRADE_SCORE} → 边缘池")
             # F03: 止损自动降级 — 已跌破止损的标的移入边缘池
             elif s.get("操作建议") == "已跌破止损，建议调出":
                 to_demote.append(s)
-                print(f"  [PoolManager] ⬇️ 止损降级 {s.get('名称','')}({s.get('代码','')}) 已触发止损 → 边缘池")
+                plog("INFO", f"  [PoolManager] ⬇️ 止损降级 {s.get('名称','')}({s.get('代码','')}) 已触发止损 → 边缘池")
             else:
                 remaining.append(s)
 
@@ -1119,7 +1120,7 @@ class PoolManager:
         data = self.load_pool("重点观察池")
         stocks = data.get("stocks", [])
         if not stocks:
-            print("[PoolManager] 重点观察池为空，无需刷新")
+            plog("INFO", "[PoolManager] 重点观察池为空，无需刷新")
             return []
 
         codes = []
@@ -1129,7 +1130,7 @@ class PoolManager:
                 codes.append(code)
 
         if not codes:
-            print("[PoolManager] 重点观察池无有效股票代码")
+            plog("INFO", "[PoolManager] 重点观察池无有效股票代码")
             return []
 
         # 拉实时行情
@@ -1137,7 +1138,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] 重点观察池行情刷新失败: {e}，继续执行降级扫描")
+            plog("INFO", f"[PoolManager] 重点观察池行情刷新失败: {e}，继续执行降级扫描")
             quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
@@ -1163,7 +1164,7 @@ class PoolManager:
                 if isinstance(stop_loss, (int, float)) and stop_loss > 0:
                     if now_price < stop_loss:
                         stock["操作建议"] = "已跌破止损，建议调出"
-                        print(f"  [止损] {stock.get('名称','?')}({code}) 收盘{now_price}<止损{stop_loss}, 已标记")
+                        plog("INFO", f"  [止损] {stock.get('名称','?')}({code}) 收盘{now_price}<止损{stop_loss}, 已标记")
                     else:
                         # 价格已回升至止损线上，清除过期标记
                         if stock.get("操作建议") == "已跌破止损，建议调出":
@@ -1188,7 +1189,7 @@ class PoolManager:
                     if new_score != orig_score:
                         stock["综合分"] = new_score
                         stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                        print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                        plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
 
         # ── 盘中过热标记（基于今日涨跌幅+评分，无需PE/历史数据）──
         for stock in stocks:
@@ -1202,7 +1203,7 @@ class PoolManager:
                         new_score = max(40, int(orig_score) - penalty)
                         stock["综合分"] = new_score
                         stock["评分最后更新"] = f"{orig_score}→{new_score}(盘中过热+{chg:.1f}%)"
-                        print(f"  [盘中过热] {stock.get('名称','?')}({stock.get('代码','?')}) 涨{chg:.1f}% 评分{orig_score}→{new_score}")
+                        plog("INFO", f"  [盘中过热] {stock.get('名称','?')}({stock.get('代码','?')}) 涨{chg:.1f}% 评分{orig_score}→{new_score}")
                 except (ValueError, TypeError):
                     pass
 
@@ -1219,7 +1220,7 @@ class PoolManager:
             for s in data.get("stocks", []):
                 if s.get("操作建议") == "已跌破止损，建议调出":
                     stop_loss_demoted.append(s)
-                    print(f"  ⬇️ [止损降级] {s.get('名称','?')}({s.get('代码','?')}) → 边缘池")
+                    plog("INFO", f"  ⬇️ [止损降级] {s.get('名称','?')}({s.get('代码','?')}) → 边缘池")
                 else:
                     remaining_stocks.append(s)
             if stop_loss_demoted:
@@ -1235,9 +1236,9 @@ class PoolManager:
                     })
                 edge_pool["stocks"] = edge_stocks[-20:]  # 最多20只
                 self.save_pool("边缘池", edge_pool)
-                print(f"  [PoolManager] ✅ {len(stop_loss_demoted)} 只跌破止损的股票已移入边缘池")
+                plog("INFO", f"  [PoolManager] ✅ {len(stop_loss_demoted)} 只跌破止损的股票已移入边缘池")
             # ────────────────────────────────────────────────────────
-            print(f"[PoolManager] ✅ 重点观察池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
+            plog("INFO", f"[PoolManager] ✅ 重点观察池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
         self.save_pool("重点观察池", data)
 
@@ -1256,16 +1257,16 @@ class PoolManager:
                     if s_price < s_stop:
                         warn = f"⚠️ [S级] {s_name}({s_code}) 现价{s_price}<止损{s_stop}"
                         s_stop_loss_warnings.append(warn)
-                        print(f"[PoolManager] {warn}")
+                        plog("INFO", f"[PoolManager] {warn}")
                         s["操作建议"] = "⚠️ 已跌破止损，建议调出"
                     elif s.get("操作建议") == "已跌破止损，建议调出":
                         s["操作建议"] = "正常"
-                        print(f"[S级止损解除] {s_name}({s_code}) 现价{s_price}>止损{s_stop}")
+                        plog("INFO", f"[S级止损解除] {s_name}({s_code}) 现价{s_price}>止损{s_stop}")
             if s_stop_loss_warnings:
                 s_pool_data["统计"] = s_pool_data.get("统计", {})
                 s_pool_data["统计"]["S级止损告警"] = s_stop_loss_warnings
                 self.save_pool("S级操作池", s_pool_data)
-                print(f"[PoolManager] ⚠️ S级操作池共 {len(s_stop_loss_warnings)} 只触发止损告警")
+                plog("INFO", f"[PoolManager] ⚠️ S级操作池共 {len(s_stop_loss_warnings)} 只触发止损告警")
                 # 跌破止损的S级标的降级到边缘池
                 for s in s_stocks:
                     if s.get("操作建议") == "⚠️ 已跌破止损，建议调出":
@@ -1329,7 +1330,7 @@ class PoolManager:
 
         if updated > 0:
             self.save_pool("重点观察池", data)
-            print(f"[PoolManager] ✅ 重点观察池信心度补填完成: {updated} 只股票")
+            plog("INFO", f"[PoolManager] ✅ 重点观察池信心度补填完成: {updated} 只股票")
 
         return updated
 
@@ -1348,7 +1349,7 @@ class PoolManager:
         data = self.load_pool("持仓池")
         stocks = data.get("stocks", [])
         if not stocks:
-            print("[PoolManager] 持仓池为空，无需刷新")
+            plog("INFO", "[PoolManager] 持仓池为空，无需刷新")
             return []
 
         codes = []
@@ -1358,7 +1359,7 @@ class PoolManager:
                 codes.append(code)
 
         if not codes:
-            print("[PoolManager] 持仓池无有效股票代码")
+            plog("INFO", "[PoolManager] 持仓池无有效股票代码")
             return []
 
         # 拉实时行情
@@ -1366,7 +1367,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] 持仓池行情刷新失败: {e}")
+            plog("INFO", f"[PoolManager] 持仓池行情刷新失败: {e}")
             return []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
@@ -1409,7 +1410,7 @@ class PoolManager:
             stop_loss = stock.get("止损线", 0)
             if stop_loss > 0 and now_price < stop_loss:
                 warning = f"⚠️ 止损警告：{name}({code}) 收盘价{now_price}已跌破止损线{stop_loss}（-{(stop_loss-now_price)/stop_loss*100:.1f}%）"
-                print(f"[PoolManager] {warning}")
+                plog("INFO", f"[PoolManager] {warning}")
                 stock["操作建议"] = "⚠️ 已跌破止损，建议执行止损"
                 stop_loss_warnings.append(warning)
 
@@ -1483,9 +1484,9 @@ class PoolManager:
                     self.add_stock("边缘池", edge_stock)
                     stocks.remove(s)
                     demoted.append(f"{name}({code})")
-                    print(f"[持仓降级] ⬇️ {name}({code}) → 边缘池（止损触发）")
+                    plog("INFO", f"[持仓降级] ⬇️ {name}({code}) → 边缘池（止损触发）")
             if demoted:
-                print(f"[PoolManager] 🧹 持仓池止损降级：移除 {len(demoted)} 只")
+                plog("INFO", f"[PoolManager] 🧹 持仓池止损降级：移除 {len(demoted)} 只")
 
             # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
             for stock in stocks:
@@ -1506,17 +1507,17 @@ class PoolManager:
                         if new_score != orig_score:
                             stock["综合分"] = new_score
                             stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                            print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                            plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
 
             # 扫描评分<65的存量股，自动降级
             self._scan_and_downgrade(data)
 
             self.save_pool("持仓池", data)
-            print(f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
+            plog("INFO", f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
             if stop_loss_warnings:
-                print(f"[PoolManager] ⚠️ 共 {len(stop_loss_warnings)} 只股票触发止损告警")
+                plog("INFO", f"[PoolManager] ⚠️ 共 {len(stop_loss_warnings)} 只股票触发止损告警")
                 for w in stop_loss_warnings:
-                    print(f"  {w}")
+                    plog("INFO", f"  {w}")
 
         return refreshed
 
@@ -1535,7 +1536,7 @@ class PoolManager:
         data = self.load_pool("快筛候选池")
         stocks = data.get("stocks", [])
         if not stocks:
-            print("[PoolManager] 快筛候选池为空，无需刷新")
+            plog("INFO", "[PoolManager] 快筛候选池为空，无需刷新")
             return []
 
         codes = []
@@ -1545,7 +1546,7 @@ class PoolManager:
                 codes.append(code)
 
         if not codes:
-            print("[PoolManager] 快筛候选池无有效股票代码")
+            plog("INFO", "[PoolManager] 快筛候选池无有效股票代码")
             return []
 
         # 拉实时行情
@@ -1553,7 +1554,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] 快筛候选池行情刷新失败: {e}，继续执行降级扫描")
+            plog("INFO", f"[PoolManager] 快筛候选池行情刷新失败: {e}，继续执行降级扫描")
             quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
@@ -1598,12 +1599,12 @@ class PoolManager:
                     if new_score != orig_score:
                         stock["综合分"] = new_score
                         stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                        print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                        plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
         # 扫描评分<65的存量股，自动降级
         self._scan_and_downgrade(data)
 
         if refreshed:
-            print(f"[PoolManager] ✅ 快筛候选池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
+            plog("INFO", f"[PoolManager] ✅ 快筛候选池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
         self.save_pool("快筛候选池", data)
         return refreshed
@@ -1624,7 +1625,7 @@ class PoolManager:
         data = self.load_pool("S级操作池")
         stocks = data.get("stocks", [])
         if not stocks:
-            print("[PoolManager] S级操作池为空，无需刷新")
+            plog("INFO", "[PoolManager] S级操作池为空，无需刷新")
             return []
 
         codes = []
@@ -1634,7 +1635,7 @@ class PoolManager:
                 codes.append(code)
 
         if not codes:
-            print("[PoolManager] S级操作池无有效股票代码")
+            plog("INFO", "[PoolManager] S级操作池无有效股票代码")
             return []
 
         # 拉实时行情
@@ -1642,7 +1643,7 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            print(f"[PoolManager] S级操作池行情刷新失败: {e}")
+            plog("INFO", f"[PoolManager] S级操作池行情刷新失败: {e}")
             return []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
@@ -1668,11 +1669,11 @@ class PoolManager:
                 if isinstance(stop_loss, (int, float)) and stop_loss > 0:
                     if now_price < stop_loss:
                         stock["操作建议"] = "已跌破止损，建议调出"
-                        print(f"  [止损] {stock.get('名称','?')}({code}) 收盘{now_price}<止损{stop_loss}, 已标记")
+                        plog("INFO", f"  [止损] {stock.get('名称','?')}({code}) 收盘{now_price}<止损{stop_loss}, 已标记")
                     else:
                         if stock.get("操作建议") == "已跌破止损，建议调出":
                             stock["操作建议"] = "正常"
-                            print(f"  [止损解除] {stock.get('名称','?')}({code}) 收盘{now_price}>止损{stop_loss}, 标记清除")
+                            plog("INFO", f"  [止损解除] {stock.get('名称','?')}({code}) 收盘{now_price}>止损{stop_loss}, 标记清除")
                 refreshed.append(code)
 
         if refreshed:
@@ -1697,11 +1698,11 @@ class PoolManager:
                         if new_score != orig_score:
                             stock["综合分"] = new_score
                             stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                            print(f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                            plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
             # 扫描评分<65的存量股，自动降级
             self._scan_and_downgrade(data)
             self.save_pool("S级操作池", data)
-            print(f"[PoolManager] ✅ S级操作池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
+            plog("INFO", f"[PoolManager] ✅ S级操作池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
         return refreshed
 
@@ -1742,13 +1743,13 @@ if __name__ == "__main__":
     # 测试PoolManager
     pm = PoolManager()
     
-    print("=== PoolManager Test ===")
+    plog("INFO", "=== PoolManager Test ===")
     
     # 获取摘要
     summary = pm.get_pool_summary()
-    print("\\n池摘要:")
+    plog("INFO", "\\n池摘要:")
     for name, count in summary.items():
-        print(f"  {name}: {count}只")
+        plog("INFO", f"  {name}: {count}只")
     
     # 测试添加股票
     test_stock = {
@@ -1760,15 +1761,15 @@ if __name__ == "__main__":
         "备注": "PoolManager测试"
     }
     
-    print(f"\\n测试添加股票: {test_stock}")
+    plog("INFO", f"\\n测试添加股票: {test_stock}")
     
     # 测试获取所有池
     all_pools = pm.get_all_pools()
-    print("\\n所有池:")
+    plog("INFO", "\\n所有池:")
     for name, stocks in all_pools.items():
-        print(f"  {name}: {len(stocks)}只")
+        plog("INFO", f"  {name}: {len(stocks)}只")
     
-    print("\\n✅ PoolManager 测试完成!")
+    plog("INFO", "\\n✅ PoolManager 测试完成!")
 
 # 模块加载时执行一次：从 config.yaml 加载池容量（热加载）
 PoolManager._init_capacity_limits()

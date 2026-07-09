@@ -517,7 +517,7 @@ class SkepticAgent(BaseAgent):
                             obj = json.loads(text[start:i+1])
                             if "challenges" in obj or "code" in obj:
                                 challenges.append(obj)
-                        except json.JSONDecodeError:
+                        except json.JSONDecodeError:  # 安全降级: 单个质疑记录JSON解析失败→跳过该条，不影响整体
                             pass
                         in_json = False
 

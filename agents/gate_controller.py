@@ -86,7 +86,7 @@ class GateController:
                         print(f"  [GateController] ⏳ {s.get('名称','?')}({s_code}) 阻塞计数衰减: "
                               f"上次阻塞{days_since}天前，计数{blocked_count}→{s['blocked_count']}")
                         modified = True
-                except ValueError:
+                except ValueError:  # 安全降级: 字段类型转换失败→跳过该标的，不影响准入
                     pass
             # 护城河：累计阻塞≥5次且跨越60天以上，强制三振
             total_blocks = s.get("total_blocked_count", s.get("blocked_count", 0))
@@ -104,7 +104,7 @@ class GateController:
                         modified = True
                         print(f"  [GateController] 🔴 {s.get('名称','?')}({s_code}) 累计{total_blocks}次阻塞≥60天，强制三振")
                         continue
-                except ValueError:
+                except ValueError:  # 安全降级: 字段类型转换失败→跳过该标的，不影响准入
                     pass
             
             if s_code in blocked_codes:

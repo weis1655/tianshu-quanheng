@@ -22,6 +22,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List
+from logger import plog
 
 from safe_file_utils import safe_read_file
 
@@ -170,7 +171,7 @@ class DecisionAgent(BaseAgent):
                 self.logger.info("skeptic_gate_blocked",
                                count=len(blocked_codes),
                                codes=list(blocked_codes))
-                print(f"[二审制Gate] 🔴 质疑裁决阻塞 {len(blocked_codes)} 只标的: {blocked_codes}")
+                plog("INFO", f"[二审制Gate] 🔴 质疑裁决阻塞 {len(blocked_codes)} 只标的: {blocked_codes}")
 
         if skeptic_file.exists():
             skeptic_content = self.safe_read_text(skeptic_file)
@@ -188,7 +189,7 @@ class DecisionAgent(BaseAgent):
                 )
         else:
             skeptic_missing = True
-            print("[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
+            plog("INFO", "[二审制Gate] ⏭️ SkepticAgent跳过（今日无review升级标的），视为质疑通过")
             skeptic_section = (
                 "\n\n## ⚠️ 质疑审查报告（缺失）\n"
                 "今日未生成SkepticAgent质疑审查报告，系统视为无有效质疑，LLM在制定执行方案时需自行评估风险。\n"
@@ -211,7 +212,7 @@ class DecisionAgent(BaseAgent):
                 try:
                     t1_data = json.loads(t1_path.read_text(encoding="utf-8"))
                     t1_tracker = t1_data.get("stocks", {})
-                except Exception:
+                except Exception:  # 安全降级: T+1追踪文件读取失败→使用空tracker，不影响S级过期处理
                     pass
             for r in expired_result["removed"]:
                 r_code = r.get("代码", "")
@@ -227,10 +228,10 @@ class DecisionAgent(BaseAgent):
                     verdict = t1_info.get("verdict", "")
                     if hit_sl or (pnl is not None and pnl < -5):
                         skip_refeed = True
-                        print(f"  [S级回流-跳过] {r.get('名称','?')}({r_code}) T+1{verdict} pnl={pnl}%，止损触发或亏损>5%，跳过回流")
+                        plog("INFO", f"  [S级回流-跳过] {r.get('名称','?')}({r_code}) T+1{verdict} pnl={pnl}%，止损触发或亏损>5%，跳过回流")
                     elif pnl is not None and pnl < 0:
                         extra_penalty = 10
-                        print(f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
+                        plog("INFO", f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
                 # P0: S级过期回流—等比衰减而非硬编码70分
                 original_score = r.get("综合分", 80)
                 if original_score is not None:
@@ -251,7 +252,7 @@ class DecisionAgent(BaseAgent):
                         "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1f}%，触发止损），原始评分{r.get('综合分', '?')}分",
                     }
                     self.pool_manager.add_stock("边缘池", edge_stock)
-                    print(f"  [S级回流-边缘池] ⬇️ {r.get('名称','?')}({r_code}) T+1表现差 → 边缘池（保留观察机会）")
+                    plog("INFO", f"  [S级回流-边缘池] ⬇️ {r.get('名称','?')}({r_code}) T+1表现差 → 边缘池（保留观察机会）")
                     continue
 
                 key_stock = {
@@ -266,17 +267,17 @@ class DecisionAgent(BaseAgent):
                 dup = GateController.check_cross_pool_duplicate(r['代码'], exclude_pool="重点观察池", pool_manager=self.pool_manager)
                 if dup:
                     r['_cross_pool'] = dup
-                    print(f"[Gate] ⚠️ {r['名称']} 同时存在于 {dup}")
+                    plog("INFO", f"[Gate] ⚠️ {r['名称']} 同时存在于 {dup}")
 
                 # Gate守卫检查：容量校验 + 写入规则
                 # P2-2026-06-04: S级过期回流是受控路径，显式允许跨池
                 r['allow_cross_pool'] = True
                 rule = GateController.enforce_writing_rules(r, "重点观察池", pool_manager=self.pool_manager)
                 if not rule['allowed']:
-                    print(f"[Gate] 🚫 {r['名称']} 被守卫拦截: {rule['reason']}")
+                    plog("INFO", f"[Gate] 🚫 {r['名称']} 被守卫拦截: {rule['reason']}")
                 else:
                     self.pool_manager.add_stock("重点观察池", key_stock)
-                    print(f"[S级回流] ⬆️ {r['名称']}({r['代码']}) → 重点观察池（S级过期回流，{rule.get('reason','')}）")
+                    plog("INFO", f"[S级回流] ⬆️ {r['名称']}({r['代码']}) → 重点观察池（S级过期回流，{rule.get('reason','')}）")
 
         # 读取审查报告
         if review_report is None:
@@ -336,7 +337,7 @@ class DecisionAgent(BaseAgent):
                     + "\n".join(s_lines)
                     + "\n\nS级操作池今日已审查通过，直接进入决策层，无需再次审查。"
                 )
-                print(f"[S级优先] ⭐ 今日S级操作池有 {len(self._active_s_stocks)} 只有效标的, 已注入extra_codes")
+                plog("INFO", f"[S级优先] ⭐ 今日S级操作池有 {len(self._active_s_stocks)} 只有效标的, 已注入extra_codes")
                 self.logger.info("s_pool_priority",
                                count=len(self._active_s_stocks),
                                codes=[s.get("代码","") for s in self._active_s_stocks])
@@ -374,7 +375,7 @@ class DecisionAgent(BaseAgent):
                 if abs(llm_score - ml_score) > 20:
                     s["ml_divergence"] = "high"
                     s["recommendation_downgrade"] = True
-                    print(f"  [F01] ⚠️ ML-LLM严重背离: {s.get('name','?')}({code}) LLM{llm_score} vs ML{ml_score}")
+                    plog("INFO", f"  [F01] ⚠️ ML-LLM严重背离: {s.get('name','?')}({code}) LLM{llm_score} vs ML{ml_score}")
                 elif abs(llm_score - ml_score) > 10:
                     s["ml_divergence"] = "medium"
                 else:
@@ -401,7 +402,7 @@ class DecisionAgent(BaseAgent):
                     self.logger.info("s_pool_merged_into_review",
                                    code=s_code, name=s_name, score=actual_score)
             if self._active_s_stocks:
-                print(f"[S级优先] 🔀 {len(self._active_s_stocks)} 只S级标的已合并入 scored_stocks（使用真实评分）")
+                plog("INFO", f"[S级优先] 🔀 {len(self._active_s_stocks)} 只S级标的已合并入 scored_stocks（使用真实评分）")
         # ──────────────────────────────────────────────────────────────
 
         # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
@@ -419,12 +420,12 @@ class DecisionAgent(BaseAgent):
                     ]
             removed = before_count - len(scored_stocks)
             if removed:
-                print(f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
+                plog("INFO", f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
                 self.logger.info("limit_up_filtered", removed=removed, codes=list(excluded))
             if not scored_stocks:
                 if before_count > 0:
                     # scored_stocks 本来有标的，但全被涨停排除过滤掉了
-                    print("[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
+                    plog("INFO", "[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
                     return self._build_empty_decision(today, pools, market_env,
                                                        "涨停/跌停排除：所有候选标的已封板",
                                                        yellow_alerts=[])
@@ -475,7 +476,7 @@ class DecisionAgent(BaseAgent):
                         if str(s.get("代码", s.get("股票代码", ""))) not in dup_codes
                     ]
             if dup_in_picks:
-                print(f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
+                plog("INFO", f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
             # 如果过滤后为空，走正常空仓逻辑（不是硬返回，让后续逻辑决定）
         # ── P0: 构建重复推荐警告，注入LLM prompt ──────────────
         dup_warning = ""
@@ -486,7 +487,7 @@ class DecisionAgent(BaseAgent):
                 + ", ".join(sorted(dup_names))
                 + "\n\n严禁在本报告中再次输出这些标的的【主推】或【备选】方案。\n"
             )
-            print(f"[重复推荐] ✋ {len(dup_names)} 只标的7日内已推荐，已注入LLM硬约束")
+            plog("INFO", f"[重复推荐] ✋ {len(dup_names)} 只标的7日内已推荐，已注入LLM硬约束")
         # ═══════════════════════════════════════════════════════════════════════
 
         # ── 二审制Gate：阻塞标的计数 + 连续3次自动降级 ──
@@ -514,13 +515,13 @@ class DecisionAgent(BaseAgent):
                             "核心逻辑": f"被Skeptic连续质疑阻塞{dm['count']}次",
                         }
                         self.pool_manager.add_stock("边缘池", edge)
-                        print(f"[二审制Gate] ⬇️ {dm['名称']}({dm['代码']}) → 边缘池（连续{dm['count']}次阻塞）")
+                        plog("INFO", f"[二审制Gate] ⬇️ {dm['名称']}({dm['代码']}) → 边缘池（连续{dm['count']}次阻塞）")
                     for s in key_pool_data.get("stocks", []):
                         s_code = str(s.get("代码", s.get("股票代码", "")))
                         if s_code in blocked_codes and s.get("blocked_count", 0) > 0:
-                            print(f"[二审制Gate] 🔴 {s.get('名称','?')}({s_code}) 被阻塞第{s['blocked_count']}次")
+                            plog("INFO", f"[二审制Gate] 🔴 {s.get('名称','?')}({s_code}) 被阻塞第{s['blocked_count']}次")
                         elif s.get("blocked_count", 0) == 0:
-                            print(f"[二审制Gate] ✅ {s.get('名称','?')}({s_code}) 质疑通过，重置阻塞计数")
+                            plog("INFO", f"[二审制Gate] ✅ {s.get('名称','?')}({s_code}) 质疑通过，重置阻塞计数")
                     if modified:
                         self.safe_write_json(key_pool_file, key_pool_data)
 
@@ -531,7 +532,7 @@ class DecisionAgent(BaseAgent):
             pools = GateController.filter_pools(pools, blocked_codes)
             scored_stocks = GateController.filter_scored_stocks(scored_stocks, blocked_codes)
             if all_scored_stocks and GateController.is_all_blocked(all_scored_stocks, blocked_codes):
-                print("[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
+                plog("INFO", "[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
                 yellow_alerts = GateController.get_yellow_alerts(all_scored_stocks)
                 return self._build_empty_decision(today, pools, market_env,
                                                    "二审制Gate：所有候选标的均未通过质疑审查",
@@ -567,13 +568,13 @@ class DecisionAgent(BaseAgent):
                 )
                 self.logger.info("skeptic_coverage_gap",
                                uncovered=names, count=len(uncovered))
-                print(f"[Skeptic覆盖度] ⚠️ {len(uncovered)} 只标的未质疑覆盖: {names}")
+                plog("INFO", f"[Skeptic覆盖度] ⚠️ {len(uncovered)} 只标的未质疑覆盖: {names}")
                 # ── P1-3升级：否决式阻断 — 未覆盖标的从scored_stocks移除 ────
                 # 避免"LLM自行评估风险"这种自欺欺人的处理
                 # 既然Skeptic没审，那就不能进入决策候选
                 self.logger.info("skeptic_block_uncovered",
                                removed=names, count=len(uncovered))
-                print(f"[Skeptic阻断] 🚫 从决策候选移除 {len(uncovered)} 只未审查标的: {names}")
+                plog("INFO", f"[Skeptic阻断] 🚫 从决策候选移除 {len(uncovered)} 只未审查标的: {names}")
                 for u in uncovered:
                     scored_stocks = [s for s in scored_stocks if s["code"] != u["code"]]
         # ────────────────────────────────────────────────────────────
@@ -642,7 +643,7 @@ class DecisionAgent(BaseAgent):
                 wr_content = win_rate_file.read_text(encoding="utf-8")
                 if len(wr_content) > 100:
                     header_parts.append(f"\n\n{wr_content}")
-        except Exception:
+        except Exception:  # 安全降级: 准确率模式文件读取失败→跳过注入，不影响决策
             pass
         # ────────────────────────────────────────────────────
         if dup_warning:
@@ -687,7 +688,7 @@ class DecisionAgent(BaseAgent):
                 
                 # 偏空市场：尊重LLM的空仓判断，跳过兜底买入
                 if market_state_cur.get("state") in ["偏空"]:
-                    print(f"[兜底引擎] 🚫 市场状态=偏空，尊重LLM空仓判断，跳过兜底买入")
+                    plog("INFO", f"[兜底引擎] 🚫 市场状态=偏空，尊重LLM空仓判断，跳过兜底买入")
                     # 保留LLM原始空仓结果
                     pass
                 
@@ -705,7 +706,7 @@ class DecisionAgent(BaseAgent):
                         f"\n"
                         f"⚠️ 免责声明：此观察建议由兜底引擎自动生成，不构成买入建议。\n"
                     )
-                    print(f"[兜底引擎] ⏳ 震荡偏弱市场，{best['name']}({best['code']}) {best['score']}分 → 仅建议观察")
+                    plog("INFO", f"[兜底引擎] ⏳ 震荡偏弱市场，{best['name']}({best['code']}) {best['score']}分 → 仅建议观察")
 
                                     # 震荡市场：半仓试探，不激进买入
                 elif market_state_cur.get("state") == "震荡":
@@ -725,7 +726,7 @@ class DecisionAgent(BaseAgent):
                         f"\n"
                         f"⚠️ 免责声明：此方案由兜底引擎自动生成，请结合个人判断使用。\n"
                     )
-                    print(f"[兜底引擎] ⏳ 震荡市场，{best['name']}({best['code']}) {best['score']}分 → 半仓试探")
+                    plog("INFO", f"[兜底引擎] ⏳ 震荡市场，{best['name']}({best['code']}) {best['score']}分 → 半仓试探")
 
                 # 偏多/震荡偏强：执行原有兜底买入（保留LLM二次尝试+模板兜底）
                 else:
@@ -736,13 +737,14 @@ class DecisionAgent(BaseAgent):
                         llm_name = a.get("name", "?")
                         llm_code = a.get("code", "?")
                         if ml_score is not None and ml_score < 50:
-                            print(f"[兜底引擎] 🚫 LLM-ML背离: {llm_name}({llm_code}) "
-                                  f"LLM={a['score']} ML={ml_score} 跳过兜底买入")
+                            plog("WARNING",
+                                 f"[兜底引擎] 🚫 LLM-ML背离: {llm_name}({llm_code}) "
+                                 f"LLM={a['score']} ML={ml_score} 跳过兜底买入")
                             continue
                         _filtered_actionable.append(a)
                     actionable = _filtered_actionable
                     if not actionable:
-                        print(f"[兜底引擎] ⏭ 全部标的被LLM-ML背离过滤，跳过兜底买入")
+                        plog("INFO", f"[兜底引擎] ⏭ 全部标的被LLM-ML背离过滤，跳过兜底买入")
                         return None
                     best = actionable[0]
                     # 构建SkepticGate上下文块（如有阻塞标的则提示LLM）
@@ -799,7 +801,7 @@ class DecisionAgent(BaseAgent):
                             f"\n"
                             f"⚠️ 免责声明：此方案由兜底引擎自动生成，请结合个人判断使用。\n"
                         )
-                        print(f"[模板兜底] ✅ 为 {best['name']}({best['code']}) {best['score']}分 生成模板化方案（偏多/震荡偏强市场）")
+                        plog("INFO", f"[模板兜底] ✅ 为 {best['name']}({best['code']}) {best['score']}分 生成模板化方案（偏多/震荡偏强市场）")
 
         # 格式化报告
         report = f"""# 【决策报告】{today}
@@ -836,7 +838,7 @@ class DecisionAgent(BaseAgent):
                             if isinstance(s, dict) and s.get('代码'):
                                 pool_confirmed_codes.add(str(s['代码']))
                                 s_pool_today_codes.add(str(s['代码']))
-            except Exception:
+            except Exception:  # 安全降级: S池历史记录解析失败→跳过，不影响代码去重
                 pass
         # 同时也读重点观察池中的标的（长效跟踪）
         kw_pool_path = self.pool_dir / '重点观察池.json'
@@ -848,7 +850,7 @@ class DecisionAgent(BaseAgent):
                     code = str(s.get('代码', ''))
                     if code:
                         pool_confirmed_codes.add(code)
-            except Exception:
+            except Exception:  # 安全降级: S池代码解析失败→跳过，不影响池状态
                 pass
         
         # 从result中移除未落池的【主推】标的
@@ -922,7 +924,7 @@ class DecisionAgent(BaseAgent):
         # ── F3: 决策报告有效性校验 ─────────────────────────────────
         # 检查报告是否包含实际交易方案（防止LLM循环退化时生成无效报告）
         if not re.search(r'【主推】|【备选】', report) and '空仓' not in report and '暂无通过审查' not in report:
-            print("[DecisionAgent] ⚠️ 决策报告未包含任何交易方案（LLM输出退化），标记为无效")
+            plog("INFO", "[DecisionAgent] ⚠️ 决策报告未包含任何交易方案（LLM输出退化），标记为无效")
             # 替换为空仓报告
             fallback_report = (
                 f"# 【决策报告】{today}\n\n"
@@ -941,7 +943,7 @@ class DecisionAgent(BaseAgent):
                 f"决策执行时间：{datetime.now().strftime('%H:%M')}\n"
             )
             self.safe_write_text(out_file, fallback_report)
-            print(f"[DecisionAgent] ✅ 已替换为空仓报告：{out_file}")
+            plog("INFO", f"[DecisionAgent] ✅ 已替换为空仓报告：{out_file}")
             report = fallback_report
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
@@ -1115,6 +1117,43 @@ class DecisionAgent(BaseAgent):
             else:
                 backup.append(plan)
 
+        # ── T-H03：硬规则强制校验（规则库/硬规则.md 代码化）────────
+        # 以下禁入规则为绝对不可违反，违反即从 plans 中移除
+        hard_violations = []
+        surviving_plans = []
+        for plan in plans:
+            s = next((x for x in scored_stocks if x.get("code") == plan.code), {})
+            violations = []
+            # R1: ST / *ST 绝对不买
+            name_str = s.get("名称", s.get("股票名称", plan.name or "")).upper()
+            if "ST" in name_str or "*ST" in name_str:
+                violations.append(f"ST/*ST 禁入")
+            # R2: 流通市值 < 5亿（无数据时保守放行，依赖审查已筛）
+            # R3: 换手率 > 30%（主力出货信号，不追）
+            tr = s.get("换手率", 0)
+            try:
+                if float(tr) > 30:
+                    violations.append(f"换手率{tr}%>30% 禁入")
+            except (TypeError, ValueError):
+                pass
+            # R4: 评分 < 55（C级以下不执行）
+            score = s.get("composite_score", s.get("score", 0))
+            try:
+                if float(score) < 55:
+                    violations.append(f"评分{score}分<55 禁入")
+            except (TypeError, ValueError):
+                pass
+            if violations:
+                hard_violations.append({"code": plan.code, "name": plan.name,
+                                         "violations": violations})
+            else:
+                surviving_plans.append(plan)
+        if hard_violations:
+            plog("ERROR", f"[硬规则校验] 🚫 {len(hard_violations)} 只标的违反硬规则被移除:")
+            for v in hard_violations:
+                plog("ERROR", f"   - {v['name']}({v['code']}): {'; '.join(v['violations'])}")
+        plans = surviving_plans
+
         # ── P1-2：审查-决策一致性校验（防止越权）────────────────
         # 检查决策建议是否与审查结果冲突
         consistency_issues = []
@@ -1161,9 +1200,9 @@ class DecisionAgent(BaseAgent):
                     })
 
         if consistency_issues:
-            print(f"[DecisionAgent] ⚠️ 审查-决策一致性校验发现 {len(consistency_issues)} 个冲突:")
+            plog("INFO", f"[DecisionAgent] ⚠️ 审查-决策一致性校验发现 {len(consistency_issues)} 个冲突:")
             for issue in consistency_issues:
-                print(f"   - {issue['name']}({issue['code']}): {issue['issue']} [{issue['severity']}]")
+                plog("INFO", f"   - {issue['name']}({issue['code']}): {issue['issue']} [{issue['severity']}]")
 
             # R04: 黄色预警标的（评分<DECISION_MIN_SCORE）若被决策主推，强制降级为备选
             for issue in consistency_issues:
@@ -1272,7 +1311,7 @@ class DecisionAgent(BaseAgent):
             try:
                 for item in fetch_quotes(batch):
                     all_quotes[item["代码"]] = item
-            except Exception:
+            except Exception:  # 安全降级: 行情解析单条失败→跳过该标的，继续处理其他
                 pass
 
         # ── 涨停/跌停检测：仅在盘中交易时段启用 → 并将排除代码写到实例变量供_run_impl过滤 ──
@@ -1339,7 +1378,7 @@ class DecisionAgent(BaseAgent):
                     dev_str = f"{dev:+.1f}%"
                     if abs(dev) > 3:
                         has_deviation = True
-                except Exception:
+                except Exception:  # 安全降级: 偏差计算失败→保持默认值，不影响决策
                     pass
             lines.append(
                 f"| {raw} | {name} | **{price:.2f}** | {chg:+.2f}% | {status_emoji} | {rec or '—'} | {dev_str} |"
@@ -1438,7 +1477,7 @@ class DecisionAgent(BaseAgent):
                             f"- **环境评级**：{pos}",
                         ])
                         return "\n".join(lines)
-            except Exception:
+            except Exception:  # 安全降级: 决策日志写入失败→降级到简单格式，不影响主流程
                 pass
 
         # Fallback：读取今日技术面分析报告
@@ -1493,7 +1532,7 @@ class DecisionAgent(BaseAgent):
                             result["state"] = "偏空"
                             result["s_pool_cap"] = 1         # P2升级：1只（原0只）
                             result["suggestion"] = "严格风控，仅极优标的"
-            except Exception:
+            except Exception:  # 安全降级: 弱市建议计算失败→使用默认值，不影响决策
                 pass
         return result
 
@@ -1649,11 +1688,11 @@ class DecisionAgent(BaseAgent):
             try:
                 with open(tracker_path, "w", encoding="utf-8") as f:
                     json.dump(records, f, ensure_ascii=False, indent=2)
-                print(f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
+                plog("INFO", f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
             except (IOError, OSError) as e:
-                print(f"[推荐追踪器] ⚠️ 写入失败（不影响决策结果）: {e}")
+                plog("INFO", f"[推荐追踪器] ⚠️ 写入失败（不影响决策结果）: {e}")
         else:
-            print(f"[推荐追踪器] ℹ️ {today}无推荐标的（空仓/无匹配）")
+            plog("INFO", f"[推荐追踪器] ℹ️ {today}无推荐标的（空仓/无匹配）")
 
     def _build_empty_decision(self, today: str, pools: dict,
                                market_env: str, reason: str,
@@ -1819,7 +1858,7 @@ if __name__ == "__main__":
     agent = DecisionAgent()
     result = agent.run()
     if result["success"]:
-        print(f"✅ 决策完成")
-        print(f"📄 保存: {result['saved_to']}")
-        print("\n" + "=" * 40)
-        print(result["report"][:800])
+        plog("INFO", f"✅ 决策完成")
+        plog("INFO", f"📄 保存: {result['saved_to']}")
+        plog("INFO", "\n" + "=" * 40)
+        plog("INFO", result["report"][:800])

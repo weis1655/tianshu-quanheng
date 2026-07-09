@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from enum import Enum
 import threading
+from logger import plog
 
 
 class ScheduleType(Enum):
@@ -224,7 +225,7 @@ class EnhancedScheduler:
         self._thread = threading.Thread(target=self._run_loop, args=(check_interval,))
         self._thread.daemon = True
         self._thread.start()
-        print(f"📅 调度器已启动，检查间隔 {check_interval} 秒")
+        plog("INFO", f"📅 调度器已启动，检查间隔 {check_interval} 秒")
 
     def stop(self):
         """停止调度器"""
@@ -253,10 +254,10 @@ class EnhancedScheduler:
 
                         # 计算下次执行时间
                         entry.next_run = self._calc_next_run_for_entry(entry, now)
-                        print(f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
+                        plog("INFO", f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
 
                     except Exception as e:
-                        print(f"❌ 任务 {entry.name} 执行失败: {e}")
+                        plog("INFO", f"❌ 任务 {entry.name} 执行失败: {e}")
 
                         # 计算下次执行时间（即使失败也要继续调度）
                         entry.next_run = self._calc_next_run_for_entry(entry, now)
@@ -328,7 +329,7 @@ def create_scheduler_from_config() -> EnhancedScheduler:
     # 从配置读取时间窗口并创建调度任务
     windows = cfg.get("schedule.windows", {})
     for name, window in windows.items():
-        print(f"  📅 调度任务: {name} -> {window}")
+        plog("INFO", f"  📅 调度任务: {name} -> {window}")
 
     return scheduler
 
@@ -346,33 +347,33 @@ def get_scheduler() -> EnhancedScheduler:
 
 
 if __name__ == "__main__":
-    print("=== 增强型调度器测试 ===\n")
+    plog("INFO", "=== 增强型调度器测试 ===\n")
 
     scheduler = EnhancedScheduler()
 
     # 添加 Cron 任务
     scheduler.add_cron(
         "daily_report",
-        lambda: print("📊 生成日报"),
+        lambda: plog("INFO", "📊 生成日报"),
         "30 7 * * *"  # 每天 7:30
     )
 
     # 添加间隔任务
     scheduler.add_interval(
         "health_check",
-        lambda: print("🏥 健康检查"),
+        lambda: plog("INFO", "🏥 健康检查"),
         seconds=300  # 每5分钟
     )
 
     # 添加时间窗口任务
     scheduler.add_time_window(
         "morning_cycle",
-        lambda: print("🌅 执行早间流程"),
+        lambda: plog("INFO", "🌅 执行早间流程"),
         "06:20-06:35"
     )
 
-    print("\n📋 调度任务列表:")
+    plog("INFO", "\n📋 调度任务列表:")
     for entry in scheduler.list_entries():
-        print(f"  [{entry['type']}] {entry['name']} - 下次: {entry['next_run']}")
+        plog("INFO", f"  [{entry['type']}] {entry['name']} - 下次: {entry['next_run']}")
 
-    print("\n✅ 调度器配置完成")
+    plog("INFO", "\n✅ 调度器配置完成")

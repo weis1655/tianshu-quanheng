@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from datetime import datetime
+from logger import plog
 
 # P1: 实时行情数据导入（使涨幅数据可提取）
 try:
@@ -150,7 +151,7 @@ class ScreenAgent(BaseAgent):
             # 技术面标的也加入候选池更新
             for s in tech_candidates:
                 result += f"\n- {s['name']}（{s['code']}）- {s['reason']} [驱动级别:B]"
-            print(f"[技术面补位] 📊 发现 {len(tech_candidates)} 只量价异动标的: {[s['name'] for s in tech_candidates]}")
+            plog("INFO", f"[技术面补位] 📊 发现 {len(tech_candidates)} 只量价异动标的: {[s['name'] for s in tech_candidates]}")
 
         # 格式化报告
         report = f"""# 【快筛报告】{today}
@@ -247,7 +248,7 @@ class ScreenAgent(BaseAgent):
                         pd = json.loads(pf.read_text(encoding="utf-8"))
                         for s in pd.get("stocks", []):
                             pooled_codes.add(s.get("代码", ""))
-                    except Exception:
+                    except Exception:  # 安全降级: 存量池代码去重失败→跳过，不影响本轮快筛
                         pass
 
             # 筛选：涨幅>5% + 换手>8%(涨停股放宽到>3%) + 量比>1.5 + 振幅>5% + 市值>50亿 + 不在现有池中
@@ -287,10 +288,10 @@ class ScreenAgent(BaseAgent):
             return candidates[:5]  # 最多5只，减少干扰
 
         except Exception as e:
-            print(f"[技术面补位] ⚠️ 扫描失败: {e}")
+            plog("INFO", f"[技术面补位] ⚠️ 扫描失败: {e}")
             # fallback：尝试新浪财经涨幅榜
             try:
-                print(f"[技术面补位] 🔄 降级到新浪接口...")
+                plog("INFO", f"[技术面补位] 🔄 降级到新浪接口...")
                 import json, urllib.request
                 url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=30&sort=changepercent&asc=0&node=hs_a&symbol=&_=1"
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -311,11 +312,11 @@ class ScreenAgent(BaseAgent):
                         reason = f"量价异动(新浪): 涨{chg:.1f}%+换手{turnover:.1f}%+量比{vol_ratio:.1f}"
                         cand.append({"code": code, "name": name, "chg_pct": chg, "reason": reason})
                 if cand:
-                    print(f"[技术面补位] 📊 新浪fallback 发现 {len(cand)} 只异动标的: {[s['name'] for s in cand[:3]]}")
+                    plog("INFO", f"[技术面补位] 📊 新浪fallback 发现 {len(cand)} 只异动标的: {[s['name'] for s in cand[:3]]}")
                     return cand[:5]
-                print(f"[技术面补位] 📭 新浪fallback 无结果")
+                plog("INFO", f"[技术面补位] 📭 新浪fallback 无结果")
             except Exception as e2:
-                print(f"[技术面补位] ❌ 新浪fallback也失败: {e2}")
+                plog("INFO", f"[技术面补位] ❌ 新浪fallback也失败: {e2}")
             return []
 
     def _parse_screen_result(self, raw_text: str) -> List[StockCandidate]:
@@ -446,7 +447,7 @@ class ScreenAgent(BaseAgent):
                 valid_codes = validate_stock_codes(codes)
                 if valid_codes:  # 有结果才过滤；空结果说明网络问题，保守保留
                     all_found = [s for s in all_found if s[1] in valid_codes]
-            except Exception:
+            except Exception:  # 安全降级: 历史池验证解析失败→跳过，不影响快筛
                 pass
 
         # P1: 批量获取实时行情，附着到候选池
@@ -457,7 +458,7 @@ class ScreenAgent(BaseAgent):
                 if codes:
                     qs = fetch_quotes([to_api(c) for c in codes])
                     realtime_pool_map = {q["代码"]: q for q in qs if q.get("代码")}
-            except Exception:
+            except Exception:  # 安全降级: 实时行情映射失败→使用默认空映射
                 pass
 
         new_stocks = []
@@ -469,7 +470,7 @@ class ScreenAgent(BaseAgent):
                 try:
                     ts = calculate_technical_score(q)
                     tech_score_val = ts.get("技术面评分")
-                except Exception:
+                except Exception:  # 安全降级: 技术面评分获取失败→跳过该标的
                     pass
             
             new_stocks.append({
@@ -535,7 +536,7 @@ class ScreenAgent(BaseAgent):
                     if (today - dt_entry).days > 14 and s.get("操作建议", "") != "买入":
                         stale_removed.append(s)
                         continue
-                except ValueError:
+                except ValueError:  # 安全降级: 字段类型转换失败→跳过该标的
                     pass
             active.append(s)
 
@@ -606,7 +607,7 @@ class ScreenAgent(BaseAgent):
                     trend = "📈" if chg > 0 else "📉" if chg < 0 else "➡️"
                     idx_lines.append(f"- {trend} {name}: {price:.2f} ({chg:+.2f}%) 成交{vol_str}")
                 parts.append("\n".join(idx_lines))
-        except Exception:
+        except Exception:  # 安全降级: 索引行拼接失败→降级到空索引
             pass
 
         # ── 2. 五池现状（持仓 + 重点观察）────────────────────────
@@ -707,7 +708,7 @@ if __name__ == "__main__":
     agent = ScreenAgent()
     result = agent.run()
     if result["success"]:
-        print(f"✅ 快筛完成")
-        print(f"📄 保存: {result['saved_to']}")
-        print("\n" + "=" * 40)
-        print(result["report"][:800])
+        plog("INFO", f"✅ 快筛完成")
+        plog("INFO", f"📄 保存: {result['saved_to']}")
+        plog("INFO", "\n" + "=" * 40)
+        plog("INFO", result["report"][:800])
