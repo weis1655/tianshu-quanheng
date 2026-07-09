@@ -482,7 +482,7 @@ class SkepticAgent(BaseAgent):
                             if isinstance(item, dict) and ("challenges" in item or "code" in item):
                                 challenges.append(item)
                     elif isinstance(data, dict):
-                        if "challenges" in data:
+                        if "challenges" in data or "stocks" in data:
                             # {"stocks": [{"code":..., "challenges":[...]}, ...]} 或
                             # {"challenges": [{"code":..., "challenges":[...]}, ...]}
                             stock_list = data.get("stocks") or data.get("challenges", [])
@@ -515,7 +515,9 @@ class SkepticAgent(BaseAgent):
                     if not stack and in_json:
                         try:
                             obj = json.loads(text[start:i+1])
-                            if "challenges" in obj or "code" in obj:
+                            if "stocks" in obj and isinstance(obj["stocks"], list):
+                                challenges.extend(s for s in obj["stocks"] if isinstance(s, dict) and "code" in s)
+                            elif "challenges" in obj or "code" in obj:
                                 challenges.append(obj)
                         except json.JSONDecodeError:  # 安全降级: 单个质疑记录JSON解析失败→跳过该条，不影响整体
                             pass
