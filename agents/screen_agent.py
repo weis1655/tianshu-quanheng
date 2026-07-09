@@ -515,6 +515,29 @@ class ScreenAgent(BaseAgent):
                     continue  # 48小时内已筛过，跳过
             filtered.append(s)
 
+        # ── 跨池重复防护（防止已降级到其他池的标的被快筛重新灌回候选池）──
+        cross_pool_blocked = set()
+        try:
+            from pool_manager import PoolManager
+            pm = PoolManager(pool_dir=self.root / "五池管理")
+            for pool_name in ["重点观察池", "边缘池", "持仓池", "S级操作池"]:
+                pool_stocks = pm.get_stocks(pool_name)
+                for ps in pool_stocks:
+                    code = ps.get("代码", ps.get("股票代码", ""))
+                    if code:
+                        cross_pool_blocked.add(code)
+            if cross_pool_blocked:
+                plog("INFO", f"[ScreenAgent] 跨池防护: 以下标的已在其他池，阻止加入候选池: {cross_pool_blocked}")
+        except Exception:
+            pass  # 安全降级: 跨池检查失败不阻断快筛
+
+        final_stocks = []
+        for s in filtered:
+            if s["代码"] in cross_pool_blocked:
+                plog("INFO", f"[ScreenAgent] ⚠️ {s['代码']}({s['名称']}) 已存在于其他池，跳过重复添加")
+                continue
+            final_stocks.append(s)
+
         # 记录这次筛选历史（即使未入池也记录，用于48h防护）
         data.setdefault("_fast_screen_history", {})
         for s in new_stocks:
@@ -541,22 +564,22 @@ class ScreenAgent(BaseAgent):
             active.append(s)
 
         if stale_removed:
-            data["stocks"] = (active + filtered)[:20]
+            data["stocks"] = (active + final_stocks)[:20]
             data.setdefault("历史记录", []).append({
                 "日期": today.strftime("%Y-%m-%d"),
                 "过期淘汰": len(stale_removed),
-                "新进入": len(filtered),
+                "新进入": len(final_stocks),
                 "淘汰标的": [s.get("名称", "?") for s in stale_removed[:5]],
             })
         else:
-            data["stocks"] = (active + filtered)[:20]
+            data["stocks"] = (active + final_stocks)[:20]
         # 历史记录（按日聚合，与其他池一致）
-        if filtered:
+        if final_stocks:
             data.setdefault("历史记录", [])
             today = datetime.now().strftime("%Y-%m-%d")
             existing_dates = {r.get("日期") for r in data["历史记录"]}
             if today not in existing_dates:
-                data["历史记录"].append({"日期": today, "进入": len(filtered)})
+                data["历史记录"].append({"日期": today, "进入": len(final_stocks)})
                 existing_dates.add(today)
         elif not data["stocks"]:
             # 空池写占位（先到先得，由 ReviewAgent 移出时覆盖）
@@ -572,7 +595,7 @@ class ScreenAgent(BaseAgent):
 
         self.safe_write_json(pool_file, data)
 
-        self.logger.pool_operation("快筛候选池", "add", count=len(filtered))
+        self.logger.pool_operation("快筛候选池", "add", count=len(final_stocks))
 
     def _build_context_section(self) -> str:
         """
