@@ -55,39 +55,54 @@ class CronParser:
         self.month = self.parts[3]
         self.weekday = self.parts[4]
 
-    def matches(self, dt: datetime) -> bool:
-        """检查给定时间是否匹配 Cron 表达式"""
-        return (
-            self._match_field(self.minute, dt.minute, 0, 59) and
-            self._match_field(self.hour, dt.hour, 0, 23) and
-            self._match_field(self.day, dt.day, 1, 31) and
-            self._match_field(self.month, dt.month, 1, 12) and
-            self._match_field(self.weekday, dt.weekday(), 0, 6)
-        )
+        # T-L02: 预计算每个字段的匹配集合，避免每次调用都重新解析
+        self._minute_set = self._parse_to_set(self.minute, 0, 59)
+        self._hour_set = self._parse_to_set(self.hour, 0, 23)
+        self._day_set = self._parse_to_set(self.day, 1, 31)
+        self._month_set = self._parse_to_set(self.month, 1, 12)
+        self._weekday_set = self._parse_to_set(self.weekday, 0, 6)
 
-    def _match_field(self, field: str, value: int, min_val: int, max_val: int) -> bool:
-        """匹配单个字段"""
+    @staticmethod
+    def _parse_to_set(field: str, min_val: int, max_val: int) -> Optional[set]:
+        """预解析单个字段为匹配集合。None 表示通配（全部匹配）"""
         if field == "*":
-            return True
+            return None  # 通配
 
-        # 处理列表 (如 1,3,5)
+        result = set()
+
+        # 处理列表
         if "," in field:
-            return value in [int(x) for x in field.split(",")]
+            for x in field.split(","):
+                result.update(CronParser._parse_to_set(x, min_val, max_val))
+            return result
 
-        # 处理范围 (如 1-5)
+        # 处理范围
         if "-" in field:
             start, end = field.split("-")
-            return int(start) <= value <= int(end)
+            return {v for v in range(int(start), int(end) + 1) if min_val <= v <= max_val}
 
-        # 处理步长 (如 */5)
+        # 处理步长
         if "/" in field:
             base, step = field.split("/")
             base = int(base) if base != "*" else min_val
             step = int(step)
-            return (value - base) % step == 0
+            return {v for v in range(base, max_val + 1, step)}
 
         # 精确值
-        return int(field) == value
+        return {int(field)}
+
+    def matches(self, dt: datetime) -> bool:
+        """检查给定时间是否匹配 Cron 表达式（T-L02优化：预计算集合O(1)查找）"""
+        # 月份和星期预先快速过滤
+        if self._month_set is not None and dt.month not in self._month_set:
+            return False
+        if self._weekday_set is not None and dt.weekday() not in self._weekday_set:
+            return False
+        return (
+            (self._minute_set is None or dt.minute in self._minute_set) and
+            (self._hour_set is None or dt.hour in self._hour_set) and
+            (self._day_set is None or dt.day in self._day_set)
+        )
 
     def get_next_run(self, from_time: datetime) -> datetime:
         """获取下次执行时间 - 优化版：增量搜索"""

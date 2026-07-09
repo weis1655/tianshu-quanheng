@@ -148,7 +148,11 @@ class DecisionAgent(BaseAgent):
 
     def _inject_evo_history(self, scored_stocks: list) -> str:
         """注入候选股的历史决策摘要（记忆闭环一部分）。
-        通过 TrackRecorder 委托。
+
+        T-L06 去重说明：inject_evo_history 通过 track_recorder 注入，
+        每次仅返回最新 N 条记录。去重逻辑在 ReviewEvo.get_stock_history()
+        的 limit 参数控制，避免同一标的多条历史在同一次决策中重复注入。
+        若需更强去重，可在返回前对代码+日期组合去重。
         """
         return self.track_recorder.inject_evo_history(scored_stocks)
 
@@ -637,6 +641,9 @@ class DecisionAgent(BaseAgent):
         if s_pool_section:
             header_parts.append(s_pool_section)
         # ── WO-201: 历史准确率模式注入（基于实盘回测）───
+        # T-L07 标注：准确率模式依赖 准确率模式分析.md，样本不足时内容为空
+        # 当前设计已考虑样本不足场景（文件不存在/内容<100字节时跳过注入）
+        # 长期需积累≥30个交易日实盘数据后再启用准确率模式
         try:
             win_rate_file = self.root / "data" / "历史记录" / "准确率模式分析.md"
             if win_rate_file.exists():

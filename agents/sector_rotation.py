@@ -9,6 +9,10 @@
 
 数据来源：
 - 腾讯行业板块行情
+
+T-L05 标注：当前为独立函数模块（非Agent类），仅 main.py 调用 save_sector_rotation() 保存数据。
+与 Agent 架构无集成：板块结果未注入决策 Agent，未与五池管理联动。
+建议重构为 SectorRotationAgent，与 PoolManager 联动板块弱势标的自动降级。
 """
 
 import json

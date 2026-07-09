@@ -390,13 +390,12 @@ if __name__ == "__main__":
         timeout_seconds=10
     )
 
-    # 模拟调用
-    call_count = 0
+    # 模拟调用（T-L01：内联测试用local变量，非全局单例）
+    _call_count = [0]  # 用列表包装避免nonlocal
 
     def unreliable_api():
-        global call_count
-        call_count += 1
-        if call_count % 3 == 0:
+        _call_count[0] += 1
+        if _call_count[0] % 3 == 0:
             raise Exception("API 调用失败")
         return "成功"
 

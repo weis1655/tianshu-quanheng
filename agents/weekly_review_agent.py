@@ -66,7 +66,21 @@ def fetch_current_price(codes: list[str]) -> dict[str, float]:
 
 
 class WeeklyReviewAgent:
-    """周复盘 Agent"""
+    """
+    周度复盘 Agent — 执行周度池卫生、假设验证、权重调整和报告生成。
+
+    当前职责（职责过载，需重构拆分）：
+    1. pool_hygiene：池卫生检查（淘汰/降级/清理过期标的）
+    2. verify_hypotheses：假设验证（扫描池+核对历史假设）
+    3. adjust_weights：权重调整（策略有效性评估+权重更新）
+    4. run：周度报告生成
+
+    T-L04 标注：上述4项职责耦合在同一 Agent 中，建议拆分为：
+    - PoolHygieneAgent（池卫生）
+    - HypothesisVerifyAgent（假设验证）
+    - WeightAdjustAgent（权重调整）
+    - WeeklyReportAgent（报告生成）
+    """
 
     # 池卫生规则
     CANDIDATE_STALE_DAYS = 14      # 候选池超14天未升级 → 降级/淘汰
