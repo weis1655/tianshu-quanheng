@@ -6,12 +6,19 @@
 
 import time
 import random
+import json
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional, Any, Dict
 from dataclasses import dataclass
 import threading
 import functools
+
+# 延迟导入 plog 避免循环依赖
+def _get_plog():
+    from logger import plog
+    return plog
 
 
 class CircuitState(Enum):
@@ -193,6 +200,45 @@ class CircuitBreaker:
 class CircuitOpenError(Exception):
     """熔断器打开异常"""
     pass
+
+
+def save_circuit_state(path: Path, breaker: "CircuitBreaker") -> None:
+    """将熔断器状态持久化到 JSON，供进程重启后恢复"""
+    try:
+        m = breaker._metrics
+        state = {
+            "state": breaker._state.value,
+            "total_calls": m.total_calls,
+            "successful_calls": m.successful_calls,
+            "failed_calls": m.failed_calls,
+            "rejected_calls": m.rejected_calls,
+            "consecutive_failures": m.consecutive_failures,
+            "last_state_change": breaker._last_state_change.isoformat(),
+        }
+        path.write_text(json.dumps(state), encoding="utf-8")
+    except Exception as e:
+        _get_plog()("ERROR", f"save_circuit_state 失败: {e}")
+
+
+def restore_circuit_state(path: Path, breaker: "CircuitBreaker") -> None:
+    """从 JSON 恢复熔断器状态"""
+    try:
+        if not path.exists():
+            return
+        state = json.loads(path.read_text(encoding="utf-8"))
+        with breaker._lock:
+            breaker._state = CircuitState(state["state"])
+            breaker._metrics = CircuitMetrics(
+                total_calls=state["total_calls"],
+                successful_calls=state["successful_calls"],
+                failed_calls=state["failed_calls"],
+                rejected_calls=state["rejected_calls"],
+                consecutive_failures=state["consecutive_failures"],
+            )
+            breaker._last_state_change = datetime.fromisoformat(state["last_state_change"])
+            _get_plog()("INFO", f"熔断器 {breaker.name} 状态已恢复: {breaker._state.value}")
+    except Exception as e:
+        _get_plog()("WARNING", f"restore_circuit_state 失败，使用默认状态: {e}")
 
 
 def with_circuit_breaker(breaker: CircuitBreaker):

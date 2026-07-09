@@ -155,6 +155,23 @@ class PoolManager:
             data["统计"] = data.get("统计", {})
             data["统计"]["持仓数"] = len(stocks)
             self.pool_dir.mkdir(parents=True, exist_ok=True)
+            # ── T-M06: 备份轮转（保留最近3份）───────────────
+            backup_dir = self.pool_dir / "__backups__"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_prefix = f"{pool_name}.bak"
+            backups = sorted(backup_dir.glob(f"{backup_prefix}.*"), reverse=True)
+            # 写当前备份
+            if pool_file.exists():
+                idx = len(backups) + 1
+                backup_file = backup_dir / f"{backup_prefix}.{idx:04d}"
+                backup_file.write_text(pool_file.read_text(encoding="utf-8"), encoding="utf-8")
+            # 轮转：只保留最近3份
+            for old in backups[2:]:
+                try:
+                    old.unlink()
+                except Exception:
+                    pass
+            # ── 写入主文件 ──────────────────────────────────
             pool_file.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2),
                 encoding="utf-8"

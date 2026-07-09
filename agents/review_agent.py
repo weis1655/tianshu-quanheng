@@ -1186,8 +1186,8 @@ class ReviewAgent(BaseAgent):
         过热检测：检查股票是否过热（涨幅过大+高估值+高换手+高量比）
 
         规则（P0修复：放宽阈值，减少误杀）：
-        - CRITICAL：涨幅>12% + (PE>80 或 换手>12%) → 强制降级
-        - WARNING-1：涨幅>8% + 评分>70 → 扣10分
+        - CRITICAL：涨幅>{OVERHEAT_CRITICAL_DAY_CHG}% + (PE>{OVERHEAT_CRITICAL_PE} 或 换手>{OVERHEAT_CRITICAL_TURNOVER}%) + 月涨>{OVERHEAT_CRITICAL_MONTH_CHG}% + 评分>{OVERHEAT_CRITICAL_SCORE} → 强制降级
+        - WARNING-1：涨幅>{OVERHEAT_W1_DAY_CHG}% + 评分>{OVERHEAT_W1_SCORE} → 扣10分
         - WARNING-2：涨幅>10% → 扣5分
         - WARNING-3：涨幅>5% + 量比>3 → 扣5分（高位放量）
 
