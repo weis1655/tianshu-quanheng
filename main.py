@@ -1059,17 +1059,23 @@ def main():
             results.update(r_skeptic)
             record_success("skeptic") if results.get("skeptic", {}).get("success") else record_failure("skeptic")
 
-            pools = orch.get_pools()
-            if not check_circuit_breaker("decision"):
-                print(f"[熔断器] ⛔ decision 熔断，跳过")
-                r_decision = {}
+            # 宪法守卫：质疑报告缺失时跳过决策，防止无审查决策
+            if not results.get("skeptic", {}).get("success"):
+                print("\n❌ 【宪法守卫】质疑报告缺失或失败，跳过决策阶段（违反DecisionAgent宪法：决策前必须提供质疑审查报告）")
+                results["decision"] = {"success": False, "error": "质疑报告缺失，决策阶段被宪法守卫拦截"}
+                record_failure("decision")
             else:
-                r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
-            if _graceful_shutdown:
-                print("[守护] 已中断")
-                return results
-            results.update(r_decision)
-            record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
+                pools = orch.get_pools()
+                if not check_circuit_breaker("decision"):
+                    print(f"[熔断器] ⛔ decision 熔断，跳过")
+                    r_decision = {}
+                else:
+                    r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
+                if _graceful_shutdown:
+                    print("[守护] 已中断")
+                    return results
+                results.update(r_decision)
+                record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
 
         # ── P3：边缘池清理（决策阶段后自动执行）────────────────────
         print(f"\n{'='*40}")
