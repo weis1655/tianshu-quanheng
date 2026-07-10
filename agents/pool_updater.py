@@ -50,6 +50,15 @@ class PoolUpdater:
         # 获取当前行情作为入场参考价
         current_prices = self._fetch_current_prices()
 
+        # 构建 scored_stocks 查询字典（code → score）
+        scored_map = {}
+        if scored_stocks:
+            for ss in scored_stocks:
+                sc = str(ss.get("code", ss.get("代码", "")))
+                sv = ss.get("score", ss.get("综合评分", 0))
+                if sc:
+                    scored_map[sc] = sv
+
         new_stocks = []
         for name, code in matches[:3]:
             # 记事本模式：决策agent已跑完全流程审查，S池只做记录+价格检查
@@ -70,8 +79,8 @@ class PoolUpdater:
                 plog("INFO", f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
                 continue
 
-            # 新条目
-            score = self._extract_score(name, code, decision_result)
+            # 新条目：优先从 scored_stocks 取分，fallback 正则提取
+            score = scored_map.get(code, 0) or self._extract_score(name, code, decision_result)
             s = {
                 "代码": code,
                 "名称": name,
