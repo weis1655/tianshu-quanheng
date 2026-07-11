@@ -5,7 +5,7 @@ Pool Manager Class - 集中管理所有股票池操作
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 from logger import plog
@@ -144,9 +144,24 @@ class PoolManager:
                         removed = stocks_sorted[limit:]
                         plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，移除最旧标的: {[s.get('代码', s.get('股票代码', '?')) for s in removed]}")
                     else:
-                        # 其他池：保留最新的
-                        data["stocks"] = stocks[-limit:]
-                        plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，已自动截断")
+                        # 边缘池：先清理过期标的（超过30天），腾出空间
+                        if pool_name == "边缘池":
+                            removed = []
+                            keep = []
+                            cutoff = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+                            for s in stocks:
+                                d = s.get("纳入日期", s.get("建仓日期", ""))
+                                if d and d < cutoff:
+                                    removed.append(s)
+                                else:
+                                    keep.append(s)
+                            if removed:
+                                plog("INFO", f"[PoolManager] 🧹 边缘池先清理过期标的: {len(removed)} 只, 腾出空间")
+                                stocks = keep
+                        # 仍超容量则截断
+                        if len(stocks) > limit:
+                            data["stocks"] = stocks[-limit:]
+                            plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，已自动截断")
             
             # ── 入池后自动排序：按综合分降序（无分值的排最后）──
             self._maybe_sort_pool(data, pool_name)
