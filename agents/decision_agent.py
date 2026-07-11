@@ -668,6 +668,8 @@ class DecisionAgent(BaseAgent):
             candidate_pool=candidate_pool,
             history_dir=str(self.history_dir),
             today=today,
+            YELLOW_ALERT_MIN=YELLOW_ALERT_MIN,
+            YELLOW_ALERT_MAX=YELLOW_ALERT_MAX,
         ))
         user_prompt = "\n\n".join(header_parts)
         result = self.call_llm(

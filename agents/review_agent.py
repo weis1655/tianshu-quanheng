@@ -920,11 +920,23 @@ class ReviewAgent(BaseAgent):
             if not code:
                 continue
 
-            # 综合评分（支持 LLM 自由格式：数字 + 描述）
+            # 综合评分（多模式兜底，支持LLM各种格式）
             score = 0
-            sm = re.search(r'综合评分[^\d]*?(\d+)', block)
-            if sm:
-                score = int(sm.group(1))
+            for score_pat in [
+                r'综合评分[：:\s]*\[?\*?\s*(\d+)',     # "综合评分：85"
+                r'综合(?:分|评分)\s*[：:\s]*\*?\s*(\d+)', # "综合分 85"
+                r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',  # "评分：85分"
+                r'[（(]\s*(\d+)\s*分\s*[)）]',            # "（85分）"
+                r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',  # "85分，综合评估"
+            ]:
+                sm = re.search(score_pat, block)
+                if sm:
+                    score = int(sm.group(1))
+                    break
+            if score == 0:
+                # 所有正则模式均未匹配，记录警告（不阻塞流程）
+                plog("WARNING",
+                     f"[ReviewAgent] ⚠️ 评分提取失败: {name}({code}) 所有正则模式均未命中，默认score=0")
             # 信心度
             confidence = ""
             cm = re.search(r'信心度[：:]?\s*([^*|\n]+)', block)
@@ -1002,11 +1014,22 @@ class ReviewAgent(BaseAgent):
             if not code:
                 continue
 
-            # 综合评分
+            # 综合评分（多模式兜底）
             score = 0
-            sm = re.search(r'综合评分[^\d]*?(\d+)', block)
-            if sm:
-                score = min(int(sm.group(1)), 100)
+            for score_pat in [
+                r'综合评分[：:\s]*\[?\*?\s*(\d+)',
+                r'综合(?:分|评分)\s*[：:\s]*\*?\s*(\d+)',
+                r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',
+                r'[（(]\s*(\d+)\s*分\s*[)）]',
+                r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',
+            ]:
+                sm = re.search(score_pat, block)
+                if sm:
+                    score = min(int(sm.group(1)), 100)
+                    break
+            if score == 0:
+                plog("WARNING",
+                     f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则模式均未命中，默认score=0")
 
             # 信心度
             confidence = ""
@@ -1341,7 +1364,7 @@ class ReviewAgent(BaseAgent):
             upgrade_stocks = []
             for name, code in upgrades:
                 meta = parsed.get(code, {})
-                plog("INFO", "ReviewAgent:", f"ReviewAgent", f"✅ {name}({code}) 审查完成：{meta.get('综合分','?')}分")
+                plog("INFO", f"ReviewAgent: ✅ {name}({code}) 审查完成：{meta.get('综合分','?')}分")
                 # 先从候选池移除（无论在哪）
                 self._remove_from_pool("快筛候选池", [code])
                 upgrade_stocks.append({
