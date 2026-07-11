@@ -20,6 +20,7 @@ from thresholds import (
     AUTO_DOWNGRADE_SCORE, SCORE_DECAY_DAYS, SCORE_DECAY_PER_DAY,
     SCORE_DECAY_MAX, SCORE_DECAY_FLOOR, POOL_CAPACITY_LIMITS,
     INTRADAY_OVERHEAT_MIN_SCORE,
+    EDGE_POOL_STALE_DAYS,
     score_to_level,
 )
 
@@ -473,7 +474,7 @@ class PoolManager:
         
         return {"removed": removed, "remaining": remaining, "cleaned": len(removed) > 0}
 
-    def clean_expired_edge_pool(self, max_age_days: int = 45, min_score: float = 40) -> dict:
+    def clean_expired_edge_pool(self, max_age_days: int = EDGE_POOL_STALE_DAYS, min_score: float = 40) -> dict:
         """
         清理边缘池中过期或低评分标的（P3-边缘池清理）
 

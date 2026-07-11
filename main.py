@@ -1077,10 +1077,17 @@ def main():
                 results.update(r_decision)
                 record_success("decision") if results.get("decision", {}).get("success") else record_failure("decision")
 
-        # ── P3：边缘池清理（决策阶段后自动执行）────────────────────
+        # ── P3：边缘池清理 + 候选池过期清理（决策阶段后自动执行）────
         print(f"\n{'='*40}")
-        print("🧹 执行边缘池清理...")
+        print("🧹 执行池清理...")
         print(f"{'='*40}")
+        try:
+            pm = PoolManager()
+            # 候选池过期清理（工作日也执行，防止候选池滞留）
+            pm.clean_expired_candidates(max_age_days=CANDIDATE_EXPIRE_DAYS)
+            print(f"  ✅ 候选池过期清理完成（>={CANDIDATE_EXPIRE_DAYS}天）")
+        except Exception as e:
+            print(f"  ⚠️ 候选池清理异常（不影响主流程）: {e}")
         try:
             pm = PoolManager()
             clean_result = pm.clean_expired_edge_pool()
@@ -1089,7 +1096,7 @@ def main():
             print(f"  ✅ 边缘池清理完成：移除{removed_count}只，剩余{remaining}只")
         except Exception as e:
             print(f"  ⚠️ 边缘池清理异常（不影响主流程）: {e}")
-        # ── 边缘池清理结束 ──────────────────────────────────────
+        # ── 池清理结束 ─────────────────────────────────────────────
     elif phase == "screen":
         if not check_circuit_breaker("screen"):
             print(f"[熔断器] ⛔ screen 熔断，跳过")
