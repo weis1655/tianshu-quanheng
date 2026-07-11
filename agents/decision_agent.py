@@ -583,6 +583,15 @@ class DecisionAgent(BaseAgent):
                     scored_stocks = [s for s in scored_stocks if s["code"] != u["code"]]
         # ────────────────────────────────────────────────────────────
 
+        # ═══ WO-H01: 极端行情预检 — 跳过LLM直接规则决策 ═══
+        if market_state.get("extreme_warning"):
+            plog("WARNING", f"[DecisionAgent] 🚫 极端行情触发规则决策: 创业板/科创50暴跌，跳过LLM")
+            return self._build_empty_decision(today, pools, market_env,
+                                               "极端行情：创业板/科创50暴跌，规则决策→空仓",
+                                               yellow_alerts=[],
+                                               extreme_warning=True)
+        # ═════════════════════════════════════════════════════════════
+
         # LLM 决策
         self.logger.llm_call("make_decision", tokens=len(review_report))
         # 把评分结构注入prompt前端（加实时行情刷新 + 记忆闭环历史）
@@ -1511,11 +1520,11 @@ class DecisionAgent(BaseAgent):
 
     # ── Level-2: 市场状态预判（结构化，决定 S 池推荐数量）───
     def _get_market_state(self) -> dict:
-        """获取量化市场状态，返回 {state, sh_chg, s_pool_cap, suggestion}"""
+        """获取量化市场状态，返回 {state, sh_chg, s_pool_cap, suggestion, extreme_warning}"""
         import json
         from pathlib import Path
         sm_file = self.root / "data" / "shared_memory.json"
-        result = {"state": "震荡", "sh_chg": 0, "s_pool_cap": 3, "suggestion": "标准（P2升级：容量3）"}
+        result = {"state": "震荡", "sh_chg": 0, "s_pool_cap": 3, "suggestion": "标准（P2升级：容量3）", "extreme_warning": False}
         if sm_file.exists():
             try:
                 with open(sm_file) as f:
@@ -1525,6 +1534,16 @@ class DecisionAgent(BaseAgent):
                     if sh:
                         sh_chg = sh.get("涨跌幅", 0)
                         result["sh_chg"] = sh_chg
+                        # 创业板/科创50 极端跌幅检测
+                        cyb = next((s for s in data if s.get("代码") in ("399006", "000688")), None)
+                        if cyb:
+                            cyb_chg = cyb.get("涨跌幅", 0)
+                            if cyb_chg <= -3:
+                                result["state"] = "极弱"
+                                result["s_pool_cap"] = 0
+                                result["suggestion"] = "❗极端行情：创业板/科创50暴跌，空仓回避"
+                                result["extreme_warning"] = True
+                                return result
                         if sh_chg > 1:
                             result["state"] = "偏多"
                             result["s_pool_cap"] = 3       # P2升级：3只
@@ -1705,7 +1724,8 @@ class DecisionAgent(BaseAgent):
 
     def _build_empty_decision(self, today: str, pools: dict,
                                market_env: str, reason: str,
-                               yellow_alerts: list = None) -> dict:
+                               yellow_alerts: list = None,
+                               extreme_warning: bool = False) -> dict:
         """二审制Gate：所有标的被拦截时生成空仓决策报告（委托 decision_utils.build_empty_decision）"""
         report = build_empty_decision(today, pools, market_env, reason, yellow_alerts)
         out_file = self.history_dir / f"{today}_决策报告.md"
