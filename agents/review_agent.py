@@ -390,7 +390,7 @@ class ReviewAgent(BaseAgent):
 
             # ML评分低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
             for sr in review_result.stocks:
-                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < 45 and sr.composite_score >= DECISION_MIN_SCORE:
+                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.composite_score >= DECISION_MIN_SCORE:
                     sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
                     plog("INFO", f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
                     # ML评分降级：LLM高分但ML低分，说明模型不认可
@@ -406,7 +406,7 @@ class ReviewAgent(BaseAgent):
         # ═══ ML评分前置拦截：升级重点池前先过ML阈值 ═══════════════
         _ml_blocked = []
         for sr in review_result.stocks:
-            if sr.ml_score is not None and sr.ml_score < 45 and sr.flow_direction == "升级":
+            if sr.ml_score is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.flow_direction == "升级":
                 sr.flow_direction = "降级"
                 sr.target_pool = "边缘池"
                 sr.core_logic += f" | 🚫 ML{sr.ml_score}分<45，前置拦截"
@@ -907,9 +907,6 @@ class ReviewAgent(BaseAgent):
         """
         stocks = {}
 
-        def _score_to_level(score: int) -> str:
-            """委托 thresholds.score_to_level（SSOT）"""
-            return score_to_level(score)
         # 统一规范格式分割
         blocks = re.split(
             r'(?=##\s*\[?\d{6}\]?\s*[\u4e00-\u9fa5])',
@@ -958,7 +955,7 @@ class ReviewAgent(BaseAgent):
                 "名称": name,
                 "综合分": score,
                 "信心度": confidence,
-                "驱动级别": _score_to_level(score),
+                "驱动级别": score_to_level(score),
                 "核心逻辑": core_logic,
             }
         return stocks
@@ -970,9 +967,6 @@ class ReviewAgent(BaseAgent):
         """
         from datetime import datetime as _dt
 
-        def _score_to_level(score: int) -> str:
-            """委托 thresholds.score_to_level（SSOT）"""
-            return score_to_level(score)
 
         def _extract_dimensions(block: str) -> List[DimensionScore]:
             """提取四维评分"""
@@ -1083,7 +1077,7 @@ class ReviewAgent(BaseAgent):
                 name=name,
                 composite_score=score,
                 confidence=confidence,
-                driver_level=_score_to_level(score),
+                driver_level=score_to_level(score),
                 dimensions=dims,
                 core_logic=core_logic,
                 flow_direction=flow_dir,
@@ -1108,12 +1102,12 @@ class ReviewAgent(BaseAgent):
                     sr.target_pool = "边缘池"
                     sr.action_advice = "回避"
                     sr.composite_score = max(0, sr.composite_score - overheat_info["penalty"])
-                    sr.driver_level = _score_to_level(sr.composite_score)
+                    sr.driver_level = score_to_level(sr.composite_score)
                     plog("INFO", f"[ReviewAgent] 🔥 过热检测 CRITICAL: {name}({code}) - {overheat_info['reason']}")
                 elif overheat_info["overheat_level"] == "warning":
                     original_score = sr.composite_score
                     sr.composite_score = max(0, original_score - overheat_info["penalty"])
-                    sr.driver_level = _score_to_level(sr.composite_score)
+                    sr.driver_level = score_to_level(sr.composite_score)
                     # 过热WARNING降级：原评分INTRADAY_OVERHEAT_MIN_SCORE(70)-SCORE_A_LEVEL(75)区间触发过热→自动降级
                     # 解决RULE5.5(涨幅>8%+评分≥70)扣5分后70-73分不触发降级的漏检盲区
                     if sr.composite_score <= AUTO_DOWNGRADE_SCORE or (INTRADAY_OVERHEAT_MIN_SCORE <= original_score < SCORE_A_LEVEL):
@@ -1145,7 +1139,7 @@ class ReviewAgent(BaseAgent):
                 sr.core_logic += f" | 🚫 一票否决强制降级: {risk_text}"
                 # 评分降至55以下，确保不会误升级
                 sr.composite_score = max(0, min(sr.composite_score, 54))
-                sr.driver_level = _score_to_level(sr.composite_score)
+                sr.driver_level = score_to_level(sr.composite_score)
                 plog("INFO", f"[ReviewAgent] 🚫 一票否决强制降级: {name}({code}) 风险信号={risk_text} → 边缘池")
             
             # ── P0-降级延迟修复：硬性降级阈值（<AUTO_DOWNGRADE_SCORE分强制降级）─────────

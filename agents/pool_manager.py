@@ -1077,11 +1077,6 @@ class PoolManager:
             }
         }
     
-    # ── 评分等级转换（委托 thresholds.py SSOT）───────────────
-    def _score_to_level(self, score: float) -> str:
-        """将综合分转换为评级等级（委托 thresholds.score_to_level）"""
-        return score_to_level(score)
-
     def _scan_and_downgrade(self, data: dict) -> list:
         """扫描池中低分股票（评分<AUTO_DOWNGRADE_SCORE），自动降级到边缘池。"""
         stocks = data.get("stocks", [])

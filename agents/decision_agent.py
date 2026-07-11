@@ -547,7 +547,7 @@ class DecisionAgent(BaseAgent):
 
         # P0-2: 从审查报告中提取结构化评分（行255已过滤Gate拦截标的，此处复用）
         # P0-8: 仅向LLM展示评分≥75的标的（与决策准入阈值对齐，防止低分标的被执行）
-        llm_visible = [s for s in scored_stocks if s.get("score", 0) >= 75]
+        llm_visible = [s for s in scored_stocks if s.get("score", 0) >= DECISION_MIN_SCORE]
         scored_summary = self._format_scored_stocks(llm_visible)
 
         # ── 记忆闭环：注入历史决策参考 ────────────────────────────
@@ -693,7 +693,7 @@ class DecisionAgent(BaseAgent):
             # P0-2026-06-05: 防御性排除被SkepticGate阻塞的标的（虽然L338已过滤，兜底保护）
             actionable = [
                 s for s in scored_stocks
-                if s.get("score", 0) >= 75 and s.get("passed", False)
+                if s.get("score", 0) >= DECISION_MIN_SCORE and s.get("passed", False)
                 and str(s.get("code", s.get("代码", ""))) not in blocked_codes
             ]
             if actionable:
@@ -754,7 +754,7 @@ class DecisionAgent(BaseAgent):
                         ml_score = a.get("ml_score", None)
                         llm_name = a.get("name", "?")
                         llm_code = a.get("code", "?")
-                        if ml_score is not None and ml_score < 50:
+                        if ml_score is not None and ml_score < ML_BLOCK_THRESHOLD:
                             plog("WARNING",
                                  f"[兜底引擎] 🚫 LLM-ML背离: {llm_name}({llm_code}) "
                                  f"LLM={a['score']} ML={ml_score} 跳过兜底买入")

@@ -3,7 +3,7 @@
 """
 import json
 from datetime import datetime
-from thresholds import S_POOL_MIN_SCORE
+from thresholds import S_POOL_MIN_SCORE, YELLOW_ALERT_MIN, DECISION_MIN_SCORE
 from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 
@@ -169,7 +169,7 @@ class GateController:
     @staticmethod
     def get_yellow_alerts(scored_stocks: list) -> list:
         """获取60-74分黄色预警标的"""
-        return [s for s in scored_stocks if 60 <= s.get("score", 0) < 75]
+        return [s for s in scored_stocks if YELLOW_ALERT_MIN <= s.get("score", 0) < DECISION_MIN_SCORE]
 
     @staticmethod
     def is_all_blocked(scored_stocks: list, blocked_codes: Set[str]) -> bool:

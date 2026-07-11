@@ -691,7 +691,7 @@ def format_market_report(analyzed: list[dict], title: str = "技术面分析") -
 
     for s in analyzed:
         score = s.get("技术面评分", 0)
-        score_emoji = "🟢" if score >= 70 else "🟡" if score >= 50 else "🔴"
+        score_emoji = "🟢" if score >= SCORE_BASE_HIGH else "🟡" if score >= SCORE_BASE_MED else "🔴"
 
         chg = s.get("涨跌幅", 0)
         chg_str = f"{chg:+.2f}%" if chg != 0 else "N/A"

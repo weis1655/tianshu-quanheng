@@ -58,6 +58,14 @@ DYNAMIC_SCORE_THRESHOLDS = {
 HISTORY_PENALTY_PER_3PCT = 1.5
 HISTORY_PENALTY_MAX = 10
 
+# WO-L02: ML评分相关阈值
+ML_LOW_CONFIDENCE = 45    # ML评分<45标记低信心背离
+ML_BLOCK_THRESHOLD = 50   # ML评分<50且LLM-ML背离时兜底买入拦截
+
+# 技术面评分阈值
+SCORE_BASE_HIGH = 70      # 技术分≥70→🟢
+SCORE_BASE_MED = 50       # 技术分≥50→🟡，<50→🔴
+
 # 连续推荐冷却期（天）
 RE_RECOMMEND_COOLDOWN_DAYS = 7
 
