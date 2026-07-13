@@ -35,6 +35,8 @@ DEFAULT_STRATEGY = {
     "hold_days": 3,
     "require_skeptic_pass": True,
     "require_upgrade": True,
+    "slippage_pct": 0.02,         # 滑点成本（成交额%）+ 冲击成本
+    "slippage_min_pts": 0.01,     # 最小滑点（价格点数）
 }
 
 NEW_STRATEGY = {
@@ -48,6 +50,8 @@ NEW_STRATEGY = {
     "hold_days": 3,
     "require_skeptic_pass": True,
     "require_upgrade": True,
+    "slippage_pct": 0.02,
+    "slippage_min_pts": 0.01,
 }
 
 
@@ -170,6 +174,8 @@ def backtest(strategy: dict, records: list) -> dict:
     min_score = strategy["min_score"]
     hold_days = strategy["hold_days"]
     stop_loss = strategy["stop_loss_pct"]
+    slippage_pct = strategy.get("slippage_pct", 0.02)
+    slippage_min_pts = strategy.get("slippage_min_pts", 0.01)
 
     for r in records:
         # 过滤条件
@@ -192,15 +198,18 @@ def backtest(strategy: dict, records: list) -> dict:
             continue  # 未验证跳过
 
         results["total_trades"] += 1
-        results["total_pnl"] += pnl
+        # 扣除滑点与冲击成本（双边：买入+卖出）
+        slippage_cost = max(abs(pnl) * slippage_pct / 100, slippage_min_pts)
+        adj_pnl = pnl - slippage_cost
+        results["total_pnl"] += adj_pnl
         
-        if pnl > 0:
+        if adj_pnl > 0:
             results["wins"] += 1
         else:
             results["losses"] += 1
-        
-        if pnl < results["max_drawdown"]:
-            results["max_drawdown"] = pnl
+        # 记录到分数区间
+        score_key = int(score / 10) * 10
+        results["by_score_range"][score_key].append(adj_pnl)
 
         # 按评分区间统计
         score_range = f"{int(score/10)*10}-{int(score/10)*10+9}"
