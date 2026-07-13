@@ -79,7 +79,7 @@ setup_root_logger(level="INFO", log_dir=str(PROJECT_ROOT / "logs"))
 # 启动时恢复熔断器状态（防止进程重启后保护丢失）
 try:
     cb_path = PROJECT_ROOT / "data" / "circuit_breaker_state.json"
-    for name in ["news_only", "screen", "review", "decision", "full_cycle"]:
+    for name in ["news_only", "screen", "review", "decision", "skeptic"]:
         restore_circuit_state(cb_path, get_circuit_breaker(name))
 except Exception:
     pass  # 首次运行无持久化文件，安全跳过

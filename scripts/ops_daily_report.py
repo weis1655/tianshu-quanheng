@@ -59,7 +59,7 @@ def collect_metrics(target_date: str) -> dict:
     if history_dir.exists():
         day_files = list(history_dir.glob(f"{target_date}_*.md"))
         # LLM调用近似：每生成一个文件算一次LLM
-        llm_files = [f for f in day_files if any(x in f.name for x in ["快筛", "审查", "决策", "质疑", "新闻"])]
+        llm_files = [f for f in day_files if any(x in f.name for x in ["快筛", "审查", "决策", "质疑", "新闻", "宏观", "新闻分析"])]
         metrics["llm_calls"] += len(llm_files)
         # API成功率：检查是否有错误日志
         for f in day_files:
