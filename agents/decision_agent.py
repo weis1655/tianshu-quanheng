@@ -252,7 +252,7 @@ class DecisionAgent(BaseAgent):
             if rule['allowed']:
                 self.pool_manager.add_stock("重点观察池", key_stock)
 
-    def _filter_duplicate_recommendations(self, scored_stocks: list, pools: dict) -> str:
+    def _filter_duplicate_recommendations(self, scored_stocks: list, pools: dict) -> tuple:
         """过滤最近7天已推荐过的标的，返回重复推荐警告文本"""
         dup_codes = set()
         dt_now = datetime.now()
@@ -288,7 +288,7 @@ class DecisionAgent(BaseAgent):
                                            if str(s.get("代码", s.get("股票代码", ""))) not in dup_codes]
             if dup_in_picks:
                 plog("INFO", f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
-        return dup_warning
+        return dup_warning, dup_names
 
     def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
