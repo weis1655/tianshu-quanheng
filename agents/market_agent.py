@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from logger import plog
+from thresholds import SCORE_BASE_HIGH, SCORE_BASE_MED
 
 
 # =============================================================================

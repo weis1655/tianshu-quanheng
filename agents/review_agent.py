@@ -925,6 +925,7 @@ class ReviewAgent(BaseAgent):
                 r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',  # "评分：85分"
                 r'[（(]\s*(\d+)\s*分\s*[)）]',            # "（85分）"
                 r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',  # "85分，综合评估"
+                r'(?:综合|标的|审查)?评分[：:\s]*\*?\s*(\d+)(?:\s*分)?',  # "评分: 78" / "综合评分: 85"
             ]:
                 sm = re.search(score_pat, block)
                 if sm:
@@ -1016,6 +1017,7 @@ class ReviewAgent(BaseAgent):
                 r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',
                 r'[（(]\s*(\d+)\s*分\s*[)）]',
                 r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',
+                r'(?:综合|标的|审查)?评分[：:\s]*\*?\s*(\d+)(?:\s*分)?',
             ]:
                 sm = re.search(score_pat, block)
                 if sm:
@@ -1308,7 +1310,7 @@ class ReviewAgent(BaseAgent):
             pool["统计"]["持仓数"] = len(new_stocks)
             pool["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.pool_manager.save_pool(pool_name, pool)
-            plog("INFO", "ReviewAgent:", f"remove_from_pool", f"{pool_name}: 移除 {codes}")
+            plog("INFO", f"[ReviewAgent] remove_from_pool: {pool_name}: 移除 {codes}")
 
     def _apply_pool_updates(self, result: str, upgrades_sr: list = None, demotions_sr: list = None):
         """
