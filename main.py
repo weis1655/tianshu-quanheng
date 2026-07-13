@@ -239,6 +239,7 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             skeptic_content = "".join(lines)
         
         try:
+            skeptic_file.parent.mkdir(parents=True, exist_ok=True)
             skeptic_file.write_text(skeptic_content, encoding="utf-8")
         except Exception as e:
             print(f"  ⚠️ 写入质疑报告失败: {e}")
@@ -1002,6 +1003,7 @@ def main():
             report_content = "\n".join(report_lines)
             try:
                 skeptic_report_path = PROJECT_ROOT / "data" / "历史记录" / f"{____today}_质疑审查报告.md"
+                skeptic_report_path.parent.mkdir(parents=True, exist_ok=True)
                 skeptic_report_path.write_text(report_content, encoding="utf-8")
                 print(f"  📝 已写入弱市简化审查报告")
             except Exception as e:
