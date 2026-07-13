@@ -69,12 +69,20 @@ from review_agent import ReviewAgent
 from decision_agent import DecisionAgent
 from skeptic_agent import SkepticAgent
 from pool_manager import PoolManager
-from agents.error_handling import check_circuit_breaker, record_success, record_failure
+from agents.error_handling import check_circuit_breaker, record_success, record_failure, get_circuit_breaker, save_circuit_state, restore_circuit_state
 
 # 统一日志（初始化根日志器）
 from agents.logger import setup_root_logger, plog
 from agents.thresholds import CANDIDATE_EXPIRE_DAYS, EDGE_POOL_STALE_DAYS
 setup_root_logger(level="INFO", log_dir=str(PROJECT_ROOT / "logs"))
+
+# 启动时恢复熔断器状态（防止进程重启后保护丢失）
+try:
+    cb_path = PROJECT_ROOT / "data" / "circuit_breaker_state.json"
+    for name in ["news_only", "screen", "review", "decision", "full_cycle"]:
+        restore_circuit_state(cb_path, get_circuit_breaker(name))
+except Exception:
+    pass  # 首次运行无持久化文件，安全跳过
 
 
 LLM_CALL_COUNT = 0  # 追踪本次运行的LLM调用次数

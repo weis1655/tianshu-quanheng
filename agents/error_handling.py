@@ -7,11 +7,11 @@
 import time
 import random
 import json
+from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional, Any, Dict
-from dataclasses import dataclass
+from typing import Optional, Callable, Any, Dict
 import threading
 import functools
 
@@ -370,14 +370,24 @@ def check_circuit_breaker(name: str) -> bool:
 
 def record_success(name: str):
     """记录成功调用"""
+    from pathlib import Path
     breaker = get_circuit_breaker(name)
     breaker._on_success()
+    try:
+        save_circuit_state(Path(__file__).parent.parent / "data" / "circuit_breaker_state.json", breaker)
+    except Exception:
+        pass
 
 
 def record_failure(name: str):
     """记录失败调用"""
+    from pathlib import Path
     breaker = get_circuit_breaker(name)
     breaker._on_failure()
+    try:
+        save_circuit_state(Path(__file__).parent.parent / "data" / "circuit_breaker_state.json", breaker)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
