@@ -1177,14 +1177,14 @@ def generate_report(days=7, output_file=None):
     # 📈 趋势对比（策略C）
     if history:
         trend_rows = [
-            ('P0问题', 'p0_count', f'{p0_count}个', True),
+            ('P0问题', 'p0_count', f'{p0_count}个', False),
             ('决策主推准确率', 'decision_accuracy', f'{decision_accuracy}%', False),
             ('审查升级准确率', 'review_accuracy', f'{review_accuracy}%', False),
             ('升级市场准确率', 'upgrade_market_accuracy', f'{review["upgrade_market_accuracy"] if review else "N/A"}%', False),
             ('升级评分维持率', 'upgrade_persistence_rate', f'{review["upgrade_persistence_rate"]}%' if review and review["upgrade_persistence_rate"] is not None else 'N/A', False),
             ('降级准确率', 'downgrade_accuracy', f'{review["downgrade_accuracy"] if review else "N/A"}%', False),
             ('快筛数量', 'fast_screen_count', f'{fast_screen["total_predictions"] if fast_screen else 0}只', True),
-            ('决策平均收益', 'decision_avg_ret', f'{decision_avg_ret:+.2f}%', False),
+            ('决策平均收益', 'decision_avg_ret', f'{decision_avg_ret:+.2f}%', True),
         ]
 
         report += """## 📈 趋势对比（进化检测）
@@ -1349,7 +1349,7 @@ def generate_report(days=7, output_file=None):
             date = d['date']
             for s in d.get('main_stocks', []):
                 code = s.get('code', '')
-                if not code or s.get('_source') == 'fallback':
+                if not code or s.get('_source') in ('fallback', 'blocked'):
                     continue
                 key = f"{code}_{date}"
                 perf = decision_perf_map.get(key)
@@ -1381,6 +1381,8 @@ def generate_report(days=7, output_file=None):
                 relative_returns.append(stock_chg - idx_chg)
 
     avg_relative = round(sum(relative_returns) / len(relative_returns), 2) if relative_returns else 0
+    # 均值差口径：合并平均收益 - 上证均值
+    avg_relative_simple = round(avg_return - avg_index_return, 2) if avg_return is not None and avg_index_return is not None else 0
 
     # 计算大盘平均收益
     all_idx_chgs = [v for v in index_changes.values() if v is not None]
