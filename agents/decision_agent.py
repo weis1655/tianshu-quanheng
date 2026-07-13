@@ -201,87 +201,100 @@ class DecisionAgent(BaseAgent):
 
         return skeptic_section, blocked_codes, skeptic_missing, skeptic_empty, skeptic_content
 
+    def _handle_expired_s_pool(self) -> None:
+        """处理S级操作池T+1过期标的：回流到重点观察池或边缘池"""
+        from agents.gate_controller import GateController
+        expired_result = self.pool_manager.clean_expired_s_pool(max_age_days=1)
+        if not expired_result.get("removed"):
+            return
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        t1_tracker = {}
+        t1_path = self.root / "data" / "闭环追踪" / f"{yesterday}_闭环追踪.json"
+        if t1_path.exists():
+            try:
+                t1_data = json.loads(t1_path.read_text(encoding="utf-8"))
+                t1_tracker = t1_data.get("stocks", {})
+            except Exception:  # 安全降级: T+1追踪文件读取失败→使用空tracker
+                pass
+        for r in expired_result["removed"]:
+            r_code = r.get("代码", "")
+            t1_info = t1_tracker.get(r_code, {}).get("t1_performance") if r_code else None
+            skip_refeed = False
+            extra_penalty = 0
+            t1_pnl = 0
+            if t1_info:
+                pnl = t1_info.get("pnl_pct", 0)
+                t1_pnl = pnl
+                if t1_info.get("hit_stop_loss", False) or (pnl is not None and pnl < -5):
+                    skip_refeed = True
+                    plog("INFO", f"  [S级回流-跳过] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，跳过回流")
+                elif pnl is not None and pnl < 0:
+                    extra_penalty = 10
+                    plog("INFO", f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
+            original_score = r.get("综合分", 80)
+            try:
+                decay_score = max(55, int(float(original_score) * 0.85) - extra_penalty) if original_score is not None else max(55, 70 - extra_penalty)
+            except (TypeError, ValueError):
+                decay_score = max(55, 70 - extra_penalty)
+            if skip_refeed:
+                self.pool_manager.add_stock("边缘池", {
+                    "代码": r.get("代码", ""), "名称": r.get("名称", ""),
+                    "综合分": decay_score, "降级时间": datetime.now().strftime("%Y-%m-%d"),
+                    "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1f}%），原始评分{r.get('综合分', '?')}分",
+                })
+                continue
+            key_stock = {"代码": r.get("代码", ""), "名称": r.get("名称", ""),
+                         "综合分": decay_score, "纳入日期": datetime.now().strftime("%Y-%m-%d"),
+                         "驱动来源": r.get("driver_source", "S级过期降级"),
+                         "核心逻辑": f"源自S级操作池过期降级（原始{r.get('综合分', '?')}分→衰减{decay_score}分）"}
+            r['allow_cross_pool'] = True
+            rule = GateController.enforce_writing_rules(r, "重点观察池", pool_manager=self.pool_manager)
+            if rule['allowed']:
+                self.pool_manager.add_stock("重点观察池", key_stock)
+
+    def _filter_duplicate_recommendations(self, scored_stocks: list, pools: dict) -> str:
+        """过滤最近7天已推荐过的标的，返回重复推荐警告文本"""
+        dup_codes = set()
+        dt_now = datetime.now()
+        from datetime import timedelta
+        try:
+            verify_file = self.root / "data" / "full_sampling_verify.json"
+            if verify_file.exists():
+                import json
+                vdata = json.loads(verify_file.read_text(encoding="utf-8"))
+                recent_dates = {(dt_now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)}
+                for entry in vdata.get("stocks", []):
+                    if entry.get("entry_date", "") in recent_dates:
+                        code = str(entry.get("code", "")).strip()
+                        if code:
+                            dup_codes.add(code)
+            if self.history_dir and self.history_dir.exists():
+                for i in range(7):
+                    fp = self.history_dir / f"{(dt_now - timedelta(days=i)).strftime('%Y-%m-%d')}_决策报告.md"
+                    if fp.exists():
+                        for m in set(re.findall(r"[（(](\d{6})[）)]", fp.read_text(encoding="utf-8", errors="replace"))):
+                            dup_codes.add(m)
+        except Exception:  # 安全降级: 重复推荐检查失败→跳过，不影响决策
+            pass
+        dup_warning = ""
+        dup_names = set()
+        if dup_codes:
+            dup_in_picks = {s["code"] for s in scored_stocks if str(s.get("code", "")) in dup_codes}
+            dup_names = {s["name"] for s in scored_stocks if str(s.get("code", "")) in dup_codes and s.get("name")}
+            scored_stocks[:] = [s for s in scored_stocks if str(s.get("code", "")) not in dup_codes]
+            for pool_name, pool_data in pools.items():
+                if pool_data.get("stocks"):
+                    pool_data["stocks"] = [s for s in pool_data["stocks"]
+                                           if str(s.get("代码", s.get("股票代码", ""))) not in dup_codes]
+            if dup_in_picks:
+                plog("INFO", f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
+        return dup_warning
+
     def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
         # ── P0-2：S级操作池 T+1 过期清理 ────────────────────────
-        expired_result = self.pool_manager.clean_expired_s_pool(max_age_days=1)
-        # ── P0-2: S级过期标的→重点观察池（保留回流机会）─────
-        if expired_result.get("removed"):
-            # 加载昨日闭环追踪，查T+1表现
-            yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            t1_tracker = {}
-            t1_path = self.root / "data" / "闭环追踪" / f"{yesterday}_闭环追踪.json"
-            if t1_path.exists():
-                try:
-                    t1_data = json.loads(t1_path.read_text(encoding="utf-8"))
-                    t1_tracker = t1_data.get("stocks", {})
-                except Exception:  # 安全降级: T+1追踪文件读取失败→使用空tracker，不影响S级过期处理
-                    pass
-            for r in expired_result["removed"]:
-                r_code = r.get("代码", "")
-                # P0-7：T+1表现感知回流 — 亏损标的加大衰减，止损触发的跳过回流
-                t1_info = t1_tracker.get(r_code, {}).get("t1_performance") if r_code else None
-                skip_refeed = False
-                extra_penalty = 0
-                t1_pnl = 0
-                if t1_info:
-                    pnl = t1_info.get("pnl_pct", 0)
-                    t1_pnl = pnl
-                    hit_sl = t1_info.get("hit_stop_loss", False)
-                    verdict = t1_info.get("verdict", "")
-                    if hit_sl or (pnl is not None and pnl < -5):
-                        skip_refeed = True
-                        plog("INFO", f"  [S级回流-跳过] {r.get('名称','?')}({r_code}) T+1{verdict} pnl={pnl}%，止损触发或亏损>5%，跳过回流")
-                    elif pnl is not None and pnl < 0:
-                        extra_penalty = 10
-                        plog("INFO", f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
-                # P0: S级过期回流—等比衰减而非硬编码70分
-                original_score = r.get("综合分", 80)
-                if original_score is not None:
-                    try:
-                        decay_score = max(55, int(float(original_score) * 0.85) - extra_penalty)
-                    except (TypeError, ValueError):
-                        decay_score = 70 - extra_penalty
-                else:
-                    decay_score = max(55, 70 - extra_penalty)
-
-                if skip_refeed:
-                    # 回流到边缘池而非直接蒸发（保留观察机会）
-                    edge_stock = {
-                        "代码": r.get("代码", ""),
-                        "名称": r.get("名称", ""),
-                        "综合分": decay_score,
-                        "降级时间": datetime.now().strftime("%Y-%m-%d"),
-                        "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1f}%，触发止损），原始评分{r.get('综合分', '?')}分",
-                    }
-                    self.pool_manager.add_stock("边缘池", edge_stock)
-                    plog("INFO", f"  [S级回流-边缘池] ⬇️ {r.get('名称','?')}({r_code}) T+1表现差 → 边缘池（保留观察机会）")
-                    continue
-
-                key_stock = {
-                    "代码": r.get("代码", ""),
-                    "名称": r.get("名称", ""),
-                    "综合分": decay_score,  # 等比衰减，不硬编码70
-                    "纳入日期": datetime.now().strftime("%Y-%m-%d"),
-                    "驱动来源": r.get("driver_source", "S级过期降级"),
-                    "核心逻辑": f"源自S级操作池过期降级（原始{r.get('综合分', '?')}分→衰减{decay_score}分，停留{r.get('停留天数', 1)}天）",
-                }
-                # Gate守卫检查：跨池重复
-                dup = GateController.check_cross_pool_duplicate(r['代码'], exclude_pool="重点观察池", pool_manager=self.pool_manager)
-                if dup:
-                    r['_cross_pool'] = dup
-                    plog("INFO", f"[Gate] ⚠️ {r['名称']} 同时存在于 {dup}")
-
-                # Gate守卫检查：容量校验 + 写入规则
-                # P2-2026-06-04: S级过期回流是受控路径，显式允许跨池
-                r['allow_cross_pool'] = True
-                rule = GateController.enforce_writing_rules(r, "重点观察池", pool_manager=self.pool_manager)
-                if not rule['allowed']:
-                    plog("INFO", f"[Gate] 🚫 {r['名称']} 被守卫拦截: {rule['reason']}")
-                else:
-                    self.pool_manager.add_stock("重点观察池", key_stock)
-                    plog("INFO", f"[S级回流] ⬆️ {r['名称']}({r['代码']}) → 重点观察池（S级过期回流，{rule.get('reason','')}）")
+        self._handle_expired_s_pool()
 
         # 读取审查报告
         if review_report is None:
@@ -437,53 +450,8 @@ class DecisionAgent(BaseAgent):
         # ──────────────────────────────────────────────────────────
 
         # ═══ P0-修复（2026-06-10）：重复推荐保护 — 最近7天推荐过的标的过滤 ═══
-        dup_codes = set()
-        dup_names = set()
-        dt_now = datetime.now()
-        from datetime import timedelta
-        try:
-            verify_file = self.root / "data" / "full_sampling_verify.json"
-            if verify_file.exists():
-                import json
-                vdata = json.loads(verify_file.read_text(encoding="utf-8"))
-                recent_dates = set()
-                for i in range(7):
-                    d = (dt_now - timedelta(days=i)).strftime("%Y-%m-%d")
-                    recent_dates.add(d)
-                for entry in vdata.get("stocks", []):
-                    if entry.get("entry_date", "") in recent_dates:
-                        code = str(entry.get("code", "")).strip()
-                        if code:
-                            dup_codes.add(code)
-                            if entry.get("name"):
-                                dup_names.add(entry["name"])
-            # 降级路径2：从历史决策报告目录扫描最近7天的推荐
-            if self.history_dir and self.history_dir.exists():
-                for i in range(7):
-                    d = (dt_now - timedelta(days=i)).strftime("%Y-%m-%d")
-                    fp = self.history_dir / f"{d}_决策报告.md"
-                    if fp.exists():
-                        content = fp.read_text(encoding="utf-8", errors="replace")
-                        for m in set(re.findall(r"[（(](\d{6})[）)]", content)):
-                            dup_codes.add(m)
-        except Exception:
-            # 交易日历文件不存在→无限制天数，安全
-            pass
-        if dup_codes:
-            before = len(scored_stocks)
-            dup_in_picks = {s["code"] for s in scored_stocks if str(s.get("code","")) in dup_codes}
-            scored_stocks = [s for s in scored_stocks if str(s.get("code", "")) not in dup_codes]
-            for pool_name, pool_data in pools.items():
-                if pool_data.get("stocks"):
-                    pool_data["stocks"] = [
-                        s for s in pool_data["stocks"]
-                        if str(s.get("代码", s.get("股票代码", ""))) not in dup_codes
-                    ]
-            if dup_in_picks:
-                plog("INFO", f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
-            # 如果过滤后为空，走正常空仓逻辑（不是硬返回，让后续逻辑决定）
-        # ── P0: 构建重复推荐警告，注入LLM prompt ──────────────
-        dup_warning = ""
+        dup_warning, dup_names = self._filter_duplicate_recommendations(scored_stocks, pools)
+        # ── 重复推荐保护结束 ─────────────────────────────────
         if dup_names:
             dup_warning = (
                 f"\n\n## 🚫 7日内已推荐标的（禁止重复推荐）\n"
