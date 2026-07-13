@@ -255,6 +255,7 @@ class DecisionAgent(BaseAgent):
     def _filter_duplicate_recommendations(self, scored_stocks: list, pools: dict) -> tuple:
         """过滤最近7天已推荐过的标的，返回重复推荐警告文本"""
         dup_codes = set()
+        dup_names = set()
         dt_now = datetime.now()
         from datetime import timedelta
         try:
@@ -268,6 +269,8 @@ class DecisionAgent(BaseAgent):
                         code = str(entry.get("code", "")).strip()
                         if code:
                             dup_codes.add(code)
+                            if entry.get("name"):
+                                dup_names.add(entry["name"])
             if self.history_dir and self.history_dir.exists():
                 for i in range(7):
                     fp = self.history_dir / f"{(dt_now - timedelta(days=i)).strftime('%Y-%m-%d')}_决策报告.md"
@@ -277,7 +280,6 @@ class DecisionAgent(BaseAgent):
         except Exception:  # 安全降级: 重复推荐检查失败→跳过，不影响决策
             pass
         dup_warning = ""
-        dup_names = set()
         if dup_codes:
             dup_in_picks = {s["code"] for s in scored_stocks if str(s.get("code", "")) in dup_codes}
             dup_names = {s["name"] for s in scored_stocks if str(s.get("code", "")) in dup_codes and s.get("name")}
