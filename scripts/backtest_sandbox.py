@@ -233,13 +233,34 @@ def backtest(strategy: dict, records: list) -> dict:
         elif abs(pnl) >= 7.0:
             limit_prob = 0.7  # 近涨停/跌停70%概率成交
         import random
+        # ── B03: GateController阻塞模拟 ────────────────────
+        # 实盘历史：约15%的标的被GateController拦截（阻塞降级）
+        if random.random() < 0.15:
+            continue
+
+        # ── B02: 涨跌停成交概率过滤 ────────────────────────
+        limit_prob = 1.0
+        if abs(pnl) >= 9.0:
+            limit_prob = 0.3
+        elif abs(pnl) >= 7.0:
+            limit_prob = 0.7
         if random.random() > limit_prob:
-            continue  # 未成交，跳过
+            continue
+
+        # ── B05: 环境延迟折损 — 0.2%收益损耗 ───────────────
+        delay_cost = abs(pnl) * 0.002
 
         results["total_trades"] += 1
         # 扣除滑点与冲击成本（双边：买入+卖出）
         slippage_cost = max(abs(pnl) * slippage_pct / 100, slippage_min_pts)
-        adj_pnl = pnl - slippage_cost
+        adj_pnl = pnl - slippage_cost - delay_cost
+
+        # ── B04: 风控链 — 止损/止盈截断 ────────────────────
+        if adj_pnl < stop_loss:
+            adj_pnl = stop_loss
+        if adj_pnl > strategy.get("take_profit_pct", 20):
+            adj_pnl = strategy.get("take_profit_pct", 20)
+
         results["total_pnl"] += adj_pnl
         
         if adj_pnl > 0:
