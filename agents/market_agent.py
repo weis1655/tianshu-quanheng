@@ -60,7 +60,8 @@ def fetch_history(
         data = json.loads(raw)
         if not isinstance(data, list):
             return []
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
         return []
 
     result = []
@@ -114,7 +115,8 @@ def fetch_tencent_history(
         data = json.loads(raw)
         stock_data = list(data.get("data", {}).values())[0]
         klines = stock_data.get("qfqday") or stock_data.get("day", [])
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
         return []
 
     result = []
@@ -177,7 +179,8 @@ def fetch_em_history(
         with urllib.request.urlopen(req, timeout=10) as resp:
             raw_data = json.loads(resp.read())
         klines = raw_data.get('data', {}).get('klines', [])
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
         return []
 
     result = []
@@ -268,7 +271,8 @@ def fetch_news(symbol: str, max_items: int = 10) -> list[dict]:
             raw = resp.read().decode("utf-8", errors="replace")
         data = json.loads(raw)
         items = data.get("data", {}).get("list", [])
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
         return []
 
     # 客户端精准过滤：标题含股票代码
@@ -342,7 +346,9 @@ def validate_stock_codes(codes: list[str]) -> list[str]:
         req = urllib.request.Request(url, headers={"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             content = resp.read().decode("gbk", errors="replace").strip()
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
+        return [], []
         return []
     
     # 验证：排除"v_pv_none_match"
@@ -393,7 +399,8 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
         req = urllib.request.Request(url, headers={"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             content = resp.read().decode("gbk", errors="replace").strip()
-    except Exception:
+    except Exception as e:
+        plog("WARNING", f"[行情数据] 获取失败: {e}")
         return []
 
     results = []

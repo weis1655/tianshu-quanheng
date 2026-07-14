@@ -3,7 +3,7 @@
 """
 import json
 from datetime import datetime
-from thresholds import S_POOL_MIN_SCORE, YELLOW_ALERT_MIN, DECISION_MIN_SCORE
+from thresholds import S_POOL_MIN_SCORE, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SKEPTIC_BLOCK_LIMIT
 from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 from logger import plog
@@ -128,7 +128,7 @@ class GateController:
                     s["total_blocked_count"] = s.get("total_blocked_count", 0) + 1
                     s["last_blocked_date"] = today_str
                 # 三振出局：阻塞≥2次 → 自动移入边缘池（无新催化事件的票不再重复审查）
-                if s["blocked_count"] >= 2:
+                if s["blocked_count"] >= SKEPTIC_BLOCK_LIMIT:
                     s["_to_remove"] = True
                     demotions.append({
                         "代码": s_code,
