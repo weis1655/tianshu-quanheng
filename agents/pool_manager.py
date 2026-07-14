@@ -420,6 +420,11 @@ class PoolManager:
         return record
 
     # ── P0-2：S级操作池 T+1 过期清理 ──────────────────────
+    def clean_expired_candidates(self, max_age_days: int = 14) -> dict:
+        """清理候选池超期标的（委托给pool_cleanup模块）"""
+        from pool_cleanup import clean_expired_candidates as _clean
+        return _clean(self.pool_dir, self, max_age_days=max_age_days)
+
     def clean_expired_s_pool(self, max_age_days: int = 1) -> dict:
         """
         清理S级操作池中超过max_age_days的标的（T+1过期）
