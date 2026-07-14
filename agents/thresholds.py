@@ -14,6 +14,7 @@ SCORE_S_LEVEL = 90        # S级（极佳机会）
 SCORE_A_LEVEL = 75        # A级（审查升级门槛 / 可关注）
 SCORE_B_LEVEL = 65        # B级（黄色预警下限 / 谨慎观察）
 SCORE_C_LEVEL = 55        # C级（观察区 / 建议暂缓）
+HARD_RULE_TURNOVER_RATE = 30  # 硬规则：换手率>30%禁入
 SCORE_D_LEVEL = 0         # D级（淘汰）
 
 # 评分等级标签映射

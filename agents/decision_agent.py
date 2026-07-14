@@ -37,7 +37,7 @@ from pool_updater import PoolUpdater
 from track_recorder import TrackRecorder
 from gate_controller import GateController
 from decision_utils import extract_scores, build_empty_decision
-from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE, YELLOW_ALERT_MIN, YELLOW_ALERT_MAX
+from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE, YELLOW_ALERT_MIN, YELLOW_ALERT_MAX, SCORE_C_LEVEL, HARD_RULE_TURNOVER_RATE
 from thresholds import POSITION_PCT_STRONG, POSITION_PCT_NORMAL, POSITION_PCT_WEAK
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -1126,15 +1126,15 @@ class DecisionAgent(BaseAgent):
             # R3: 换手率 > 30%（主力出货信号，不追）
             tr = s.get("换手率", 0)
             try:
-                if float(tr) > 30:
-                    violations.append(f"换手率{tr}%>30% 禁入")
+                if float(tr) > HARD_RULE_TURNOVER_RATE:
+                    violations.append(f"换手率{tr}%>{HARD_RULE_TURNOVER_RATE}% 禁入")
             except (TypeError, ValueError):
                 pass
             # R4: 评分 < 55（C级以下不执行）
             score = s.get("composite_score", s.get("score", 0))
             try:
-                if float(score) < 55:
-                    violations.append(f"评分{score}分<55 禁入")
+                if float(score) < SCORE_C_LEVEL:
+                    violations.append(f"评分{score}分<{SCORE_C_LEVEL} 禁入")
             except (TypeError, ValueError):
                 pass
             if violations:

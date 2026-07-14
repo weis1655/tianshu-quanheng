@@ -80,7 +80,7 @@ class PoolUpdater:
                 continue
 
             # 新条目：优先从 scored_stocks 取分，fallback 正则提取
-            score = scored_map.get(code, 0) or self._extract_score(name, code, decision_result)
+            score = scored_map.get(code) if scored_map.get(code) is not None else self._extract_score(name, code, decision_result)
             s = {
                 "代码": code,
                 "名称": name,
