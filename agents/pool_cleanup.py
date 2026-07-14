@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+from logger import plog
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -35,8 +36,8 @@ if __name__ == "__main__":
     from pool_manager import PoolManager
     pm = PoolManager()
     pool_dir = pm.pool_dir
-    print(f"🧹 池清理工具 (F10)")
-    print(f"   候选池清理: {clean_expired_candidates(pool_dir, pm)['removed_count']} 只")
-    print(f"   边缘池清理: {clean_expired_edge_pool(pool_dir, pm)['removed_count']} 只")
-    print(f"   sweep扫描: {sweep_low_score_stocks(pool_dir, pm)['total_demoted']} 只")
-    print(f"✅ F10: pool_cleanup 独立模块就绪")
+    plog("INFO", f"🧹 池清理工具 (F10)")
+    plog("INFO", f"   候选池清理: {clean_expired_candidates(pool_dir, pm)['removed_count']} 只")
+    plog("INFO", f"   边缘池清理: {clean_expired_edge_pool(pool_dir, pm)['removed_count']} 只")
+    plog("INFO", f"   sweep扫描: {sweep_low_score_stocks(pool_dir, pm)['total_demoted']} 只")
+    plog("INFO", f"✅ F10: pool_cleanup 独立模块就绪")

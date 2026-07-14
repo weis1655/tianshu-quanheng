@@ -14,6 +14,7 @@ import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from logger import plog
 
 
 class QualityGate:
@@ -59,8 +60,7 @@ class QualityGate:
         if score < min_score:
             reason = f"市场状态[{state}]评分{score}分<动态阈值{min_score}分"
             failures.append(reason)
-            print(f"[QualityGate] 🚫 {name}({code}) {reason}")
-
+            plog("INFO", f"[QualityGate] 🚫 {name}({code}) {reason}")
         # ── 2. 历史表现回溯（方案A） ────────────────────────────
         history = self._get_recommendation_history(code)
         if history:
@@ -75,10 +75,9 @@ class QualityGate:
                 if adjusted_score < min_score:
                     reason = f"历史亏损{avg_return:.1f}%扣{penalty}分({score}→{adjusted_score})<阈值{min_score}"
                     failures.append(reason)
-                    print(f"[QualityGate] 🚫 {name}({code}) {reason}")
+                    plog("INFO", f"[QualityGate] 🚫 {name}({code}) {reason}")
                 else:
-                    print(f"[QualityGate] ⚠️ {name}({code}) 历史亏损{avg_return:.1f}%扣{penalty}分({score}→{adjusted_score})")
-
+                    plog("INFO", f"[QualityGate] ⚠️ {name}({code}) 历史亏损{avg_return:.1f}%扣{penalty}分({score}→{adjusted_score})")
             # 冷却期检查：上次推荐距今多久
             last_rec = history.get("last_recommend_date", "")
             if last_rec:
@@ -88,7 +87,7 @@ class QualityGate:
                     if days_since < self.RE_RECOMMEND_COOLDOWN_DAYS:
                         reason = f"上次推荐{last_rec}距今仅{days_since}天<冷却{self.RE_RECOMMEND_COOLDOWN_DAYS}天"
                         failures.append(reason)
-                        print(f"[QualityGate] 🚫 {name}({code}) {reason}")
+                        plog("INFO", f"[QualityGate] 🚫 {name}({code}) {reason}")
                 except ValueError:  # 安全降级: 数值类型转换失败→跳过该标的，不影响准入
                     pass
 
@@ -99,8 +98,7 @@ class QualityGate:
             if adjusted_score < min_score:
                 reason = f"过热拦截: {overheat.get('reason', '')} (扣{overheat.get('penalty', 0)}分)"
                 failures.append(reason)
-                print(f"[QualityGate] 🚫 {name}({code}) {reason}")
-
+                plog("INFO", f"[QualityGate] 🚫 {name}({code}) {reason}")
         # ── 4. 结论 ────────────────────────────────────────────
         if failures:
             return {
@@ -178,5 +176,5 @@ class QualityGate:
         except ImportError:  # 安全降级: ML评分模块未安装→跳过ML检查，仅用规则检查
             pass
         except Exception as e:
-            print(f"[QualityGate] ⚠️ 过热检测异常({code}): {e}")
+            plog("INFO", f"[QualityGate] ⚠️ 过热检测异常({code}): {e}")
         return None

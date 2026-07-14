@@ -292,6 +292,64 @@ class DecisionAgent(BaseAgent):
                 plog("INFO", f"[重复推荐保护] 🚫 {len(dup_in_picks)} 只标的7日内已推荐，已过滤: {dup_in_picks}")
         return dup_warning, dup_names
 
+    def _filter_limit_up(self, scored_stocks: list, pools: dict, market_env: dict, today: str, yellow_alerts: list) -> list:
+        """涨停/跌停过滤：从评分列表和池中移除封板标的"""
+        if self._limit_up_excluded_codes:
+            excluded = self._limit_up_excluded_codes
+            before_count = len(scored_stocks)
+            scored_stocks = [s for s in scored_stocks
+                             if str(s.get("code", s.get("代码", ""))) not in excluded]
+            for pool_name, pool_data in pools.items():
+                if pool_data.get("stocks"):
+                    pool_data["stocks"] = [
+                        s for s in pool_data["stocks"]
+                        if str(s.get("代码", s.get("股票代码", ""))) not in excluded
+                    ]
+            removed = before_count - len(scored_stocks)
+            if removed:
+                plog("INFO", f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
+                self.logger.info("limit_up_filtered", removed=removed, codes=list(excluded))
+            if not scored_stocks:
+                if before_count > 0:
+                    plog("INFO", "[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
+                    return self._build_empty_decision(today, pools, market_env,
+                                                       "涨停/跌停排除：所有候选标的已封板",
+                                                       yellow_alerts=yellow_alerts)
+        return scored_stocks
+
+    def _process_gate_blocks(self, blocked_codes: set, today: str):
+        """二审制Gate：被质疑拦截标的连续阻塞3次→自动降级边缘池"""
+        key_pool_file = self.root / "五池管理" / "重点观察池.json"
+        if not key_pool_file.exists():
+            return
+        key_pool_data = self.safe_read_json(key_pool_file, {})
+        if not key_pool_data.get("stocks"):
+            return
+        verdict_file = self.history_dir / f"{today}_质疑审查裁决.json"
+        verdict_data = None
+        if verdict_file.exists():
+            verdict_data = self.safe_read_json(verdict_file, {})
+        key_pool_data, demotions, resets, modified = GateController.process_focus_pool_blocked_counts(
+            key_pool_data, blocked_codes, verdict_data
+        )
+        for dm in demotions:
+            edge = {
+                "代码": dm["代码"], "名称": dm["名称"], "综合分": 60,
+                "纳入日期": datetime.now().strftime("%Y-%m-%d"),
+                "驱动来源": "连续质疑阻塞降级",
+                "核心逻辑": f"被Skeptic连续质疑阻塞{dm['count']}次",
+            }
+            self.pool_manager.add_stock("边缘池", edge)
+            plog("INFO", f"[二审制Gate] ⬇️ {dm['名称']}({dm['代码']}) → 边缘池（连续{dm['count']}次阻塞）")
+        for s in key_pool_data.get("stocks", []):
+            s_code = str(s.get("代码", s.get("股票代码", "")))
+            if s_code in blocked_codes and s.get("blocked_count", 0) > 0:
+                plog("INFO", f"[二审制Gate] 🔴 {s.get('名称','?')}({s_code}) 被阻塞第{s['blocked_count']}次")
+            elif s.get("blocked_count", 0) == 0:
+                plog("INFO", f"[二审制Gate] ✅ {s.get('名称','?')}({s_code}) 质疑通过，重置阻塞计数")
+        if modified:
+            self.safe_write_json(key_pool_file, key_pool_data)
+
     def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
@@ -425,30 +483,7 @@ class DecisionAgent(BaseAgent):
         # ──────────────────────────────────────────────────────────────
 
         # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
-        if self._limit_up_excluded_codes:
-            excluded = self._limit_up_excluded_codes
-            before_count = len(scored_stocks)
-            scored_stocks = [s for s in scored_stocks
-                             if str(s.get("code", s.get("代码", ""))) not in excluded]
-            # 同步从 pools 中移除涨停/跌停股
-            for pool_name, pool_data in pools.items():
-                if pool_data.get("stocks"):
-                    pool_data["stocks"] = [
-                        s for s in pool_data["stocks"]
-                        if str(s.get("代码", s.get("股票代码", ""))) not in excluded
-                    ]
-            removed = before_count - len(scored_stocks)
-            if removed:
-                plog("INFO", f"[涨停排除] ⛔ {removed} 只候选股已涨停/跌停，已从决策池移除: {excluded}")
-                self.logger.info("limit_up_filtered", removed=removed, codes=list(excluded))
-            if not scored_stocks:
-                if before_count > 0:
-                    # scored_stocks 本来有标的，但全被涨停排除过滤掉了
-                    plog("INFO", "[涨停排除] ✅ 所有候选股均涨停/跌停，执行空仓决策")
-                    return self._build_empty_decision(today, pools, market_env,
-                                                       "涨停/跌停排除：所有候选标的已封板",
-                                                       yellow_alerts=[])
-                # scored_stocks 本来就空（如无审查结果），不归咎于涨停——让后续流程继续评估池内标的
+        scored_stocks = self._filter_limit_up(scored_stocks, pools, market_env, today, yellow_alerts)
         # ──────────────────────────────────────────────────────────
 
         # ═══ P0-修复（2026-06-10）：重复推荐保护 — 最近7天推荐过的标的过滤 ═══

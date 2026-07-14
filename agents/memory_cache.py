@@ -19,6 +19,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from logger import plog
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -97,9 +98,7 @@ class MemoryCache:
                 continue
         
         if count:
-            print(f"清理 {count} 个过期缓存")
-
-
+            plog("INFO", f"清理 {count} 个过期缓存")
 def get_cached_analysis(drive_text: str) -> Optional[dict]:
     """获取缓存的分析结果"""
     cache = MemoryCache()
@@ -135,14 +134,13 @@ if __name__ == "__main__":
     # 测试缓存
     cache.set("test_key", {"result": "test_data"})
     result = cache.get("test_key")
-    print(f"测试缓存: {result}")
-    
+    plog("INFO", f"测试缓存: {result}")
     # 测试驱动特征提取
     drive1 = "AI算力产业链业绩验证，中际旭创一季报超预期"
     drive2 = "光模块持续高景气，通信板块增配居前"
     
-    print(f"\n驱动特征:")
-    print(f"  1: {normalize_drive(drive1)}")
-    print(f"  2: {normalize_drive(drive2)}")
-    print(f"  cache_key 1: {drive_cache_key(drive1)}")
-    print(f"  cache_key 2: {drive_cache_key(drive2)}")
+    plog("INFO", f"\n驱动特征:")
+    plog("INFO", f"  1: {normalize_drive(drive1)}")
+    plog("INFO", f"  2: {normalize_drive(drive2)}")
+    plog("INFO", f"  cache_key 1: {drive_cache_key(drive1)}")
+    plog("INFO", f"  cache_key 2: {drive_cache_key(drive2)}")

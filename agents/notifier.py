@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from logger import plog
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -43,7 +44,7 @@ def get_tenant_token() -> Optional[str]:
 
     data = resp.json()
     if data.get("code") != 0:
-        print(f"[Notifier] 获取Token失败: {data}")
+        plog("INFO", f"[Notifier] 获取Token失败: {data}")
         return None
 
     TENANT_TOKEN = data["tenant_access_token"]
@@ -75,7 +76,7 @@ def send_card(receive_id: str, card: dict) -> bool:
 
     if result.get("code") == 0:
         return True
-    print(f"[Notifier] 发送失败: {result}")
+    plog("INFO", f"[Notifier] 发送失败: {result}")
     return False
 
 
@@ -189,7 +190,7 @@ def notify_holding_alert(stock: dict, threshold: float = -3.0) -> bool:
     """发送持仓警戒通知"""
     channel = FEISHU_HOME_CHANNEL
     if not channel:
-        print("[Notifier] 未配置 FEISHU_HOME_CHANNEL，跳过推送")
+        plog("INFO", "[Notifier] 未配置 FEISHU_HOME_CHANNEL，跳过推送")
         return False
 
     card = build_holding_alert(stock, threshold)
@@ -228,17 +229,15 @@ def check_holdings_and_alert(pools: dict, threshold: float = -3.0) -> list:
         if change <= threshold:
             success = notify_holding_alert(s, threshold)
             alerted.append({**s, "alerted": success})
-            print(f"[Notifier] {'✅' if success else '❌'} 持仓警戒: {s.get('name')} {change:+.2f}%")
-
+            plog("INFO", f"[Notifier] {'✅' if success else '❌'} 持仓警戒: {s.get('name')} {change:+.2f}%")
     return alerted
 
 
 if __name__ == "__main__":
     # 测试：检查持仓并告警
-    print("[Notifier] 测试模式")
-
+    plog("INFO", "[Notifier] 测试模式")
     if not FEISHU_APP_ID:
-        print("❌ 缺少 FEISHU_APP_ID 环境变量")
+        plog("INFO", "❌ 缺少 FEISHU_APP_ID 环境变量")
         sys.exit(1)
 
     # 测试通知
@@ -248,4 +247,4 @@ if __name__ == "__main__":
         "🔗 http://localhost:8765"
     ])
     result = send_card(FEISHU_HOME_CHANNEL, test_card)
-    print(f"{'✅' if result else '❌'} 推送结果: {'成功' if result else '失败'}")
+    plog("INFO", f"{'✅' if result else '❌'} 推送结果: {'成功' if result else '失败'}")

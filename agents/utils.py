@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from requests import HTTPError, Timeout, ConnectionError
+from logger import plog
 
 # API 配置
 OPENCODE_API_URL = "https://opencode.ai/zen/v1/chat/completions"
@@ -205,4 +206,4 @@ def parse_news_date(date_str: str) -> Optional[datetime]:
 if __name__ == "__main__":
     # 测试
     result = call_llm("1+1=", max_tokens=10)
-    print(f"call_llm test: {result}")
+    plog("INFO", f"call_llm test: {result}")

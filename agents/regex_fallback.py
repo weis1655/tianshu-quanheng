@@ -8,6 +8,7 @@
 import re
 import logging
 from typing import Optional, List, Dict, Any, Tuple, Callable
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -329,8 +330,7 @@ def extract_review_info(text: str) -> Dict[str, Any]:
 
 # ── 单元测试 ──────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("=== 正则 Fallback 链测试 ===\n")
-    
+    plog("INFO", "=== 正则 Fallback 链测试 ===\n")
     # 测试股票代码提取
     test_codes = [
         "股票代码：600519\n股票名称：贵州茅台",
@@ -343,9 +343,8 @@ if __name__ == "__main__":
     extractor = create_stock_code_extractor()
     for t in test_codes:
         result = extractor.extract(t)
-        print(f"输入: {t[:40]}")
-        print(f"  结果: {result}\n")
-    
+        plog("INFO", f"输入: {t[:40]}")
+        plog("INFO", f"  结果: {result}\n")
     # 测试决策提取
     test_decision = """
     操作：建议买入
@@ -355,12 +354,11 @@ if __name__ == "__main__":
     信心度：高
     """
     result = extract_decision_info(test_decision)
-    print(f"决策提取: {result}\n")
-    
+    plog("INFO", f"决策提取: {result}\n")
     # 测试审查提取
     test_review = """
     综合评分：85
     风险等级：低风险
     """
     result = extract_review_info(test_review)
-    print(f"审查提取: {result}")
+    plog("INFO", f"审查提取: {result}")

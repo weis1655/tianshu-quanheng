@@ -16,6 +16,7 @@ from typing import Optional, Dict, Any, List
 import time
 import random
 from abc import ABC, abstractmethod
+from logger import plog
 
 # 延迟导入配置和指标，避免循环导入
 _config_loader = None
@@ -485,7 +486,7 @@ class BaseAgent(ABC):
             use_fallback = attempt > 0 and attempt == max_retries and model != fallback_model
             current_model = fallback_model if use_fallback else model
             if use_fallback:
-                print(f"[LLM降级] ⚠️ {model} 重试{max_retries}次均失败，降级至 {fallback_model}")
+                plog("INFO", f"[LLM降级] ⚠️ {model} 重试{max_retries}次均失败，降级至 {fallback_model}")
             payload["model"] = current_model
             try:
                 start_time = time.time()
@@ -557,7 +558,7 @@ class BaseAgent(ABC):
             else:
                 return default if default is not None else {}
         except Exception as e:
-            print(f"[{self.agent_name}] 读取JSON文件失败 {file_path}: {e}")
+            plog("INFO", f"[{self.agent_name}] 读取JSON文件失败 {file_path}: {e}")
             return default if default is not None else {}
     
     def safe_write_json(self, file_path: Path, data: Any, indent: int = 2) -> bool:
@@ -580,7 +581,7 @@ class BaseAgent(ABC):
             )
             return True
         except Exception as e:
-            print(f"[{self.agent_name}] 写入JSON文件失败 {file_path}: {e}")
+            plog("INFO", f"[{self.agent_name}] 写入JSON文件失败 {file_path}: {e}")
             return False
     
     def safe_read_text(self, file_path: Path, default: str = "") -> str:

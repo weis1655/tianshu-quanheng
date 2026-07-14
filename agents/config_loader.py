@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 
 from safe_file_utils import safe_read_file
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -166,16 +167,14 @@ if __name__ == "__main__":
     # 测试配置加载
     cfg = get_config()
 
-    print("=== 配置加载测试 ===")
-    print(f"API URL: {cfg.get('api.opencode_url')}")
-    print(f"默认模型: {cfg.get('api.default_model')}")
-    print(f"LLM温度: {cfg.get('api.llm.temperature')}")
-    print(f"日志级别: {cfg.get('logging.level')}")
-    print(f"自动调度: {cfg.is_feature_enabled('auto_schedule')}")
-    print(f"熔断启用: {cfg.is_feature_enabled('circuit_breaker')}")
-
+    plog("INFO", "=== 配置加载测试 ===")
+    plog("INFO", f"API URL: {cfg.get('api.opencode_url')}")
+    plog("INFO", f"默认模型: {cfg.get('api.default_model')}")
+    plog("INFO", f"LLM温度: {cfg.get('api.llm.temperature')}")
+    plog("INFO", f"日志级别: {cfg.get('logging.level')}")
+    plog("INFO", f"自动调度: {cfg.is_feature_enabled('auto_schedule')}")
+    plog("INFO", f"熔断启用: {cfg.is_feature_enabled('circuit_breaker')}")
     # 测试路径配置
-    print(f"\n池目录: {cfg.get('paths.pool_dir')}")
-    print(f"历史记录目录: {cfg.get('paths.history_dir')}")
-
-    print("\n✅ 配置加载测试完成")
+    plog("INFO", f"\n池目录: {cfg.get('paths.pool_dir')}")
+    plog("INFO", f"历史记录目录: {cfg.get('paths.history_dir')}")
+    plog("INFO", "\n✅ 配置加载测试完成")

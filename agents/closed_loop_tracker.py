@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from safe_file_utils import safe_read_json, safe_write_file
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -343,4 +344,4 @@ if __name__ == "__main__":
     tracker.record_review("600519", "贵州茅台", 72, "B级", "升级", "重点观察池")
     tracker.record_decision("600519", "贵州茅台", "主推", {"buy_price": 1700})
     
-    print(tracker.generate_report())
+    plog("INFO", tracker.generate_report())

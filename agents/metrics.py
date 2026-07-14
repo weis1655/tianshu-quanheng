@@ -14,6 +14,7 @@ from collections import defaultdict
 from threading import Lock
 
 from safe_file_utils import safe_write_file
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -258,31 +259,27 @@ if __name__ == "__main__":
     # 测试指标收集
     m = MetricsCollector()
 
-    print("=== 指标收集测试 ===")
-
+    plog("INFO", "=== 指标收集测试 ===")
     # 模拟Agent执行
     with AgentMetricsContext(m, "TestAgent"):
         time.sleep(0.1)
-        print("Agent执行中...")
-
+        plog("INFO", "Agent执行中...")
     # 模拟LLM调用
     with LLMCallMetricsContext(m, "TestAgent") as ctx:
         ctx.tokens = 1000
-        print("LLM调用中...")
-
+        plog("INFO", "LLM调用中...")
     # 记录池操作
     m.record_pool_operation("持仓池", "add")
     m.record_pool_operation("快筛候选池", "update")
 
     # 获取摘要
     summary = m.get_summary()
-    print("\n📊 指标摘要:")
-    print(f"  会话时长: {summary['session_duration_seconds']}秒")
-    print(f"  LLM调用: {summary['llm']['total_calls']}次")
-    print(f"  Agent运行: {summary['agents']['total_runs']}次")
-    print(f"  成功率: {summary['agents']['success_rate']}")
-    print(f"  池操作: {summary['pools']['total_operations']}次")
-
+    plog("INFO", "\n📊 指标摘要:")
+    plog("INFO", f"  会话时长: {summary['session_duration_seconds']}秒")
+    plog("INFO", f"  LLM调用: {summary['llm']['total_calls']}次")
+    plog("INFO", f"  Agent运行: {summary['agents']['total_runs']}次")
+    plog("INFO", f"  成功率: {summary['agents']['success_rate']}")
+    plog("INFO", f"  池操作: {summary['pools']['total_operations']}次")
     # 保存到文件
     saved_path = m.save_to_file()
-    print(f"\n✅ 指标已保存到: {saved_path}")
+    plog("INFO", f"\n✅ 指标已保存到: {saved_path}")

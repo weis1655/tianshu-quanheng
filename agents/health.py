@@ -15,6 +15,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 
 from safe_file_utils import safe_write_file, safe_read_json, safe_read_file
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -331,22 +332,18 @@ def save_health_report(filepath: Optional[Path] = None):
 
 
 if __name__ == "__main__":
-    print("=== 系统健康检查 ===\n")
-
+    plog("INFO", "=== 系统健康检查 ===\n")
     result = check_health()
 
-    print(f"🟢 健康状态: {result['status'].upper()}")
-    print(f"   检查时间: {result['checked_at']}")
-    print()
+    plog("INFO", f"🟢 健康状态: {result['status'].upper()}")
+    plog("INFO", f"   检查时间: {result['checked_at']}")
+    plog("INFO", "")
 
     for name, check in result["checks"].items():
         icon = "✅" if check["status"] == "ok" else "⚠️" if check["status"] == "warning" else "❌"
-        print(f"{icon} {name}: {check['message']}")
-
-    print()
-    print("=" * 30)
-    print(f"总计: ✅{result['summary']['ok']} ⚠️{result['summary']['warning']} ❌{result['summary']['error']}")
-
+        plog("INFO", f"{icon} {name}: {check['message']}")
+    plog("INFO", "=" * 30)
+    plog("INFO", f"总计: ✅{result['summary']['ok']} ⚠️{result['summary']['warning']} ❌{result['summary']['error']}")
     # 保存报告
     saved_path = save_health_report()
-    print(f"\n📄 报告已保存: {saved_path}")
+    plog("INFO", f"\n📄 报告已保存: {saved_path}")

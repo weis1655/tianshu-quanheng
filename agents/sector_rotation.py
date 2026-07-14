@@ -21,6 +21,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
+from logger import plog
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -82,8 +83,7 @@ def fetch_sector_data() -> List[Dict]:
                     "change_pct": change,
                 })
     except Exception as e:
-        print(f"获取板块数据失败: {e}")
-    
+        plog("INFO", f"获取板块数据失败: {e}")
     return results
 
 
@@ -162,21 +162,18 @@ def should_avoid_sectors() -> List[str]:
 
 
 if __name__ == "__main__":
-    print("=== 🌀 板块轮动跟踪 ===\n")
-    
+    plog("INFO", "=== 🌀 板块轮动跟踪 ===\n")
     result = save_sector_rotation()
     
-    print(f"日期: {result['date']}")
-    print(f"\n🔥 涨幅前3:")
+    plog("INFO", f"日期: {result['date']}")
+    plog("INFO", f"\n🔥 涨幅前3:")
     for i, s in enumerate(result["top_sectors"], 1):
-        print(f"  {i}. {s['name']}: {s['change_pct']:+.2f}%")
-    
-    print(f"\n❄️ 跌幅前3:")
+        plog("INFO", f"  {i}. {s['name']}: {s['change_pct']:+.2f}%")
+    plog("INFO", f"\n❄️ 跌幅前3:")
     for i, s in enumerate(result["bottom_sectors"], 1):
-        print(f"  {i}. {s['name']}: {s['change_pct']:+.2f}%")
-    
+        plog("INFO", f"  {i}. {s['name']}: {s['change_pct']:+.2f}%")
     focus = should_focus_sectors()
     avoid = should_avoid_sectors()
     
-    print(f"\n✅ 应关注板块: {focus if focus else '无'}")
-    print(f"⚠️ 应回避板块: {avoid if avoid else '无'}")
+    plog("INFO", f"\n✅ 应关注板块: {focus if focus else '无'}")
+    plog("INFO", f"⚠️ 应回避板块: {avoid if avoid else '无'}")

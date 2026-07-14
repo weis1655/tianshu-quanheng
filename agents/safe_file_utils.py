@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Optional, Any, Dict, List, Union
 from datetime import datetime
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -327,9 +328,9 @@ if __name__ == "__main__":
         "/home/seven/hermes-data/tianshu-quanheng/main.py",
     ])
     if findings:
-        print(f"⚠️ 发现 {len(findings)} 处敏感信息:")
+        plog("INFO", f"⚠️ 发现 {len(findings)} 处敏感信息:")
         for f in findings:
-            print(f"   {f['file']}:{f['line']} — {f['type']}")
-            print(f"      匹配: {f['match']}")
+            plog("INFO", f"   {f['file']}:{f['line']} — {f['type']}")
+            plog("INFO", f"      匹配: {f['match']}")
     else:
-        print("✅ 未发现敏感信息硬编码")
+        plog("INFO", "✅ 未发现敏感信息硬编码")

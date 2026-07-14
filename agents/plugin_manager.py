@@ -11,6 +11,7 @@ import inspect
 from pathlib import Path
 from typing import Dict, Type, List, Optional, Callable
 from dataclasses import dataclass, field
+from logger import plog
 
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -57,14 +58,12 @@ class PluginRegistry:
     def register(self, plugin: AgentPlugin):
         """注册插件"""
         self._plugins[plugin.name] = plugin
-        print(f"📦 插件已注册: {plugin.name} ({plugin.class_name})")
-
+        plog("INFO", f"📦 插件已注册: {plugin.name} ({plugin.class_name})")
     def unregister(self, name: str):
         """注销插件"""
         if name in self._plugins:
             del self._plugins[name]
-            print(f"📦 插件已注销: {name}")
-
+            plog("INFO", f"📦 插件已注销: {name}")
     def get(self, name: str) -> Optional[AgentPlugin]:
         """获取插件"""
         return self._plugins.get(name)
@@ -160,7 +159,7 @@ class PluginRegistry:
                 continue
 
         self._discovered = True
-        print(f"\n🔍 插件发现完成: 共发现 {count} 个 Agent")
+        plog("INFO", f"\n🔍 插件发现完成: 共发现 {count} 个 Agent")
         return count
 
     def _load_plugin_class(self, plugin: AgentPlugin):
@@ -177,8 +176,7 @@ class PluginRegistry:
 
             plugin.cls = getattr(module, class_name)
         except Exception as e:
-            print(f"❌ 加载插件 {plugin.name} 失败: {e}")
-
+            plog("INFO", f"❌ 加载插件 {plugin.name} 失败: {e}")
     def create_instance(self, name: str, **kwargs) -> Optional[any]:
         """创建插件实例"""
         cls = self.get_class(name)
@@ -241,17 +239,15 @@ def agent_plugin(name: str = None, description: str = "", version: str = "1.0.0"
 
 
 if __name__ == "__main__":
-    print("=== Agent 插件发现 ===\n")
-
+    plog("INFO", "=== Agent 插件发现 ===\n")
     registry = get_registry()
     count = registry.discover()
 
-    print("\n📋 已注册的 Agent:")
+    plog("INFO", "\n📋 已注册的 Agent:")
     for plugin in registry.list_all():
         status = "✅" if plugin.enabled else "❌"
-        print(f"  {status} {plugin.name}")
+        plog("INFO", f"  {status} {plugin.name}")
         if plugin.description:
             desc = plugin.description.split("\n")[0][:50]
-            print(f"     {desc}...")
-
-    print(f"\n总计: {len(registry.list_all())} 个 Agent ({len(registry.list_enabled())} 已启用)")
+            plog("INFO", f"     {desc}...")
+    plog("INFO", f"\n总计: {len(registry.list_all())} 个 Agent ({len(registry.list_enabled())} 已启用)")

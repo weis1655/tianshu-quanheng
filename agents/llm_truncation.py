@@ -11,6 +11,7 @@ import re
 import logging
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -309,11 +310,10 @@ if __name__ == "__main__":
     
     """ + "\n".join([f"第{i}行补充内容：这是为了测试截断功能而添加的冗余文本，应该被智能过滤掉。" for i in range(200)])
     
-    print(f"原始文本: {len(long_text)} 字符, 估算 {estimate_token_count(long_text)} tokens\n")
-    
+    plog("INFO", f"原始文本: {len(long_text)} 字符, 估算 {estimate_token_count(long_text)} tokens\n")
     result = truncate_for_llm(long_text, max_tokens=4000, model_type="pro")
-    print(f"策略: {result.strategy}")
-    print(f"原始: {result.original_length} → 处理后: {result.processed_length}")
-    print(f"警告: {result.warnings}")
-    print(f"元数据: {result.metadata}")
-    print(f"\n处理后内容前200字符: {result.content[:200]}")
+    plog("INFO", f"策略: {result.strategy}")
+    plog("INFO", f"原始: {result.original_length} → 处理后: {result.processed_length}")
+    plog("INFO", f"警告: {result.warnings}")
+    plog("INFO", f"元数据: {result.metadata}")
+    plog("INFO", f"\n处理后内容前200字符: {result.content[:200]}")

@@ -22,6 +22,7 @@ from typing import Optional, List, Dict
 from collections import defaultdict
 
 from safe_file_utils import safe_read_json, safe_write_file
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -455,8 +456,6 @@ def run():
         recommendation="建议关注", confidence="高",
         reason="卫星互联网绝对龙头"
     )
-    print(evo.summarize())
-
-
+    plog("INFO", evo.summarize())
 if __name__ == "__main__":
     run()

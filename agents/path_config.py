@@ -19,6 +19,7 @@ import yaml
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -276,19 +277,17 @@ def history_file(filename: str) -> Path:
 # ── 单元测试 ──────────────────────────────────────────────────────
 if __name__ == "__main__":
     pc = PathConfig()
-    print(f"=== 路径配置中心测试 ===")
-    print(f"项目根目录: {pc.root}")
-    print(f"五池目录: {pc.pools_dir}")
-    print(f"数据目录: {pc.data_dir}")
-    print(f"历史目录: {pc.history_dir}")
-    print(f"\n池文件:")
+    plog("INFO", f"=== 路径配置中心测试 ===")
+    plog("INFO", f"项目根目录: {pc.root}")
+    plog("INFO", f"五池目录: {pc.pools_dir}")
+    plog("INFO", f"数据目录: {pc.data_dir}")
+    plog("INFO", f"历史目录: {pc.history_dir}")
+    plog("INFO", f"\n池文件:")
     for name, path in pc.get_all_pool_files().items():
-        print(f"  {name}: {path}")
-    print(f"\n便捷函数:")
-    print(f"  pool_file('持仓池'): {pool_file('持仓池')}")
-    print(f"  data_file('test.json'): {data_file('test.json')}")
-
-
+        plog("INFO", f"  {name}: {path}")
+    plog("INFO", f"\n便捷函数:")
+    plog("INFO", f"  pool_file('持仓池'): {pool_file('持仓池')}")
+    plog("INFO", f"  data_file('test.json'): {data_file('test.json')}")
 def ensure_agent_paths():
     """统一添加 agents/ 和项目根目录到 sys.path（替代各文件头部的冗余插入）"""
     import sys

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from safe_file_utils import safe_read_json
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,8 @@ def run(stocks_file: str = None):
 if __name__ == "__main__":
     result = run()
     if result["success"]:
-        print(f"✅ 研报分析完成 | {result['count']}只股票")
+        plog("INFO", f"✅ 研报分析完成 | {result['count']}只股票")
         for s in result["analyzed"]:
-            print(f"  {s['代码']} {s['名称']}: 基本面{int(s['基本面评分']['fundamental_score'])}分")
+            plog("INFO", f"  {s['代码']} {s['名称']}: 基本面{int(s['基本面评分']['fundamental_score'])}分")
     else:
-        print(f"❌ {result.get('error', 'error')}")
+        plog("INFO", f"❌ {result.get('error', 'error')}")

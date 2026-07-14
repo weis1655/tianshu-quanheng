@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional, List, Tuple, Set
+from logger import plog
 
 logger = logging.getLogger(__name__)
 
@@ -276,24 +277,20 @@ def update_holiday(date_str: str, holiday_type: str, name: str = "") -> None:
 # ── 单元测试 ──────────────────────────────────────────────────────
 if __name__ == "__main__":
     today = date.today()
-    print(f"=== 交易日历工具测试 ===")
-    print(f"今天: {today} ({['一','二','三','四','五','六','日'][today.weekday()]})")
-    print(f"是否交易日: {'✅' if is_trading_day(today) else '❌'}")
-    
+    plog("INFO", f"=== 交易日历工具测试 ===")
+    plog("INFO", f"今天: {today} ({['一','二','三','四','五','六','日'][today.weekday()]})")
+    plog("INFO", f"是否交易日: {'✅' if is_trading_day(today) else '❌'}")
     # 测试最近交易日
     prev = get_prev_trading_day(today)
-    print(f"上一个交易日: {prev}")
-    
+    plog("INFO", f"上一个交易日: {prev}")
     # 测试未来交易日
     next_day = get_next_trading_day(today)
-    print(f"下一个交易日: {next_day}")
-    
+    plog("INFO", f"下一个交易日: {next_day}")
     # 测试最近5个交易日
     recent = get_trading_days_backward(today, 5)
-    print(f"最近5个交易日: {[str(d) for d in recent]}")
-    
+    plog("INFO", f"最近5个交易日: {[str(d) for d in recent]}")
     # 测试本月交易日
     first = today.replace(day=1)
     last = (first + timedelta(days=32)).replace(day=1) - timedelta(days=1)
     month_days = get_trading_days(first, last)
-    print(f"{first.month}月交易日: {len(month_days)}天 {[str(d) for d in month_days]}")
+    plog("INFO", f"{first.month}月交易日: {len(month_days)}天 {[str(d) for d in month_days]}")

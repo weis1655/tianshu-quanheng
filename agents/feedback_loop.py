@@ -20,6 +20,7 @@ from market_agent import fetch_quotes
 from base_agent import BaseAgent, add_market_prefix
 from pool_manager import PoolManager
 from logger import get_logger
+from logger import plog
 
 cfg = PathConfig()
 
@@ -350,4 +351,4 @@ class FeedbackLoop:
 if __name__ == "__main__":
     agent = FeedbackLoopAgent()
     result = agent.run()
-    print(f"\n执行完成: {result.get('success')}")
+    plog("INFO", f"\n执行完成: {result.get('success')}")

@@ -25,6 +25,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 
 from pool_manager import PoolManager
 from logger import StructuredLogger
+from logger import plog
 
 
 class Orchestrator:
@@ -134,6 +135,6 @@ if __name__ == "__main__":
     # Orchestrator 供 main.py 调用，不独立运行（run()已删除）
     orch = Orchestrator()
     pools = orch.get_pools()
-    print("=== 当前池状态 ===")
+    plog("INFO", "=== 当前池状态 ===")
     for name, data in pools.items():
-        print(f"{name}: {len(data.get('stocks', []))} 只")
+        plog("INFO", f"{name}: {len(data.get('stocks', []))} 只")

@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
+from logger import plog
 
 
 class TrackRecorder:
@@ -99,11 +100,10 @@ class TrackRecorder:
                     expected_logic=expected_logic,
                     is_executed='此方案由兜底引擎自动生成' not in decision_result,
                 )
-            print(f"[TrackRecorder] ✅ 已记录 {len(actionable)} 只标的决策到复盘系统")
+            plog("INFO", f"[TrackRecorder] ✅ 已记录 {len(actionable)} 只标的决策到复盘系统")
         except Exception as e:
             # 不用logger打印，因为logger可能不存在
-            print(f"[TrackRecorder] ⚠️ 记录决策异常: {e}")
-
+            plog("INFO", f"[TrackRecorder] ⚠️ 记录决策异常: {e}")
     def evaluate_s_pool(self) -> Optional[str]:
         """评价S级操作池历史命中率，返回 Markdown 文本"""
         if not self.pool_manager:
@@ -123,7 +123,7 @@ class TrackRecorder:
                 f"| 平均涨跌幅 | {s_eval.get('avg_change', 0):+.2f}% |\n"
             )
         except Exception as e:
-            print(f"[TrackRecorder] ⚠️ S级历史评价异常: {e}")
+            plog("INFO", f"[TrackRecorder] ⚠️ S级历史评价异常: {e}")
             return None
 
     def record_s_pool_eval(self, report: str, out_file: Path) -> str:
@@ -157,4 +157,4 @@ class TrackRecorder:
                     },
                 )
         except Exception as e:
-            print(f"[TrackRecorder] ⚠️ 闭环追踪记录异常: {e}")
+            plog("INFO", f"[TrackRecorder] ⚠️ 闭环追踪记录异常: {e}")
