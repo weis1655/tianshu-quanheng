@@ -299,17 +299,26 @@ class FeedbackLoopAgent(BaseAgent):
         if not log or "决策记录" not in log:
             return
 
-        today_records = [r for r in log["决策记录"] if r.get("日期") == today_str]
-        if not today_records:
-            self.logger.info("[反馈闭环] 当天无决策记录")
+        # ── F07: 扩展回填窗口到过去7天 ─────────────────────────
+        from datetime import timedelta
+        window_days = 7
+        cutoff = (datetime.now() - timedelta(days=window_days)).strftime("%Y-%m-%d")
+        pending_records = [
+            r for r in log["决策记录"]
+            if r.get("实际结果") is None
+            and cutoff <= (r.get("日期") or "") <= today_str
+        ]
+        if not pending_records:
+            self.logger.info(f"[反馈闭环] 近{window_days}天无可回填的决策记录")
             return
+        self.logger.info(f"[反馈闭环] 近{window_days}天有{len(pending_records)}条待回填")
 
         # 持仓代码 -> 盈亏映射
         code_to_pnl = {h.get("code", ""): h.get("pnl_pct", 0) for h in (holdings_data or [])}
 
         # 步骤1: 回写有对应持仓的决策（update_result 自行读写磁盘）
         matched_codes = set()
-        for r in today_records:
+        for r in pending_records:
             if r.get("实际结果") is not None:
                 continue
             sc = r.get("股票代码", "")
@@ -320,7 +329,7 @@ class FeedbackLoopAgent(BaseAgent):
 
         # 步骤2: 标记无持仓的决策为"已观察未操作"（重新加载，避免覆盖步骤1的写入）
         observed_codes = [
-            r.get("股票代码", "") for r in today_records
+            r.get("股票代码", "") for r in pending_records
             if r.get("实际结果") is None and r.get("股票代码", "") not in matched_codes
         ]
         if observed_codes:

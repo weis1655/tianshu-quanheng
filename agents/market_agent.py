@@ -660,6 +660,28 @@ def calculate_qlib_factors(stock: dict) -> dict:
             "factor_turn": turn,
         }
 
+        # ── F06: 基本面因子（从行情数据提取）───────────────
+        pe = stock.get("市盈率_TTM", stock.get("pe_ttm", 0))
+        try:
+            pe = float(pe) if pe not in (None, "", 0) else 0
+        except (ValueError, TypeError):
+            pe = 0
+        if pe > 0:
+            # PE分位数：当前PE相对历史的高低位置（0-100）
+            # 简化：PE<15→低估(高分), PE>40→高估(低分)
+            pe_score = max(0, min(100, (1 - (pe - 15) / 40) * 100)) if pe > 15 else 100
+            factors["pe_ttm_score"] = round(pe_score, 1)
+        else:
+            factors["pe_ttm_score"] = 0
+        
+        pb = stock.get("市净率", stock.get("pb", 0))
+        try:
+            pb = float(pb) if pb not in (None, "", 0) else 0
+        except (ValueError, TypeError):
+            pb = 0
+        factors["pb"] = pb
+        factors["pe_ttm"] = pe
+
         # ML额外因子: 振幅 + 相对20日线位置
         high = float(hist[-1].get("最高", closes[-1]))
         low = float(hist[-1].get("最低", closes[-1]))
