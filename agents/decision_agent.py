@@ -1598,7 +1598,7 @@ class DecisionAgent(BaseAgent):
             return ""
         lines = []
         for s in stocks[:10]:  # 最多10只
-            flag = "✅" if s["score"] >= 75 else "🟡" if s["score"] >= 60 else "🔴"
+            flag = "✅" if s["score"] >= DECISION_MIN_SCORE else "🟡" if s["score"] >= YELLOW_ALERT_MIN else "🔴"
             passed = "通过审查" if s["passed"] else "待观察"
             lines.append(f"- {flag} {s['name']}({s['code']}) 综合评分:{s['score']}分 [{passed}]")
         return "\n".join(lines)
