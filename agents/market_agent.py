@@ -641,14 +641,14 @@ def calculate_qlib_factors(stock: dict) -> dict:
         # 6. TURN: 当日量比 (volume)
         turn = round(float(volumes[-1] / (np.mean(volumes[-5:]) + 1)), 2) if len(volumes) >= 5 else 0
 
-        # ── 综合信号打分（6因子，各1分）─────────────────
+        # ── 综合信号打分（4独立因子，去冗余后）───────────
+        # 移除: MA10(与MA5重复), RET5(与RET20重复), VOL20(与TURN矛盾)
+        # 新增: PE分位数(基本面)
         signals = sum([
-            ma5 > 1.02,       # 短期均线趋势向上
-            ret5 > 0.02,      # 5日正收益
-            turn > 1.2,       # 放量
-            vol20 < 0.3,      # 低波动
-            ret20 > 0.03,     # 中期趋势向上
-            ma10 > 1.02,      # 中期均线向上
+            ma5 > 1.02,       # 因子1: 短期均线趋势向上(独立)
+            ret20 > 0.03,     # 因子2: 中期趋势向上(独立)
+            turn > 1.2,       # 因子3: 放量(独立)
+            ma5 > ma10,       # 因子4: 短期强于中期(趋势强化信号, 替代VOL20)
         ])
 
         factors = {
