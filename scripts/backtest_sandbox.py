@@ -66,13 +66,19 @@ def load_historical_decisions(days=60) -> list:
         try:
             log = json.loads(log_path.read_text(encoding="utf-8"))
             for r in log.get("决策记录", []):
+                pnl_val = r.get("实际结果")
+                try:
+                    pnl_val = float(pnl_val) if pnl_val not in (None, "") else 0
+                except (ValueError, TypeError):
+                    pnl_val = 0
                 records.append({
-                    "code": r.get("股票代码", ""),
-                    "name": r.get("股票名称", ""),
-                    "date": r.get("日期", ""),
-                    "score": r.get("评分", 0),
-                    "source": "decision_log",
-                })
+                        "code": r.get("股票代码", ""),
+                        "name": r.get("股票名称", ""),
+                        "date": r.get("日期", ""),
+                        "score": r.get("评分", r.get("技术面评分", 0)),
+                        "pnl": pnl_val,
+                        "source": "decision_log",
+                    })
             # 加入已验证盈亏记录
             for v in log.get("验证记录", []):
                 records.append({
@@ -143,6 +149,29 @@ def load_historical_decisions(days=60) -> list:
         except Exception:
             pass
 
+    # Source 4: 标准化决策日志 data/decision_log.json（优先使用有实际盈亏的记录）
+    std_log = PROJECT_ROOT / "data" / "decision_log.json"
+    if std_log.exists():
+        try:
+            std = json.loads(std_log.read_text(encoding="utf-8"))
+            if isinstance(std, list):
+                for r in std:
+                    ts = r.get("tech_score", 0) or 0
+                    fs = r.get("fundamental_score", 0) or 0
+                    score = max(ts, fs)
+                    pnl = r.get("actual_pnl")
+                    if pnl not in (None, 0, "", 0.0):
+                        records.append({
+                            "code": r.get("code", ""),
+                            "name": r.get("name", ""),
+                            "date": r.get("date", ""),
+                            "pnl": float(pnl),
+                            "score": score,
+                            "source": "std_log",
+                        })
+        except Exception as e:
+            print(f"  ⚠️ 标准化决策日志加载失败: {e}")
+
     # 去重
     seen = set()
     unique = []
@@ -197,6 +226,16 @@ def backtest(strategy: dict, records: list) -> dict:
         if pnl == 0:
             continue  # 未验证跳过
 
+        # 涨跌停成交概率过滤：极端涨跌幅（>9%）的标的成交概率降低
+        limit_prob = 1.0
+        if abs(pnl) >= 9.0:
+            limit_prob = 0.3  # 涨停/跌停附近仅30%概率成交
+        elif abs(pnl) >= 7.0:
+            limit_prob = 0.7  # 近涨停/跌停70%概率成交
+        import random
+        if random.random() > limit_prob:
+            continue  # 未成交，跳过
+
         results["total_trades"] += 1
         # 扣除滑点与冲击成本（双边：买入+卖出）
         slippage_cost = max(abs(pnl) * slippage_pct / 100, slippage_min_pts)
@@ -208,7 +247,7 @@ def backtest(strategy: dict, records: list) -> dict:
         else:
             results["losses"] += 1
         # 记录到分数区间
-        score_key = int(score / 10) * 10
+        score_key = f"{int(score/10)*10}-{int(score/10)*10+9}"
         results["by_score_range"][score_key].append(adj_pnl)
 
         # 按评分区间统计
