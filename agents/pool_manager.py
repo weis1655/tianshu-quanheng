@@ -1126,6 +1126,7 @@ class PoolManager:
                 })
             edge_pool["stocks"] = edge_stocks
             edge_pool["统计"]["累计进入"] = edge_pool.get("统计", {}).get("累计进入", 0) + len(to_demote)
+            edge_pool["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self.save_pool("边缘池", edge_pool)
             # 更新统计
             data["统计"]["持仓数"] = len(remaining)
