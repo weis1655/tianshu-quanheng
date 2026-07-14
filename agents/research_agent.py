@@ -27,7 +27,9 @@ def search_research_reports(code: str, name: str, limit: int = 3) -> dict:
     搜索券商研报（通过搜索引擎）
     """
     query = f"{name} {code} 券商研报 买入评级"
-    cmd = f'curl -sL --max-time 15 "https://duckduckgo.com/html/?q={query}&format=json"'
+    import shlex
+    safe_query = shlex.quote(query)
+    cmd = f'curl -sL --max-time 15 "https://duckduckgo.com/html/?q={safe_query}&format=json"'
     
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, timeout=20)

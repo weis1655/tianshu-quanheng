@@ -29,7 +29,7 @@ from pool_manager import PoolManager
 from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
 from schemas import REVIEW_SCHEMA
-from thresholds import AUTO_DOWNGRADE_SCORE, HARD_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, score_to_level
+from thresholds import AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, score_to_level
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))

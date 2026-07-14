@@ -1116,7 +1116,13 @@ class DecisionAgent(BaseAgent):
             name_str = s.get("名称", s.get("股票名称", plan.name or "")).upper()
             if "ST" in name_str or "*ST" in name_str:
                 violations.append(f"ST/*ST 禁入")
-            # R2: 流通市值 < 5亿（无数据时保守放行，依赖审查已筛）
+            # R2: 流通市值 < 5亿（有数据时执行，无数据时保守放行）
+            mkt_cap = s.get("流通市值", s.get("market_cap", 0))
+            try:
+                if float(mkt_cap) > 0 and float(mkt_cap) < 5:
+                    violations.append(f"流通市值{mkt_cap}亿<5亿 禁入")
+            except (TypeError, ValueError):
+                pass  # 无数据时放行，依赖审查已筛
             # R3: 换手率 > 30%（主力出货信号，不追）
             tr = s.get("换手率", 0)
             try:
