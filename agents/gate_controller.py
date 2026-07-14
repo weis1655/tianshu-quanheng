@@ -15,10 +15,12 @@ _LOG_CRITICAL = "INFO"     # 强制三振等关键事件保持INFO
 
 
 def _plog(level: str, msg: str):
-    """日志降级：高频INFO→DEBUG，关键事件保持INFO"""
-    if level == "INFO" and _GATE_LOG_LEVEL == "DEBUG":
-        level = "DEBUG"
-    plog(level, msg)
+    """高频场景日志静默：候选池扫描（20只×多阶段）不打印任何stdout。
+    关键事件（三振/阻塞）仍通过_plog_critical保持INFO可见。
+    """
+    # 直接静默——高频check的INFO/DEBUG全部跳过stdout输出
+    # 不影响业务逻辑，仅消除日志I/O瓶颈和终端刷屏
+    pass
 
 
 def _plog_critical(msg: str):
