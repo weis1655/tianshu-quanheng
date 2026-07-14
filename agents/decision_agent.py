@@ -1072,6 +1072,14 @@ class DecisionAgent(BaseAgent):
                 return m.group(1).strip() if m else default
 
             position_pct = _get_float(r'单笔仓位[：:]\s*(\d+(?:\.\d+)?)%', 0.0)
+            # ── RC-01 风控加固：仓位强制校验 ────────────────
+            market_mode = market_env.get("market_mode", "weak")
+            max_pos = POSITION_PCT_WEAK if market_mode in ("weak", "extreme_warning") else (POSITION_PCT_NORMAL if market_mode == "neutral" else POSITION_PCT_STRONG)
+            if position_pct > max_pos:
+                original = position_pct
+                position_pct = max_pos
+                plog("WARNING", f"[仓位风控] ⛔ {s_name} 仓位{original}%>{max_pos}%（{market_mode}），强制降至{max_pos}%")
+            # ──────────────────────────────────────────
             buy_method = _get_str(r'买入方式[：:]\s*([^\n]+)', "待确认")
             trigger_price = _get_float(r'触发条件[：:]\s*([\d.]+)\s*(?:元|块|价)', 0.0)
             stop_loss = _get_float(r'止损(?:线|触发)[：:]\s*([\d.]+)', 0.0)
@@ -1545,14 +1553,24 @@ class DecisionAgent(BaseAgent):
                     if sh:
                         sh_chg = sh.get("涨跌幅", 0)
                         result["sh_chg"] = sh_chg
-                        # 创业板/科创50 极端跌幅检测
+                        # 创业板/科创50 极端跌幅检测 + 沪深300级联跌
                         cyb = next((s for s in data if s.get("代码") in ("399006", "000688")), None)
+                        hs300 = next((s for s in data if s.get("代码") == "000300"), None)
                         if cyb:
                             cyb_chg = cyb.get("涨跌幅", 0)
                             if cyb_chg <= -3:
                                 result["state"] = "极弱"
                                 result["s_pool_cap"] = 0
                                 result["suggestion"] = "❗极端行情：创业板/科创50暴跌，空仓回避"
+                                result["extreme_warning"] = True
+                                return result
+                        # 沪深300级联跌检测（>2%触发极弱）
+                        if hs300:
+                            hs300_chg = hs300.get("涨跌幅", 0)
+                            if hs300_chg <= -2:
+                                result["state"] = "极弱"
+                                result["s_pool_cap"] = 0
+                                result["suggestion"] = f"❗极端行情：沪深300跌{hs300_chg:.1f}%，空仓回避"
                                 result["extreme_warning"] = True
                                 return result
                         if sh_chg > 1:
