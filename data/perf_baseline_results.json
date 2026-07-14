@@ -1,0 +1,163 @@
+[
+  {
+    "name": "行情-单标的",
+    "category": "行情链路",
+    "result": 129.97,
+    "unit": "ms",
+    "details": "平均3次"
+  },
+  {
+    "name": "行情-批量20只",
+    "category": "行情链路",
+    "result": 124.016,
+    "unit": "ms",
+    "details": "返回1条, 6.2ms/只"
+  },
+  {
+    "name": "行情-缓存首次",
+    "category": "行情链路",
+    "result": 131.918,
+    "unit": "ms",
+    "details": "缓存未命中"
+  },
+  {
+    "name": "行情-缓存命中",
+    "category": "行情链路",
+    "result": 107.545,
+    "unit": "ms",
+    "details": "缓存命中, 相比首次81.52%"
+  },
+  {
+    "name": "因子-技术指标单只",
+    "category": "计算链路",
+    "result": 0.001,
+    "unit": "ms",
+    "details": "100次平均"
+  },
+  {
+    "name": "因子-Qlib单只",
+    "category": "计算链路",
+    "result": 2.585,
+    "unit": "ms",
+    "details": "100次平均"
+  },
+  {
+    "name": "因子-批量20只技术指标",
+    "category": "计算链路",
+    "result": 0.059,
+    "unit": "ms",
+    "details": "0.0ms/只"
+  },
+  {
+    "name": "信号-筛选Agent",
+    "category": "信号链路",
+    "result": 0.321,
+    "unit": "ms",
+    "details": "mock模式"
+  },
+  {
+    "name": "信号-过热检测",
+    "category": "信号链路",
+    "result": 0.001,
+    "unit": "ms",
+    "details": "500次平均"
+  },
+  {
+    "name": "交易-DecisionAgent初始化",
+    "category": "交易链路",
+    "result": 2.714,
+    "unit": "ms",
+    "details": "含文件加载"
+  },
+  {
+    "name": "交易-市场状态检测",
+    "category": "交易链路",
+    "result": 0.082,
+    "unit": "ms",
+    "details": "500次平均"
+  },
+  {
+    "name": "交易-GateController检查",
+    "category": "交易链路",
+    "result": 0.003,
+    "unit": "ms",
+    "details": "1000次平均"
+  },
+  {
+    "name": "交易-熔断器call()",
+    "category": "交易链路",
+    "result": 0.002,
+    "unit": "ms",
+    "details": "10000次平均"
+  },
+  {
+    "name": "存储-JSON读取696KB",
+    "category": "存储链路",
+    "result": 5.83,
+    "unit": "ms",
+    "details": "10次平均"
+  },
+  {
+    "name": "存储-JSON写入696KB",
+    "category": "存储链路",
+    "result": 7.828,
+    "unit": "ms",
+    "details": "吞吐88963.1KB/s"
+  },
+  {
+    "name": "存储-批量50文件写入",
+    "category": "存储链路",
+    "result": 2.674,
+    "unit": "ms",
+    "details": "0.1ms/文件"
+  },
+  {
+    "name": "存储-批量50文件读取",
+    "category": "存储链路",
+    "result": 1.303,
+    "unit": "ms",
+    "details": "0.0ms/文件"
+  },
+  {
+    "name": "存储-共享内存加载(0KB)",
+    "category": "存储链路",
+    "result": 0.026,
+    "unit": "ms",
+    "details": "100次平均"
+  },
+  {
+    "name": "并发-因子100只(2线程)",
+    "category": "并发场景",
+    "result": 5.701,
+    "unit": "ms",
+    "details": "0.06ms/只"
+  },
+  {
+    "name": "并发-因子100只(4线程)",
+    "category": "并发场景",
+    "result": 4.464,
+    "unit": "ms",
+    "details": "0.04ms/只"
+  },
+  {
+    "name": "并发-因子100只(8线程)",
+    "category": "并发场景",
+    "result": 8.543,
+    "unit": "ms",
+    "details": "0.09ms/只"
+  },
+  {
+    "name": "并发-因子100只(单线程基线)",
+    "category": "并发场景",
+    "result": 0.102,
+    "unit": "ms",
+    "details": "0.00ms/只"
+  },
+  {
+    "name": "内存-1000次循环因子计算",
+    "category": "并发场景",
+    "result": 1.438,
+    "unit": "KB",
+    "details": "净增内存(KB)"
+  }
+]

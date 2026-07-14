@@ -204,7 +204,12 @@ def bench_overheat_detector():
             "代码": "300750", "名称": "测试", "涨跌幅": 9.8, "综合分": 80,
             "流通市值": 10000000000, "历史数据": {"days": [{"涨跌幅": 5, "close": 100} for _ in range(30)]},
         }
-        def fn(): return detector.detect(stock)
+        def fn():
+            return OverheatDetector.detect(
+                change_pct=9.8, pe_ttm=25, turnover=3.5, volume_ratio=1.2,
+                month_chg=5.0, quarter_chg=8.0, composite_score=80,
+                amplitude=2.0, market_state="震荡"
+            )
         times = timeit.timeit(fn, number=500)
         avg_ms = times / 500 * 1000
         record("信号-过热检测", "信号链路", avg_ms, "ms", "500次平均")

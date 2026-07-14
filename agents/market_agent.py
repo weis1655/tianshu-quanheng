@@ -12,6 +12,7 @@ Market Agent - 行情数据 Agent
 import re
 import subprocess
 import json
+import functools
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -85,6 +86,7 @@ def fetch_history(
 # 返回: 包含今日最新K线
 # =============================================================================
 
+@functools.lru_cache(maxsize=128)
 def fetch_tencent_history(
     symbol: str,
     num: int = 20,
