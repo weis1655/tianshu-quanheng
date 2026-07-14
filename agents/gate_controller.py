@@ -8,6 +8,23 @@ from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 from logger import plog
 
+# 日志级别门槛：INFO仅在首次阻塞等关键事件输出；高频check仅DEBUG
+# 避免候选池扫描（20只×多阶段）产生数千条INFO日志
+_GATE_LOG_LEVEL = "DEBUG"  # 降低高频INFO为DEBUG，关键事件单独用INFO
+_LOG_CRITICAL = "INFO"     # 强制三振等关键事件保持INFO
+
+
+def _plog(level: str, msg: str):
+    """日志降级：高频INFO→DEBUG，关键事件保持INFO"""
+    if level == "INFO" and _GATE_LOG_LEVEL == "DEBUG":
+        level = "DEBUG"
+    plog(level, msg)
+
+
+def _plog_critical(msg: str):
+    """关键事件（强制三振）保持INFO级别"""
+    plog("INFO", msg)
+
 class GateController:
     """Gate controller - 纯函数，无副作用（写盘由调用方执行）"""
 
@@ -84,7 +101,7 @@ class GateController:
                     days_since = (datetime.now() - last_date).days
                     if days_since >= 14:
                         s["blocked_count"] = max(1, blocked_count - 1)
-                        plog("INFO", f"  [GateController] ⏳ {s.get('名称','?')}({s_code}) 阻塞计数衰减: "
+                        _plog("INFO", f"  [GateController] ⏳ {s.get('名称','?')}({s_code}) 阻塞计数衰减: "
                               f"上次阻塞{days_since}天前，计数{blocked_count}→{s['blocked_count']}")
                         modified = True
                 except ValueError:  # 安全降级: 字段类型转换失败→跳过该标的，不影响准入
@@ -103,7 +120,7 @@ class GateController:
                             "count": total_blocks,
                         })
                         modified = True
-                        plog("INFO", f"  [GateController] 🔴 {s.get('名称','?')}({s_code}) 累计{total_blocks}次阻塞≥60天，强制三振")
+                        _plog_critical(f"  [GateController] 🔴 {s.get('名称','?')}({s_code}) 累计{total_blocks}次阻塞≥60天，强制三振")
                         continue
                 except ValueError:  # 安全降级: 字段类型转换失败→跳过该标的，不影响准入
                     pass
@@ -115,7 +132,7 @@ class GateController:
                     # 首次high不阻断，标记为"观察中"但计数不变
                     s["_observed"] = True
                     s["_first_block_reason"] = block_reasons.get(s_code, "high_threshold")
-                    plog("INFO", f"  [GateController] 👁️ {s.get('名称','?')}({s_code}) 首次high不阻断（观察中）")
+                    _plog("INFO", f"  [GateController] 👁️ {s.get('名称','?')}({s_code}) 首次high不阻断（观察中）")
                     modified = True
                     continue  # 跳过阻塞计数，给一次机会
                 
@@ -238,6 +255,6 @@ class GateController:
                 if cross_pool_allowed:
                     return {'allowed': True, 'reason': f'允许写入(已存在于{duplicates}，跨池记录已标记)', 'cross_pool': duplicates}
                 else:
-                    plog("INFO", f"[GateController] 🚫 {stock_code} 跨池重复拦截: 已在 {duplicates}，写入 {target_pool} 被阻止")
+                    _plog("INFO", f"[GateController] 🚫 {stock_code} 跨池重复拦截: 已在 {duplicates}，写入 {target_pool} 被阻止")
                     return {'allowed': False, 'reason': f'跨池重复拦截: 代码已在 {duplicates}，拒绝写入 {target_pool}'}
         return {'allowed': True, 'reason': '通过'}

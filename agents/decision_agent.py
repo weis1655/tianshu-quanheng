@@ -483,6 +483,7 @@ class DecisionAgent(BaseAgent):
         # ──────────────────────────────────────────────────────────────
 
         # ── 涨停/跌停过滤：从评分列表和池中移除封板标的 ──────────
+        yellow_alerts = []  # 初始化黄色预警列表，供后续空仓决策使用
         scored_stocks = self._filter_limit_up(scored_stocks, pools, market_env, today, yellow_alerts)
         # ──────────────────────────────────────────────────────────
 
@@ -986,7 +987,7 @@ class DecisionAgent(BaseAgent):
                         stats=self.get_stats())
 
         # ── 构建 DecisionResult（新增 schema 结构化输出）─────────────
-        decision_result = self._parse_decision_result_v2(result, scored_stocks)
+        decision_result = self._parse_decision_result_v2(result, scored_stocks, market_env)
         
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
@@ -1019,7 +1020,7 @@ class DecisionAgent(BaseAgent):
             "main_tui": decision_result.main_tui,
         }
 
-    def _parse_decision_result_v2(self, raw_text: str, scored_stocks: List[dict]) -> DecisionResult:
+    def _parse_decision_result_v2(self, raw_text: str, scored_stocks: List[dict], market_env: str = None) -> DecisionResult:
         """
         V2 解析：返回 DecisionResult 结构
         从 LLM 原始输出中提取执行方案（精简 regex，不过度兜底多种格式）
@@ -1073,8 +1074,10 @@ class DecisionAgent(BaseAgent):
 
             position_pct = _get_float(r'单笔仓位[：:]\s*(\d+(?:\.\d+)?)%', 0.0)
             # ── RC-01 风控加固：仓位强制校验 ────────────────
-            market_mode = market_env.get("market_mode", "weak")
-            max_pos = POSITION_PCT_WEAK if market_mode in ("weak", "extreme_warning") else (POSITION_PCT_NORMAL if market_mode == "neutral" else POSITION_PCT_STRONG)
+            market_state = getattr(self, '_market_state', {}) or {}
+            market_mode = market_state.get("state", "震荡")
+            market_mode_key = "weak" if market_mode in ("偏空", "弱势") else "neutral" if market_mode == "震荡" else "strong"
+            max_pos = POSITION_PCT_WEAK if market_mode_key in ("weak", "extreme_warning") else (POSITION_PCT_NORMAL if market_mode_key == "neutral" else POSITION_PCT_STRONG)
             if position_pct > max_pos:
                 original = position_pct
                 position_pct = max_pos

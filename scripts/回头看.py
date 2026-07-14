@@ -1381,12 +1381,11 @@ def generate_report(days=7, output_file=None):
                 relative_returns.append(stock_chg - idx_chg)
 
     avg_relative = round(sum(relative_returns) / len(relative_returns), 2) if relative_returns else 0
-    # 均值差口径：合并平均收益 - 上证均值
-    avg_relative_simple = round(avg_return - avg_index_return, 2) if avg_return is not None and avg_index_return is not None else 0
-
     # 计算大盘平均收益
     all_idx_chgs = [v for v in index_changes.values() if v is not None]
     avg_index_return = round(sum(all_idx_chgs) / len(all_idx_chgs), 2) if all_idx_chgs else 0
+    # 均值差口径：合并平均收益 - 上证均值
+    avg_relative_simple = round(avg_return - avg_index_return, 2) if avg_return is not None and avg_index_return is not None else 0
 
     report += f"""
 |---
