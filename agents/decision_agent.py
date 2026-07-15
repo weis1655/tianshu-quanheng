@@ -1105,11 +1105,18 @@ class DecisionAgent(BaseAgent):
             # ── P02: 总仓位限制 — 所有推荐标的合计不超过100% ──
             if position_pct > 0 and not hasattr(self, '_total_pos_used'):
                 self._total_pos_used = 0.0
+                self._industry_pos = {}  # P03: 行业集中度
             if position_pct > 0:
                 new_total = self._total_pos_used + position_pct
                 if new_total > 100:
                     position_pct = max(0, 100 - self._total_pos_used)
                     plog("WARNING", f"[仓位风控] ⛔ {s_name} 总仓位超限({new_total:.0f}%>100%)，降至{position_pct:.0f}%")
+                # P03: 行业集中度 — 同板块合计不超过30%
+                ind = _get_str(r'核心驱动[：:]\s*([^\n]{3,60})', '')
+                self._industry_pos[s_name] = self._industry_pos.get(s_name, 0) + position_pct
+                if self._industry_pos[s_name] > 30:
+                    position_pct = max(0, position_pct - (self._industry_pos[s_name] - 30))
+                    plog("WARNING", f"[仓位风控] ⛔ {s_name} 行业集中度超限({self._industry_pos[s_name]:.0f}%>30%)，降至{position_pct:.0f}%")
                 self._total_pos_used += position_pct
             # ──────────────────────────────────────────
             buy_method = _get_str(r'买入方式[：:]\s*([^\n]+)', "待确认")

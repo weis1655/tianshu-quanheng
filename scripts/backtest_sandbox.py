@@ -226,6 +226,15 @@ def backtest(strategy: dict, records: list) -> dict:
         if pnl == 0:
             continue  # 未验证跳过
 
+        # ── P04: 最大回撤熔断 — 累计亏损>10%停止交易 ──────
+        if not hasattr(backtest, '_cum_pnl'):
+            backtest._cum_pnl = 0.0
+        if backtest._cum_pnl < -10:
+            continue  # 累计亏损>10%熔断，不再新开仓
+        # ── P05: 单票止损强制 — LLM推荐的止损位低于3%时强制截断 ──
+        pnl = max(pnl, -5)  # 单票止损-5%（与B04一致）
+        backtest._cum_pnl += pnl
+
         # 涨跌停成交概率过滤：极端涨跌幅（>9%）的标的成交概率降低
         limit_prob = 1.0
         if abs(pnl) >= 9.0:
