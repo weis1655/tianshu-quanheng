@@ -1,15 +1,14 @@
 {
   "strategy": "当前策略(v6.2)",
-  "total_trades": 3,
+  "total_trades": 2,
   "wins": 1,
-  "losses": 2,
-  "total_pnl": -6.44714,
-  "max_drawdown": -10.0,
-  "avg_pnl_per_trade": -2.15,
-  "win_rate": 33.3,
+  "losses": 1,
+  "total_pnl": -1.44714,
+  "max_drawdown": -5.0,
+  "avg_pnl_per_trade": -0.72,
+  "win_rate": 50.0,
   "by_score_range": {
     "70-79": [
-      -5,
       -5
     ],
     "80-89": [
@@ -28,14 +27,6 @@
     {
       "code": "002920",
       "name": "德赛西威",
-      "date": "2026-05-18",
-      "score": 75,
-      "pnl": -5.95,
-      "source": "decision_log"
-    },
-    {
-      "code": "002920",
-      "name": "德赛西威",
       "date": "2026-05-28",
       "score": 76,
       "pnl": -5.95,
@@ -43,14 +34,6 @@
     }
   ],
   "top_losers": [
-    {
-      "code": "002920",
-      "name": "德赛西威",
-      "date": "2026-05-18",
-      "score": 75,
-      "pnl": -5.95,
-      "source": "decision_log"
-    },
     {
       "code": "002920",
       "name": "德赛西威",
