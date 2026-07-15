@@ -518,11 +518,14 @@ def calculate_technical_score(stock: dict) -> dict:
 
     # 1. 趋势判断（20分）
     chg = stock.get("涨跌幅", 0)
-    if chg > 5:
-        score += 10
-        reasons.append(f"强势上涨({chg:+.2f}%)")
-    elif chg > 2:
+    if 3 < chg <= 8:
         score += 5
+        reasons.append(f"合理上涨({chg:+.2f}%)")
+    elif chg > 8:
+        score += 3
+        reasons.append(f"强势上涨({chg:+.2f}%)，注意追高风险")
+    elif 2 < chg <= 3:
+        score += 3
         reasons.append(f"温和上涨({chg:+.2f}%)")
     elif chg < -3:
         score -= 10
@@ -542,11 +545,17 @@ def calculate_technical_score(stock: dict) -> dict:
         reasons.append("缩量低迷")
 
     if turnover > 10:
-        score += 10
-        reasons.append(f"高换手({turnover:.1f}%)")
-    elif turnover > 5:
+        score -= 5
+        reasons.append(f"高换手({turnover:.1f}%)，主力出货信号")
+    elif 3 < turnover <= 10:
         score += 5
         reasons.append(f"适中换手({turnover:.1f}%)")
+    elif 1 < turnover <= 3:
+        score += 3
+        reasons.append(f"温和换手({turnover:.1f}%)")
+    elif turnover <= 1 and turnover > 0:
+        score -= 3
+        reasons.append(f"低换手({turnover:.1f}%)，流动性差")
 
     # 3. 位置分析（20分）
     price = stock.get("现价", 0)

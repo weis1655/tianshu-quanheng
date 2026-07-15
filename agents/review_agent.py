@@ -335,7 +335,7 @@ class ReviewAgent(BaseAgent):
                 fd = factor_map.get(sr.code, {})
                 sig = fd.get("factor_signal", 0) if isinstance(fd, dict) else 0
                 if sig >= 3:
-                    bonus = min(round(sig * 0.5, 0), 3)
+                    bonus = min(round(sig * 0.5, 0), 2)  # 4因子最大bonus=2
                     sr.composite_score = min(sr.composite_score + bonus, 100)
                     sr.core_logic += f" | 📈 因子信号{sig}/6，加{bonus:.0f}分"
                     plog("INFO", f"[ReviewAgent] 📈 因子信号加分: {sr.name}({sr.code}) {sig}/6 → +{bonus:.0f}分")
@@ -357,8 +357,8 @@ class ReviewAgent(BaseAgent):
             for sr in review_result.stocks:
                 fd = factor_map.get(sr.code, {})
                 sig = fd.get("factor_signal", 0) if isinstance(fd, dict) else 0
-                if sig >= 3 and sr.composite_score > 0:
-                    original_bonus = min(round(sig * 0.5, 0), 3)
+                if sig >= 3 and sr.composite_score >= 75:  # 通缩后仍≥75的才需要减半
+                    original_bonus = min(round(sig * 0.5, 0), 2)  # 4因子最大bonus=2
                     # 弱市减半加分
                     half_bonus = max(0, original_bonus // 2)
                     diff = original_bonus - half_bonus

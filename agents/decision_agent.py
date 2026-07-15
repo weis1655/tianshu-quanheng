@@ -1163,7 +1163,7 @@ class DecisionAgent(BaseAgent):
             if "ST" in name_str or "*ST" in name_str:
                 violations.append(f"ST/*ST 禁入")
             # R2: 流通市值 < 5亿（有数据时执行，无数据时保守放行）
-            mkt_cap = s.get("流通市值", s.get("market_cap", 0))
+            mkt_cap = s.get("流通市值_亿", s.get("流通市值", s.get("market_cap", 0)))
             try:
                 if float(mkt_cap) > 0 and float(mkt_cap) < 5:
                     violations.append(f"流通市值{mkt_cap}亿<5亿 禁入")
