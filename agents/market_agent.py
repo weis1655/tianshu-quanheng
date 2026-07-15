@@ -593,6 +593,15 @@ def calculate_technical_score(stock: dict) -> dict:
         score -= 5
         reasons.append(f"振幅过大({amplitude:.1f}%)")
 
+    # ── AI-03: AI/科技股专项因子（研发投入代理） ────────
+    # 科技股高PE是常态，不应因PE过高被惩罚
+    name = str(stock.get("名称", stock.get("股票名称", "")))
+    code = str(stock.get("代码", stock.get("股票代码", "")))
+    is_tech = any(kw in name for kw in ["科技","智能","信息","电子","通信","软件","芯片","半导体","光","创新","AI","计算机","互联","数字","网安","科创","微电","光电","芯","中际","讯飞","华大","澜起","中科","华工"])
+    if is_tech:
+        score += 5
+        reasons.append("科技赛道，高成长性溢价+5分")
+
     # 5. 短期动能（20分）
     month_chg = stock.get("月涨跌", 0)
     if month_chg > 20:

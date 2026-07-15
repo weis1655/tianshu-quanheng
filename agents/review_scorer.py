@@ -83,7 +83,7 @@ class OverheatDetector:
         if (
             change_pct > OverheatDetector.CRITICAL_GAIN_PCT
             and (
-                pe_ttm > OverheatDetector.CRITICAL_PE_LIMIT
+                pe_ttm > 120  # AI-01: 科技股PE阈值放宽至120（原80）
                 or turnover > OverheatDetector.CRITICAL_TURNOVER_PCT
             )
         ):
