@@ -947,8 +947,28 @@ class DecisionAgent(BaseAgent):
 
         # ── F3: 决策报告有效性校验 ─────────────────────────────────
         # 检查报告是否包含实际交易方案（防止LLM循环退化时生成无效报告）
+        # ── 退化检测 ─────────────────────────────────────────
+        is_degraded = False
         if not re.search(r'【主推】|【备选】', report) and '空仓' not in report and '暂无通过审查' not in report:
-            plog("INFO", "[DecisionAgent] ⚠️ 决策报告未包含任何交易方案（LLM输出退化），标记为无效")
+            is_degraded = True
+        # 如果有主推但无具体价位/仓位，也算半退化
+        if re.search(r'【主推】', report) and not re.search(r'止损[^\n]*\d+[.\d]*元|止盈[^\n]*\d+[.\d]*元|仓位[：:]\s*\d+%', report):
+            plog("WARNING", "[DecisionAgent] ⚠️ 主推标的存在但缺失具体价位/仓位，可能为半退化输出")
+            is_degraded = True
+        if is_degraded:
+            plog("WARNING", "[DecisionAgent] ⚠️ 决策报告未包含完整交易方案（LLM输出退化），标记为无效")
+            # 退化计数器（持久化）
+            from pathlib import Path
+            deg_file = Path(self.root) / "data" / "llm_degradation_counter.json"
+            try:
+                import json
+                deg_data = json.loads(deg_file.read_text()) if deg_file.exists() else {"count": 0, "dates": []}
+                deg_data["count"] = deg_data.get("count", 0) + 1
+                deg_data["dates"] = deg_data.get("dates", []) + [today]
+                deg_data["latest"] = today
+                deg_file.write_text(json.dumps(deg_data, ensure_ascii=False, indent=2))
+            except Exception:
+                pass
             # 替换为空仓报告
             fallback_report = (
                 f"# 【决策报告】{today}\n\n"
