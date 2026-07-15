@@ -1025,8 +1025,15 @@ class ReviewAgent(BaseAgent):
                     score = min(int(sm.group(1)), 100)
                     break
             if score == 0:
-                plog("WARNING",
-                     f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则模式均未命中，默认score=0")
+                # 兜底：从 **四维打分**：段落提取各维度评分，用权重计算综合分
+                dim_scores = re.findall(r'[^\d]*(\d+)\s*分', block.split('四维打分')[-1].split('\n')[0]) if '四维打分' in block else []
+                if len(dim_scores) >= 4:
+                    weights = [0.25, 0.35, 0.20, 0.20]  # 驱动/位置/量能/风险
+                    weighted = sum(int(s) * w for s, w in zip(dim_scores[:4], weights))
+                    score = min(int(weighted), 100)
+                    plog("INFO", f"[ReviewAgent] 📐 四维打分兜底: {name}({code}) 维度={dim_scores[:4]} 综合={score}分")
+                else:
+                    plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
 
             # 信心度
             confidence = ""
