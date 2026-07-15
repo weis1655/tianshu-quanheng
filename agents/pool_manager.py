@@ -421,9 +421,23 @@ class PoolManager:
 
     # ── P0-2：S级操作池 T+1 过期清理 ──────────────────────
     def clean_expired_candidates(self, max_age_days: int = 14) -> dict:
-        """清理候选池超期标的（委托给pool_cleanup模块）"""
-        from pool_cleanup import clean_expired_candidates as _clean
-        return _clean(self.pool_dir, self, max_age_days=max_age_days)
+        """清理候选池超期标的（直接实现，避免递归死循环）"""
+        pool = self.load_pool("快筛候选池")
+        if not pool:
+            return {"removed_count": 0, "total_before": 0}
+        stocks = pool.get("stocks", [])
+        before = len(stocks)
+        cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
+        kept = [s for s in stocks if (s.get("入池日期") or "2000-01-01") >= cutoff]
+        removed = before - len(kept)
+        if removed > 0:
+            pool["stocks"] = kept
+            pool["统计"] = pool.get("统计", {})
+            pool["统计"]["持仓数"] = len(kept)
+            pool["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.save_pool("快筛候选池", pool)
+            plog("INFO", f"[PoolManager] 候选池清理: 移除{removed}只超期标的(>{max_age_days}天)")
+        return {"removed_count": removed, "total_before": before}
 
     def clean_expired_s_pool(self, max_age_days: int = 1) -> dict:
         """
