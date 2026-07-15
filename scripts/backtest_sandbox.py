@@ -35,7 +35,7 @@ DEFAULT_STRATEGY = {
     "hold_days": 3,
     "require_skeptic_pass": True,
     "require_upgrade": True,
-    "slippage_pct": 0.02,         # 滑点成本（成交额%）+ 冲击成本
+    "slippage_pct": 0.10,         # 滑点成本（成交额%）=佣金0.05%+印花税0.05%+过户费0.001%
     "slippage_min_pts": 0.01,     # 最小滑点（价格点数）
 }
 
@@ -50,7 +50,7 @@ NEW_STRATEGY = {
     "hold_days": 3,
     "require_skeptic_pass": True,
     "require_upgrade": True,
-    "slippage_pct": 0.02,
+    "slippage_pct": 0.10,
     "slippage_min_pts": 0.01,
 }
 
