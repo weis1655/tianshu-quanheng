@@ -1102,6 +1102,15 @@ class DecisionAgent(BaseAgent):
                 original = position_pct
                 position_pct = max_pos
                 plog("WARNING", f"[仓位风控] ⛔ {s_name} 仓位{original}%>{max_pos}%（{market_mode}），强制降至{max_pos}%")
+            # ── P02: 总仓位限制 — 所有推荐标的合计不超过100% ──
+            if position_pct > 0 and not hasattr(self, '_total_pos_used'):
+                self._total_pos_used = 0.0
+            if position_pct > 0:
+                new_total = self._total_pos_used + position_pct
+                if new_total > 100:
+                    position_pct = max(0, 100 - self._total_pos_used)
+                    plog("WARNING", f"[仓位风控] ⛔ {s_name} 总仓位超限({new_total:.0f}%>100%)，降至{position_pct:.0f}%")
+                self._total_pos_used += position_pct
             # ──────────────────────────────────────────
             buy_method = _get_str(r'买入方式[：:]\s*([^\n]+)', "待确认")
             trigger_price = _get_float(r'触发条件[：:]\s*([\d.]+)\s*(?:元|块|价)', 0.0)
