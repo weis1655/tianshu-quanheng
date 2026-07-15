@@ -271,9 +271,11 @@ def backtest(strategy: dict, records: list) -> dict:
         score_key = f"{int(score/10)*10}-{int(score/10)*10+9}"
         results["by_score_range"][score_key].append(adj_pnl)
 
-        # 按评分区间统计
-        score_range = f"{int(score/10)*10}-{int(score/10)*10+9}"
-        results["by_score_range"][score_range].append(pnl)
+
+
+        # 累计每笔的日收益（用于最大回撤计算）
+        date = r.get("date", "")
+        results.setdefault("_daily_pnls", []).append((date, adj_pnl))
 
         # TOP盈亏
         results["top_gainers"].append(r)
@@ -282,6 +284,20 @@ def backtest(strategy: dict, records: list) -> dict:
     if results["total_trades"] > 0:
         results["win_rate"] = round(results["wins"] / results["total_trades"] * 100, 1)
         results["avg_pnl_per_trade"] = round(results["total_pnl"] / results["total_trades"], 2)
+    
+    # ── TS01: 计算最大回撤（用累积收益曲线的最大谷底） ──────
+    daily = sorted(results.get("_daily_pnls", []), key=lambda x: x[0])
+    if daily:
+        cum = 0.0
+        max_cum = 0.0
+        max_dd = 0.0
+        for _, pnl in daily:
+            cum += pnl
+            max_cum = max(max_cum, cum)
+            dd = cum - max_cum  # 负数：从峰顶到谷底的亏损
+            max_dd = min(max_dd, dd)
+        results["max_drawdown"] = round(max_dd, 2)
+    del results["_daily_pnls"]
 
     # 排序TOP
     results["top_gainers"] = sorted(results["top_gainers"], key=lambda x: x.get("pnl", 0), reverse=True)[:5]
