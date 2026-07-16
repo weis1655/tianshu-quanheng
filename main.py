@@ -20,6 +20,8 @@
   python main.py order scan     # 扫描一次条件单
   python main.py algo           # 算法交易执行（默认查看状态）
   python main.py algo backtest  # 算法回放对比验证
+  python main.py batch         # 批量回测工作台
+  python main.py batch batch --count 5  # 运行5策略批量回测
 """
 
 import sys
@@ -559,6 +561,12 @@ def main():
         p_args = sys.argv[2:] if len(sys.argv) > 2 else ["list"]
         import subprocess
         cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "algo_execution.py")] + p_args
+        subprocess.run(cmd)
+        return
+    elif phase_arg in ["batch", "回测", "批量回测"]:
+        p_args = sys.argv[2:] if len(sys.argv) > 2 else ["list"]
+        import subprocess
+        cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "backtest_workbench.py")] + p_args
         subprocess.run(cmd)
         return
     elif phase_arg in ["cache", "缓存"]:
