@@ -131,6 +131,43 @@ features:
   cache_quotes: true
   cache_ttl: 300  # 缓存时间（秒）
 
+## 多策略组合管理配置
+portfolio:
+  # 组合管理总开关
+  enabled: true
+
+  # 默认分配方法（equal / fixed / risk_parity / kelly / performance）
+  default_allocation_method: "risk_parity"
+
+  # 再平衡配置
+  rebalance:
+    periodic: true
+    periodic_interval: "weekly"    # daily / weekly / monthly
+    periodic_day: "Monday"         # 每周几执行
+    deviation_threshold: 0.05      # 偏离度触发阈值
+    max_turnover_per_trade: 0.20   # 单次调仓最大变动比例
+    cooldown_hours: 1              # 触发后防抖冷却（小时）
+
+  # 风控配置
+  risk:
+    max_total_positions: 30       # 组合总持仓上限
+    max_total_position_pct: 100.0 # 组合总仓位比例上限
+    correlation_threshold_warning: 0.7   # 相关性告警阈值
+    correlation_threshold_force: 0.85    # 相关性强制再平衡阈值
+    cross_strategy_position_limit: 30.0  # 跨策略单只标的仓位上限(%)
+    circuit_breaker_recovery: 0.5        # 熔断恢复阈值比例（回撤恢复至max_drawdown×该值）
+
+  # 绩效评估配置
+  performance:
+    risk_free_rate: 2.5           # 无风险利率（%）
+    evaluation_period_days: 30    # 评估窗口（天）
+    survival_competition_days: 30 # 优胜劣汰周期（天）
+    survival_elimination_count: 1 # 每轮淘汰策略数
+
+  # 数据存储
+  data_dir: "data/portfolio"
+
+
 ## 自动迭代配置
 auto_heal:
   # 超时设置

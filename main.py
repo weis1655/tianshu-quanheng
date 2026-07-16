@@ -13,6 +13,7 @@
   python main.py full            # 执行全流程
   python main.py status          # 查看五池状态
   python main.py weekly          # 执行周复盘（池卫生+假设验证+权重修正）
+  python main.py portfolio       # 执行组合检查与再平衡
 """
 
 import sys
@@ -273,6 +274,42 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
         results["ts"] = r
         print(f"  ✅ 完成（0次LLM）| 报告: {ts_file.name}")
 
+    elif phase == "portfolio":
+        print("📊 执行组合检查与再平衡...")
+        try:
+            from agents.portfolio_manager import PortfolioManager, StrategyConfig
+            pm = PortfolioManager()
+            # 检查熔断
+            circuit_triggered = pm.check_all_circuit_breakers()
+            if circuit_triggered:
+                print(f"  ⚠️ 策略熔断触发: {', '.join(circuit_triggered)}")
+            # 定期再平衡检查
+            executed, msg = pm.periodic_rebalance()
+            print(f"  {'✅' if executed else '⏸️'} 再平衡: {msg}")
+            # 优胜劣汰
+            eliminated = pm.survival_competition()
+            if eliminated:
+                print(f"  🏆 优胜劣汰淘汰: {', '.join(eliminated)}")
+            # 组合风控
+            alerts = pm.check_portfolio_risk(
+                {s.name: [] for s in pm.get_enabled_strategies()})
+            if alerts:
+                for a in alerts:
+                    print(f"  ⚠️ {a}")
+            results["portfolio"] = {
+                "success": True,
+                "circuit_triggered": circuit_triggered,
+                "rebalance": msg,
+                "eliminated": eliminated,
+                "alerts": alerts,
+            }
+            print(f"  ✅ 组合检查完成")
+        except Exception as e:
+            print(f"  ❌ 组合检查失败: {e}")
+            import traceback
+            traceback.print_exc()
+            results["portfolio"] = {"success": False, "error": str(e)}
+
     return results
 
 
@@ -478,6 +515,27 @@ def main():
         # 板块轮动
         from agents.sector_rotation import save_sector_rotation
         save_sector_rotation()
+        return
+    elif phase_arg in ["portfolio", "组合", "组合管理"]:
+        from agents.portfolio_manager import PortfolioManager
+        pm = PortfolioManager()
+        p_args = sys.argv[2:] if len(sys.argv) > 2 else []
+        if not p_args:
+            today = datetime.now().strftime("%Y-%m-%d %H:%M")
+            print(f"=== 组合状态 ({today}) ===")
+            print(f"  总资金: {pm._state.total_capital:,.0f}")
+            print(f"  已用: {pm._state.used_capital:,.0f} | 可用: {pm._state.free_capital:,.0f}")
+            print(f"  累计盈亏: {pm._state.cumulative_pnl:,.2f}")
+            print(f"  回撤: {pm._state.drawdown:.2f}%")
+            print(f"  策略数: {len(pm.list_strategies())} (启用{len(pm.get_enabled_strategies())})")
+            for s in pm.list_strategies():
+                st = pm.get_strategy_status(s.name)
+                icon = "✅" if s.enabled else "⏸️"
+                print(f"  {icon} {s.name:<20} {s.allocation*100:>5.0f}% v{s.version:<5} {st['status']:<18} 收益{st['total_return']:>6.1f}% 回撤{st['drawdown']:>5.1f}%")
+        else:
+            import subprocess
+            cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "portfolio_manager.py")] + p_args
+            subprocess.run(cmd)
         return
     elif phase_arg in ["cache", "缓存"]:
         # 清理过期缓存
