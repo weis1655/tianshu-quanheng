@@ -14,6 +14,8 @@
   python main.py status          # 查看五池状态
   python main.py weekly          # 执行周复盘（池卫生+假设验证+权重修正）
   python main.py portfolio       # 执行组合检查与再平衡
+  python main.py event           # 执行事件驱动扫描（事件引擎）
+  python main.py event backtest  # 执行事件回测
 """
 
 import sys
@@ -536,6 +538,12 @@ def main():
             import subprocess
             cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "portfolio_manager.py")] + p_args
             subprocess.run(cmd)
+        return
+    elif phase_arg in ["event", "事件", "事件驱动"]:
+        p_args = sys.argv[2:] if len(sys.argv) > 2 else ["scan"]
+        import subprocess
+        cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "event_engine.py")] + p_args
+        subprocess.run(cmd)
         return
     elif phase_arg in ["cache", "缓存"]:
         # 清理过期缓存
