@@ -18,6 +18,8 @@
   python main.py event backtest  # 执行事件回测
   python main.py order          # 条件单管理（默认查看状态）
   python main.py order scan     # 扫描一次条件单
+  python main.py algo           # 算法交易执行（默认查看状态）
+  python main.py algo backtest  # 算法回放对比验证
 """
 
 import sys
@@ -551,6 +553,12 @@ def main():
         p_args = sys.argv[2:] if len(sys.argv) > 2 else ["status"]
         import subprocess
         cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "conditional_order.py")] + p_args
+        subprocess.run(cmd)
+        return
+    elif phase_arg in ["algo", "算法", "算法交易"]:
+        p_args = sys.argv[2:] if len(sys.argv) > 2 else ["list"]
+        import subprocess
+        cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "algo_execution.py")] + p_args
         subprocess.run(cmd)
         return
     elif phase_arg in ["cache", "缓存"]:
