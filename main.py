@@ -16,6 +16,8 @@
   python main.py portfolio       # 执行组合检查与再平衡
   python main.py event           # 执行事件驱动扫描（事件引擎）
   python main.py event backtest  # 执行事件回测
+  python main.py order          # 条件单管理（默认查看状态）
+  python main.py order scan     # 扫描一次条件单
 """
 
 import sys
@@ -543,6 +545,12 @@ def main():
         p_args = sys.argv[2:] if len(sys.argv) > 2 else ["scan"]
         import subprocess
         cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "event_engine.py")] + p_args
+        subprocess.run(cmd)
+        return
+    elif phase_arg in ["order", "条件单", "止盈止损"]:
+        p_args = sys.argv[2:] if len(sys.argv) > 2 else ["status"]
+        import subprocess
+        cmd = [sys.executable, str(PROJECT_ROOT / "agents" / "conditional_order.py")] + p_args
         subprocess.run(cmd)
         return
     elif phase_arg in ["cache", "缓存"]:
