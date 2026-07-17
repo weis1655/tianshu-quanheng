@@ -7,6 +7,7 @@ from thresholds import S_POOL_MIN_SCORE, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, S
 from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 from logger import plog
+from safe_file_utils import safe_read_json
 
 # 日志级别门槛：INFO仅在首次阻塞等关键事件输出；高频check仅DEBUG
 # 避免候选池扫描（20只×多阶段）产生数千条INFO日志
@@ -36,8 +37,9 @@ class GateController:
         if not verdict_file.exists():
             return set(), True
         try:
-            import json
-            data = json.loads(verdict_file.read_text(encoding="utf-8"))
+            data = safe_read_json(verdict_file)
+            if data is None:
+                return set(), True
             blocked_list = data.get("blocked", [])
             blocked_codes = {s.get("code", "") for s in blocked_list}
             return blocked_codes, len(blocked_codes) == 0

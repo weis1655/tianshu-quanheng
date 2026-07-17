@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import sys
+from path_config import ensure_agent_paths; ensure_agent_paths()
 """
 天枢权衡 — 自动迭代编排器（Auto-Heal Pipeline）
 

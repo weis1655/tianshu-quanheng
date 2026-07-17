@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
 from logger import plog
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 
 class TrackRecorder:

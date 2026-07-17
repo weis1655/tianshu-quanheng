@@ -20,6 +20,7 @@ from pathlib import Path
 
 # 添加 send_email 路径
 sys.path.insert(0, os.path.expanduser("~/.hermes/skills/email/scripts"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 from send_email import send_email, md_to_html
 
 

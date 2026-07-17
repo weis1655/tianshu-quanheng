@@ -691,41 +691,4 @@ def build_agent_system_prompt(role_prompt: str, agent_name: str = "", extra_cont
     return "\n\n".join(parts)
 
 
-def add_market_prefix(code: str) -> str:
-    """
-    为股票代码添加市场前缀（sh/sz），用于腾讯API
-    
-    Args:
-        code: 原始股票代码（如601899）
-        
-    Returns:
-        带市场前缀的代码（如sh601899）
-    """
-    if not code:
-        return ""
-    code = code.strip().upper()
-    # 移除任何现有的前缀/后缀
-    code = code.replace(".SH", "").replace(".SZ", "").replace("SH", "").replace("SZ", "")
-    if len(code) == 6 and code.isdigit():
-        market = "sh" if code.startswith(("6", "5")) else "sz"
-        return f"{market}{code}"
-    return ""  # 如果不是有效的6位数字代码，返回空字符串
-
-
-def validate_and_prefix_codes(codes: List[str]) -> List[str]:
-    """
-    验证股票代码列表并添加市场前缀
-    
-    Args:
-        codes: 原始股票代码列表
-        
-    Returns:
-        市场前缀已添加的有效代码列表
-    """
-    prefixed_codes = []
-    for code in codes:
-        if code:
-            prefixed = add_market_prefix(code)
-            if prefixed:  # 只添加非空结果
-                prefixed_codes.append(prefixed)
-    return prefixed_codes
+from market_utils import add_market_prefix, validate_and_prefix_codes  # noqa: F401

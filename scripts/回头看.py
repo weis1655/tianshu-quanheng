@@ -50,15 +50,7 @@ PRICE_CACHE = {}
 PRICE_CACHE_FILE = None
 
 
-def get_market_prefix(code):
-    code = str(code).strip()
-    if code.startswith('6'):
-        return 'sh'
-    elif code.startswith('0') or code.startswith('3'):
-        return 'sz'
-    elif code.startswith('8') or code.startswith('4'):
-        return 'bj'
-    return 'sh'
+from market_utils import get_market_prefix
 
 
 def fetch_stock_history(code, num_days=40):

@@ -13,7 +13,8 @@ import sys
 import json
 import argparse
 from datetime import datetime, timedelta
-from pathlib import Path
+from typing import Optional, List, Dict
+from safe_file_utils import safe_read_json
 from logger import plog
 
 import numpy as np
@@ -23,6 +24,7 @@ warnings.filterwarnings('ignore')
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 try:
     import statsmodels.api as sm

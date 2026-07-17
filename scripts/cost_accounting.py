@@ -7,7 +7,13 @@ import json, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-d = json.load(open(ROOT / "data" / "decision_log.json"))
+sys.path.insert(0, str(ROOT / "agents"))
+from safe_file_utils import safe_read_json
+
+d = safe_read_json(ROOT / "data" / "decision_log.json", default=[])
+if not d:
+    print("ℹ️ 决策日志为空")
+    sys.exit(0)
 has_pnl = [r for r in d if r.get('actual_pnl') not in (None, 0, '', 0.0)]
 
 print("=== 交易成本全口径归因 ===")

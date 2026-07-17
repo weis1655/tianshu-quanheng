@@ -1,9 +1,11 @@
 """PoolUpdater - 池管理操作独立模块"""
 import json
+from safe_file_utils import safe_read_json, safe_write_file
+
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, List, Dict, Tuple
 from logger import plog
 
 
@@ -99,7 +101,7 @@ class PoolUpdater:
         self._check_s_pool_overlap(new_stocks)
 
         # 读取现有池数据（保留历史记录 + 合并今日标的）
-        old_data = self._safe_read_json(pool_file, {})
+        old_data = safe_read_json(pool_file, {})
         old_history = old_data.get("历史记录", [])
 
         # ── 合并旧池中未过期的标的（今日新加入的或未满1天的）──
@@ -139,7 +141,7 @@ class PoolUpdater:
                 "核心逻辑": {s["名称"]: s["核心逻辑"] for s in new_stocks},
             })
 
-        self._safe_write_json(pool_file, data)
+        safe_write_file(pool_file, json.dumps(data, ensure_ascii=False, indent=2))
         plog("INFO", f"[PoolUpdater] ✅ S级操作池更新: {len(new_stocks)} 只主推标的")
 
     def _check_price_position(self, code: str, current_price: float) -> str:
@@ -246,7 +248,7 @@ class PoolUpdater:
             name = s.get("名称", "")
             for pool_name in check_pools:
                 pool_file = self.root / "五池管理" / f"{pool_name}.json"
-                pool_data = self._safe_read_json(pool_file, {})
+                pool_data = safe_read_json(pool_file, {})
                 pool_codes = {str(x.get("代码", "")) for x in pool_data.get("stocks", [])}
                 if code in pool_codes:
                     if pool_name == "重点观察池":
@@ -311,7 +313,7 @@ class PoolUpdater:
         for pf in pool_files:
             if not pf.exists():
                 continue
-            data = self._safe_read_json(pf, {})
+            data = safe_read_json(pf, {})
             for s in data.get("stocks", []):
                 code = str(s.get("代码", s.get("股票代码", ""))).strip()
                 if code:
@@ -322,16 +324,3 @@ class PoolUpdater:
 
         quotes = fetch_quotes([to_api(c) for c in codes])
         return {q["代码"]: q.get("现价", q.get("current", 0)) for q in quotes if q.get("代码")}
-
-    def _safe_read_json(self, path: Path, default=None):
-        if default is None:
-            default = {}
-        try:
-            if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:  # 安全降级: JSON文件读取失败→返回空dict，不影响后续
-            pass
-        return default
-
-    def _safe_write_json(self, path: Path, data: dict):
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

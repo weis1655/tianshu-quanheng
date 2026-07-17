@@ -8,13 +8,15 @@ from datetime import datetime
 from collections import defaultdict
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "agents"))
+from safe_file_utils import safe_read_json
+
 
 def load_decision_log():
-    path = ROOT / "data" / "decision_log.json"
-    if not path.exists(): return []
-    d = json.loads(path.read_text())
-    if not isinstance(d, list): return []
-    return [r for r in d if r.get('actual_pnl') not in (None, 0, '', 0.0)]
+    data = safe_read_json(ROOT / "data" / "decision_log.json", default=[])
+    if not isinstance(data, list):
+        return []
+    return [r for r in data if r.get('actual_pnl') not in (None, 0, '', 0.0)]
 
 def analyze():
     records = load_decision_log()

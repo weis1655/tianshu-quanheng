@@ -43,6 +43,7 @@ from thresholds import POSITION_PCT_STRONG, POSITION_PCT_NORMAL, POSITION_PCT_WE
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 
 ROLE_PROMPT = """你是一个短线交易决策专家，专门为盟主制定完整执行方案。
@@ -1473,33 +1474,6 @@ class DecisionAgent(BaseAgent):
                            codes=list(self._limit_up_excluded_codes))
         self.logger.info("realtime_fetched", count=len(all_quotes), has_deviation=has_deviation)
         return "\n".join(lines)
-
-    def _fetch_current_prices(self) -> dict:
-        """获取各池股票当前行情，返回 {代码: 现价} 字典"""
-        try:
-            from market_agent import fetch_quotes, to_api
-        except Exception:
-            return {}
-
-        pool_files = [
-            self.root / "五池管理" / "重点观察池.json",
-            self.root / "五池管理" / "快筛候选池.json",
-        ]
-        codes = []
-        for pf in pool_files:
-            if not pf.exists():
-                continue
-            data = self.safe_read_json(pf, {})
-            for s in data.get("stocks", []):
-                code = str(s.get("代码", s.get("股票代码", ""))).strip()
-                if code:
-                    codes.append(code)
-
-        if not codes:
-            return {}
-
-        quotes = fetch_quotes([to_api(c) for c in codes])
-        return {q["代码"]: q.get("现价", q.get("current", 0)) for q in quotes if q.get("代码")}
 
     def _get_market_env(self) -> str:
         """获取大盘环境（优先从共享内存读取实时数据，否则用规则估算）"""

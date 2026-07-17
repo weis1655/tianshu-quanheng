@@ -1286,9 +1286,11 @@ def main():
 
     # ── F3: 准确率模式刷新（WO-201）─────────────────────────
     try:
-        from scripts.win_rate_analyzer import main as wr_main
-        wr_main()
-        print(f"  ✅ 准确率模式已刷新")
+        from review_evo import ReviewEvo
+        evo = ReviewEvo()
+        wr = evo.calculate_win_rate()
+        if wr:
+            print(f"  ✅ 准确率已刷新: {wr.get('win_rate', 0):.1f}% ({wr.get('wins', 0)}/{wr.get('total', 0)})")
     except Exception as e:
         print(f"  ⚠️ 准确率模式刷新异常（不影响主流程）: {e}")
     # ──────────────────────────────────────────────────────

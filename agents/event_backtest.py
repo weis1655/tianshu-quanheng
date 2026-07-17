@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 EVENT_DIR = PROJECT_ROOT / "data" / "events"

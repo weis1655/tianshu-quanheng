@@ -12,11 +12,14 @@ import math
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Dict, List, Optional, Any, Callable, Tuple
 from dataclasses import dataclass, field, asdict
+from urllib.request import Request, urlopen
+from safe_file_utils import safe_read_json
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
+from logger import plog
 
 # ═══════════════════════════════════════════════════════════════
 # 数据模型
@@ -739,7 +742,9 @@ class CombinedEventEngine:
         path = self.EVENT_DIR / f"events_{date_str}.json"
         if not path.exists():
             return []
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = safe_read_json(path)
+        if data is None:
+            return []
         return [EventRecord(**d) for d in data]
 
 

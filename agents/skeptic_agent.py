@@ -17,6 +17,7 @@ from logger import StructuredLogger
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 
 SYSTEM_PROMPT = """你是一个冷静的股票质疑专家，负责对每只候选股票进行严格的五维质疑审查。

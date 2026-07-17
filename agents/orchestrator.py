@@ -22,6 +22,7 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 from pool_manager import PoolManager
 from logger import StructuredLogger

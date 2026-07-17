@@ -9,6 +9,7 @@ from datetime import datetime
 PROJECT_ROOT = Path.home() / "hermes-data" / "tianshu-quanheng"
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 # 加载 .env
 env_path = Path.home() / ".hermes" / ".env"

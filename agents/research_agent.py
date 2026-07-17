@@ -7,11 +7,12 @@ Research Agent - 研报数据 Agent
 - 0次本地LLM，用搜索API获取研报
 - 不直接调用付费研报数据库
 """
-
 import subprocess
 import json
-import re
 import sys
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from path_config import ensure_agent_paths; ensure_agent_paths()
 import logging
 from datetime import datetime
 from pathlib import Path

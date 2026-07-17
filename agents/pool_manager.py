@@ -8,11 +8,13 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+from safe_file_utils import safe_read_json
 from logger import plog
 
 # 确保能找到其他agents
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
 
 # 统一阈值管理（SSOT）
 from thresholds import (
@@ -108,11 +110,12 @@ class PoolManager:
             return self._empty_pool(pool_name)
         
         try:
-            data = json.loads(pool_file.read_text(encoding="utf-8"))
-            return data
+            data = safe_read_json(pool_file)
+            if data is not None:
+                return data
         except Exception as e:
             plog("INFO", f"[PoolManager] 加载池失败 {pool_name}: {e}")
-            return self._empty_pool(pool_name)
+        return self._empty_pool(pool_name)
     
     def save_pool(self, pool_name: str, data: Dict[str, Any]) -> bool:
         """

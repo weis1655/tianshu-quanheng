@@ -8,11 +8,12 @@ Market Agent - 行情数据 Agent
   - 新浪财经 API（日K历史，无需key）
   - 东方财富 API（公告/新闻，无需key）
 """
-
 import re
+import sys
 import subprocess
 import json
 import functools
+from path_config import ensure_agent_paths; ensure_agent_paths()
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path

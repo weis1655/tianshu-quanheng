@@ -33,6 +33,8 @@ from thresholds import AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DE
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
+from safe_file_utils import safe_read_json
 
 from market_agent import fetch_quotes, to_api
 
@@ -828,7 +830,7 @@ class ReviewAgent(BaseAgent):
             import json
             sm_file = self.root / "data" / "shared_memory.json"
             if sm_file.exists():
-                data = json.loads(sm_file.read_text(encoding="utf-8"))
+                data = safe_read_json(sm_file)
                 if data and isinstance(data, list):
                     sh = next((s for s in data if s.get("代码") == "000001"), None)
                     if sh:

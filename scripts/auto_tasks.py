@@ -17,8 +17,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths
+ensure_agent_paths()
 
 LOG_DIR = PROJECT_ROOT / "data" / "auto_tasks"
 LOG_DIR.mkdir(parents=True, exist_ok=True)

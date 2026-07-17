@@ -321,6 +321,36 @@ def scan_sensitive_files(
     return findings
 
 
+def safe_float(v, default: float = 0.0) -> float:
+    """安全转换为浮点数"""
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_int(v, default: int = 0) -> int:
+    """安全转换为整数"""
+    if v is None:
+        return default
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        return default
+
+
+def safe_str(v, default: str = "") -> str:
+    """安全转换为字符串"""
+    if v is None:
+        return default
+    try:
+        return str(v)
+    except Exception:
+        return default
+
+
 if __name__ == "__main__":
     # 自测：扫描天枢项目
     findings = scan_sensitive_files([

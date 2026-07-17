@@ -144,45 +144,50 @@ class TriggerLog:
 # ═══════════════════════════════════════════════════════════════
 
 class MarketDataFeed:
-    """行情数据接口（支持腾讯/模拟两种模式）"""
+    """行情数据接口（委托 QuoteProvider 实现，统一行情入口）
+
+    为保持向后兼容，返回字段与旧版 MarketDataFeed 保持一致。
+    实际数据来自 QuoteProvider（带30s缓存）。
+    """
 
     @staticmethod
     def fetch_quote(code: str) -> Optional[Dict[str, Any]]:
-        """获取实时行情"""
-        prefix = 'sh' if code.startswith('6') else 'sz' if not code.startswith('8') else 'bj'
-        url = f"https://qt.gtimg.cn/q={prefix}{code}"
-        try:
-            import urllib.request
-            req = urllib.request.Request(url, headers={
-                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36'
-            })
-            raw = urllib.request.urlopen(req, timeout=10).read().decode('gbk', errors='replace')
-            parts = raw.split('~')
-            if len(parts) < 40:
-                return None
-            return {
-                "code": code,
-                "name": parts[1],
-                "price": float(parts[3]) if parts[3] else 0,
-                "chg_pct": float(parts[32]) if parts[32] else 0,
-                "high": float(parts[33]) if parts[33] else 0,
-                "low": float(parts[34]) if parts[34] else 0,
-                "volume": int(parts[6]) if parts[6] else 0,
-            }
-        except Exception:
+        """获取实时行情（委托 QuoteProvider）"""
+        from quote_provider import QuoteProvider
+        quote = QuoteProvider.fetch_quote(code)
+        if not quote:
             return None
+        # 统一字段名，保持向后兼容
+        return {
+            "code": quote.get("code", code),
+            "name": quote.get("name", ""),
+            "price": quote.get("price", 0),
+            "chg_pct": quote.get("chg_pct", 0),
+            "high": quote.get("high", 0),
+            "low": quote.get("low", 0),
+            "volume": quote.get("volume", 0),
+        }
 
     @staticmethod
     def fetch_batch(codes: List[str], fallback_price: float = 100.0) -> Dict[str, Dict]:
-        """批量获取行情"""
+        """批量获取行情（委托 QuoteProvider）"""
+        from quote_provider import QuoteProvider
+        raw = QuoteProvider.fetch_batch(codes)
         result = {}
         for code in codes:
-            quote = MarketDataFeed.fetch_quote(code)
+            quote = raw.get(code)
             if quote:
-                result[code] = quote
+                result[code] = {
+                    "code": quote.get("code", code),
+                    "name": quote.get("name", ""),
+                    "price": quote.get("price", fallback_price),
+                    "chg_pct": quote.get("chg_pct", 0),
+                    "high": quote.get("high", fallback_price),
+                    "low": quote.get("low", fallback_price),
+                    "volume": quote.get("volume", 0),
+                }
             else:
                 result[code] = {"code": code, "price": fallback_price, "chg_pct": 0, "high": fallback_price, "low": fallback_price}
-            time.sleep(0.1)  # 限速
         return result
 
 

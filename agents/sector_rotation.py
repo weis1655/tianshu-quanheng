@@ -22,6 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict
 from logger import plog
+from safe_file_utils import safe_read_json
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
@@ -138,7 +139,7 @@ def load_sector_rotation() -> dict:
     if not rot_file.exists():
         return {}
     
-    return json.loads(rot_file.read_text(encoding="utf-8"))
+    return safe_read_json(rot_file)
 
 
 def should_focus_sectors() -> List[str]:

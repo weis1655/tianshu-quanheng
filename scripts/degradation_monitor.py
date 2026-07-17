@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """LLM退化监控脚本 — 追踪决策Agent输出退化频率"""
-import json
+import json, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-deg_file = ROOT / "data" / "llm_degradation_counter.json"
+sys.path.insert(0, str(ROOT / "agents"))
+from safe_file_utils import safe_read_json
 
-if deg_file.exists():
-    data = json.loads(deg_file.read_text())
+deg_file = ROOT / "data" / "llm_degradation_counter.json"
+data = safe_read_json(deg_file, default=None)
+
+if data is not None:
     count = data.get("count", 0)
     dates = data.get("dates", [])
     latest = data.get("latest", "未知")

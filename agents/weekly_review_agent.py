@@ -28,13 +28,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 
-def add_market_prefix(code: str) -> str:
-    """添加市场前缀（sh/sz）用于腾讯API"""
-    code = code.strip().upper()
-    code = code.replace(".SH", "").replace(".SZ", "").replace("SH", "").replace("SZ", "")
-    if len(code) == 6 and code.isdigit():
-        return f"{'sh' if code.startswith(('6', '5')) else 'sz'}{code}"
-    return ""
+from market_utils import add_market_prefix
 
 
 def fetch_current_price(codes: list[str]) -> dict[str, float]:
