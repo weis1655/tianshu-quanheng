@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-07-17 10:07:52",
+  "test_window_days": 90,
+  "selection": {
+    "win_rate": 75.4,
+    "verified_count": 130,
+    "avg_pnl": 4.23,
+    "p0_count": 526
+  },
+  "risk_control": {
+    "stop_loss_rate": 9.2,
+    "overheat_miss_rate": 1.3,
+    "downgrade_delays": 169
+  },
+  "full_chain": {
+    "verification_rate": 98.5,
+    "lookback_win_rate": 0
+  }
+}

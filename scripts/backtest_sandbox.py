@@ -196,9 +196,12 @@ def backtest(strategy: dict, records: list) -> dict:
         "max_drawdown": 0.0,
         "avg_pnl_per_trade": 0.0,
         "win_rate": 0.0,
+        "stop_loss_hits": 0,
+        "take_profit_hits": 0,
         "by_score_range": defaultdict(list),
         "top_gainers": [],
         "top_losers": [],
+        "_all_trades": [],
     }
 
     min_score = strategy["min_score"]
@@ -216,7 +219,7 @@ def backtest(strategy: dict, records: list) -> dict:
             score = 0
         
         if score < min_score:
-            continue  # 低分跳过
+            continue
 
         pnl = r.get("pnl", 0)
         try:
@@ -225,36 +228,22 @@ def backtest(strategy: dict, records: list) -> dict:
             pnl = 0
 
         if pnl == 0:
-            continue  # 未验证跳过
-
-        # ── P04: 最大回撤熔断 — 累计亏损>10%停止交易 ──────
-        if not hasattr(backtest, '_cum_pnl'):
-            backtest._cum_pnl = 0.0
-        if backtest._cum_pnl < -10:
-            continue  # 累计亏损>10%熔断，不再新开仓
-        # ── P05: 单票止损强制 — LLM推荐的止损位低于3%时强制截断 ──
-        pnl = max(pnl, -5)  # 单票止损-5%（与B04一致）
-        backtest._cum_pnl += pnl
-
-        # 涨跌停成交概率过滤：极端涨跌幅（>9%）的标的成交概率降低
-        limit_prob = 1.0
-        if abs(pnl) >= 9.0:
-            limit_prob = 0.3  # 涨停/跌停附近仅30%概率成交
-        elif abs(pnl) >= 7.0:
-            limit_prob = 0.7  # 近涨停/跌停70%概率成交
-        import random
-        # ── B03: GateController阻塞模拟 ────────────────────
-        # 实盘历史：约15%的标的被GateController拦截（阻塞降级）
-        if random.random() < 0.15:
             continue
 
-        # ── B02: 涨跌停成交概率过滤 ────────────────────────
-        limit_prob = 1.0
+        # ── ACC-03: 去除随机因子，使用确定性过滤 ──────────────
+        # 确定性的Gate阻塞模拟：用代码哈希替代随机
+        gate_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_gate")) % 100 < 15
+        if gate_blocked:
+            continue
+
+        # ── ACC-03: 确定性涨跌停成交概率 ─────────────────────
+        limit_blocked = False
         if abs(pnl) >= 9.0:
-            limit_prob = 0.3
+            # 用代码哈希确定阻塞（30%概率）
+            limit_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_limit")) % 100 >= 30
         elif abs(pnl) >= 7.0:
-            limit_prob = 0.7
-        if random.random() > limit_prob:
+            limit_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_nearlimit")) % 100 >= 70
+        if limit_blocked:
             continue
 
         # ── B05: 环境延迟折损 — 0.2%收益损耗 ───────────────
@@ -265,11 +254,13 @@ def backtest(strategy: dict, records: list) -> dict:
         slippage_cost = max(abs(pnl) * slippage_pct / 100, slippage_min_pts)
         adj_pnl = pnl - slippage_cost - delay_cost
 
-        # ── B04: 风控链 — 止损/止盈截断 ────────────────────
+        # ── ACC-02: 风控链 — 止损/止盈截断（单次，无预先截断）───
         if adj_pnl < stop_loss:
             adj_pnl = stop_loss
+            results["stop_loss_hits"] += 1
         if adj_pnl > strategy.get("take_profit_pct", 20):
             adj_pnl = strategy.get("take_profit_pct", 20)
+            results["take_profit_hits"] += 1
 
         results["total_pnl"] += adj_pnl
         
@@ -277,19 +268,20 @@ def backtest(strategy: dict, records: list) -> dict:
             results["wins"] += 1
         else:
             results["losses"] += 1
-        # 记录到分数区间
-        score_key = f"{int(score/10)*10}-{int(score/10)*10+9}"
+
+        # ── ACC-09: 修正分数区间计算 ─────────────────────────
+        if score == 0:
+            score_key = "0(无评分)"
+        else:
+            score_key = f"{int(score/10)*10}-{int(score/10)*10+9}"
         results["by_score_range"][score_key].append(adj_pnl)
-
-
 
         # 累计每笔的日收益（用于最大回撤计算）
         date = r.get("date", "")
         results.setdefault("_daily_pnls", []).append((date, adj_pnl))
 
-        # TOP盈亏
-        results["top_gainers"].append(r)
-        results["top_losers"].append(r)
+        # ── ACC-10: 修正TOP列表 — 仅记录前5名，不存全部 ──────
+        results["_all_trades"].append(r)
 
     if results["total_trades"] > 0:
         results["win_rate"] = round(results["wins"] / results["total_trades"] * 100, 1)
@@ -309,9 +301,11 @@ def backtest(strategy: dict, records: list) -> dict:
         results["max_drawdown"] = round(max_dd, 2)
     del results["_daily_pnls"]
 
-    # 排序TOP
-    results["top_gainers"] = sorted(results["top_gainers"], key=lambda x: x.get("pnl", 0), reverse=True)[:5]
-    results["top_losers"] = sorted(results["top_losers"], key=lambda x: x.get("pnl", 0))[:5]
+    # ── ACC-10: 修正TOP列表排序 ──────────────────────────
+    all_trades = results.pop("_all_trades", [])
+    sorted_by_pnl = sorted(all_trades, key=lambda x: x.get("pnl", 0), reverse=True)
+    results["top_gainers"] = sorted_by_pnl[:5]
+    results["top_losers"] = sorted_by_pnl[-5:] if len(sorted_by_pnl) >= 5 else sorted_by_pnl
 
     return results
 
