@@ -131,7 +131,10 @@ def safe_read_json(
         return default
     
     try:
-        return json.loads(content)
+        data = json.loads(content)
+        if data is None:
+            return default
+        return data
     except json.JSONDecodeError as e:
         err = FileReadError(f"JSON 解析失败 {path}: {e}")
         if log_error:
