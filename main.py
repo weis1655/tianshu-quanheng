@@ -1197,6 +1197,20 @@ def main():
         except Exception as e:
             print(f"  ⚠️ 边缘池清理异常（不影响主流程）: {e}")
         # ── 池清理结束 ─────────────────────────────────────────────
+        # ── OPT-1: 实盘止损集成 — 条件单扫描 ───────────────────────
+        try:
+            from agents.conditional_order import OrderEngine
+            engine = OrderEngine()
+            triggers = engine.scan_once()
+            if triggers:
+                print(f"  🔔 条件单触发: {len(triggers)}条")
+                for t in triggers:
+                    print(f"    {t.code} {t.name} → {t.action} @ {t.trigger_price}")
+            else:
+                print(f"  ✅ 条件单扫描: 无触发")
+        except Exception as e:
+            print(f"  ⚠️ 条件单扫描异常（不影响主流程）: {e}")
+        # ── 条件单扫描结束 ────────────────────────────────────────
     elif phase == "screen":
         if not check_circuit_breaker("screen"):
             print(f"[熔断器] ⛔ screen 熔断，跳过")

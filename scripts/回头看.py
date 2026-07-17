@@ -1398,6 +1398,12 @@ def generate_report(days=7, output_file=None):
 | 无法验证（退市/停牌） | {unverified_count}只 |
 | 合并准确率(参考) | {actual_accuracy}% |
 | 合并平均收益 | {avg_return:+.2f}% |
+
+**标准日志单一口径（vs 基线测试）：**
+| 指标 | 数值 | 说明 |
+|------|:----:|:----|
+| 标准日志准确率 | {log_accuracy}% | 仅 decision_log 标准化记录 |
+| 标准日志均收益 | {log_avg_ret:+.2f}% | 与 accuracy_verification.py 基线口径一致 |
 | 上证指数同期均值 | {avg_index_return:+.2f}% |
 | 平均相对收益 | {avg_relative:+.2f}% |
 
