@@ -1418,8 +1418,8 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            plog("INFO", f"[PoolManager] 持仓池行情刷新失败: {e}")
-            return []
+            plog("INFO", f"[PoolManager] 持仓池行情刷新失败: {e}，继续执行降级扫描")
+            quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
         refreshed = []
@@ -1560,15 +1560,15 @@ class PoolManager:
                             stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
                             plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
 
-            # 扫描评分<65的存量股，自动降级
-            self._scan_and_downgrade(data)
-
-            self.save_pool("持仓池", data)
             plog("INFO", f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
             if stop_loss_warnings:
                 plog("INFO", f"[PoolManager] ⚠️ 共 {len(stop_loss_warnings)} 只股票触发止损告警")
                 for w in stop_loss_warnings:
                     plog("INFO", f"  {w}")
+
+        # 扫描评分<65的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
+        self._scan_and_downgrade(data)
+        self.save_pool("持仓池", data)
 
         return refreshed
 
@@ -1694,8 +1694,8 @@ class PoolManager:
         try:
             quotes = fetch_quotes(api_codes)
         except Exception as e:
-            plog("INFO", f"[PoolManager] S级操作池行情刷新失败: {e}")
-            return []
+            plog("INFO", f"[PoolManager] S级操作池行情刷新失败: {e}，继续执行降级扫描")
+            quotes = []
 
         qmap = {q["代码"]: q for q in quotes if q.get("代码")}
         refreshed = []
