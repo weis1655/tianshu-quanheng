@@ -1753,12 +1753,36 @@ class DecisionAgent(BaseAgent):
             records.append(entry)
         
         if new_entries:
-            # 写回
+            # 合规检查：拦截违规推荐
+            from compliance_manager import get_checker
+            checker = get_checker()
+            compliant_entries = []
+            blocked_entries = []
+            for entry in new_entries:
+                code = entry.get("code", "")
+                name = entry.get("name", "")
+                amount = entry.get("amount", 0) or 100000  # 默认10万
+                passed, reasons = checker.check_all(code, name, amount,
+                    total_capital=1_000_000, prev_close=entry.get("price", 10),
+                    bid_price=entry.get("price", 10), is_st="ST" in name or "*ST" in name)
+                if passed:
+                    compliant_entries.append(entry)
+                else:
+                    blocked_entries.append((name, code, reasons))
+            if blocked_entries:
+                for name, code, reasons in blocked_entries:
+                    for r in reasons:
+                        plog("INFO", f"[合规] 🚫 拦截违规推荐: {name}({code}) {r}")
+            # 写回（仅合规通过的推荐）
+            # 写回（仅合规通过的推荐）
             tracker_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 with open(tracker_path, "w", encoding="utf-8") as f:
                     json.dump(records, f, ensure_ascii=False, indent=2)
-                plog("INFO", f"[推荐追踪器] ✅ 记录{today}共{len(new_entries)}条推荐: {[(e['name'],e['type']) for e in new_entries]}")
+                log_entries = compliant_entries if compliant_entries else new_entries
+                plog("INFO", f"[推荐追踪器] ✅ 记录{today}共{len(log_entries)}条推荐: {[(e['name'],e['type']) for e in log_entries]}")
+                if blocked_entries:
+                    plog("INFO", f"[合规] 🚫 {len(blocked_entries)}条违规推荐已拦截")
             except (IOError, OSError) as e:
                 plog("INFO", f"[推荐追踪器] ⚠️ 写入失败（不影响决策结果）: {e}")
         else:

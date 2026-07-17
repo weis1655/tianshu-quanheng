@@ -1211,6 +1211,18 @@ def main():
         except Exception as e:
             print(f"  ⚠️ 条件单扫描异常（不影响主流程）: {e}")
         # ── 条件单扫描结束 ────────────────────────────────────────
+        # ── 合规日结 ──────────────────────────────────────────────
+        try:
+            from compliance_manager import get_checker
+            checker = get_checker()
+            summary = checker.logger.summary()
+            if summary["high_risk"] > 0 or summary["blocked"] > 0:
+                print(f"  🔴 合规拦截: {summary['blocked']}条 | 红线: {summary['high_risk']}条")
+            else:
+                print(f"  ✅ 合规检查: 通过（{summary['total_events']}条事件）")
+        except Exception as e:
+            print(f"  ⚠️ 合规日结异常: {e}")
+        # ── 合规日结结束 ──────────────────────────────────────────
     elif phase == "screen":
         if not check_circuit_breaker("screen"):
             print(f"[熔断器] ⛔ screen 熔断，跳过")
