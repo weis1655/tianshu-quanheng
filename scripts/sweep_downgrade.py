@@ -70,6 +70,16 @@ def sweep_all_pools(pm: PoolManager, dry_run: bool = False) -> dict:
                 except (ValueError, TypeError):
                     pass
 
+            # 今日刚入S级操作池的标的，给予1天保护期不被sweep
+            if pool_name == "S级操作池":
+                try:
+                    entry_date = s.get("纳入日期", "")
+                    if entry_date and entry_date == datetime.now().strftime("%Y-%m-%d"):
+                        remaining.append(s)
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
             if score < DOWNGRADE_THRESHOLD:
                 to_demote.append(s)
             else:

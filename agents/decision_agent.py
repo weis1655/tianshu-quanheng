@@ -688,42 +688,11 @@ class DecisionAgent(BaseAgent):
             YELLOW_ALERT_MAX=YELLOW_ALERT_MAX,
         ))
         user_prompt = "\n\n".join(header_parts)
-
-        # ── 退化防御0: force_rule_mode标记生效中→跳过LLM ──
-        _force_rule_file = Path(self.root) / "data" / ".force_rule_mode"
-        _skip_llm = False
-        if _force_rule_file.exists():
-            _force_rule = _force_rule_file.read_text().strip()
-            if _force_rule == today:
-                plog("INFO", "[DecisionAgent] 🚫 force_rule_mode有效，跳过LLM，执行规则决策→空仓")
-                _skip_llm = True
-                # 连续退化计数归零
-                _deg_file = Path(self.root) / "data" / "llm_degradation_counter.json"
-                try:
-                    import json as _json
-                    if _deg_file.exists():
-                        _deg_data = _json.loads(_deg_file.read_text())
-                        _deg_data["consecutive"] = 0
-                        _deg_file.write_text(_json.dumps(_deg_data, ensure_ascii=False, indent=2))
-                except Exception:
-                    pass
-            # 无论是否过期，清理标记文件
-            _force_rule_file.unlink(missing_ok=True)
-
-        # ── 退化防御1: 弱市+无强候选→跳过LLM，直接规则决策 ──
-        _market_state_obj = self._market_state if hasattr(self, '_market_state') else {"state": "震荡"}
-        _weak_market = _market_state_obj.get("state") in ("偏空", "震荡偏弱")
-        _strong_candidates = [s for s in scored_stocks if s.get("score", 0) >= 80 and s.get("passed", False)]
-        if _skip_llm or (_weak_market and not _strong_candidates):
-            if not _skip_llm:
-                plog("INFO", "[DecisionAgent] 🚫 弱市+无强候选(≥80分)，跳过LLM，执行规则决策→空仓")
-            result = "今日暂无通过审查的股票，建议空仓等待"
-        else:
-            result = self.call_llm(
-                user_prompt,
-                system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-                max_tokens=3000
-            )
+        result = self.call_llm(
+            user_prompt,
+            system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
+            max_tokens=3000
+        )
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
         if scored_stocks and any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作"]):
