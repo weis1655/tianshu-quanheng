@@ -950,11 +950,19 @@ class DecisionAgent(BaseAgent):
         # 检查报告是否包含实际交易方案（防止LLM循环退化时生成无效报告）
         # ── 退化检测 ─────────────────────────────────────────
         is_degraded = False
-        if not re.search(r'【主推】|【备选】', report) and '空仓' not in report and '暂无通过审查' not in report:
-            is_degraded = True
-        # 如果有主推但无具体价位/仓位，也算半退化
-        if re.search(r'【主推】', report) and not re.search(r'止损[^\n]*\d+[.\d]*元|止盈[^\n]*\d+[.\d]*元|仓位[：:]\s*\d+%', report):
-            plog("WARNING", "[DecisionAgent] ⚠️ 主推标的存在但缺失具体价位/仓位，可能为半退化输出")
+        has_trade_info = bool(re.search(
+            r'仓位[：:]\s*\d+%|止损[^\n]*\d+[.\d]*元|止盈[^\n]*\d+[.\d]*元|触发条件|买入方式|单笔仓位',
+            report
+        ))
+        has_main_pick = bool(re.search(r'【主推】|【备选】', report))
+        is_empty = bool(re.search(r'空仓|暂无通过审查|不操作|建议观望', report))
+        if has_trade_info:
+            is_degraded = False
+        elif has_main_pick and not is_empty:
+            is_degraded = False
+        elif is_empty:
+            is_degraded = False
+        else:
             is_degraded = True
         if is_degraded:
             plog("WARNING", "[DecisionAgent] ⚠️ 决策报告未包含完整交易方案（LLM输出退化），标记为无效")
