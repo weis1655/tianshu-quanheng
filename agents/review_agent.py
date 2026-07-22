@@ -856,6 +856,8 @@ class ReviewAgent(BaseAgent):
         # 优先：## [600118] 股票名称 或 ## 600118 股票名称
         for pat in [
             r'##\s*\[?(\d{6})\]?\s*([\u4e00-\u9fa5]{2,8})',
+            # 叙事模式：### N. 代码 名称（如"### 1. 600547 山东黄金"）
+            r'###\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
         ]:
             m = re.search(pat, block, re.MULTILINE)
             if m:
@@ -879,6 +881,12 @@ class ReviewAgent(BaseAgent):
             r'(?=##\s*\[?\d{6}\]?\s*[\u4e00-\u9fa5])',
             result
         )
+        # 叙事模式兜底
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
@@ -913,6 +921,12 @@ class ReviewAgent(BaseAgent):
             r'(?=##\s*\[?\d{6}\]?\s*[\u4e00-\u9fa5])',
             result
         )
+        # 叙事模式兜底
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
@@ -1006,6 +1020,12 @@ class ReviewAgent(BaseAgent):
             r'(?=##\s*\[?\d{6}\]?\s*[\u4e00-\u9fa5])',
             result
         )
+        # 叙事模式兜底：LLM可能输出 "### N. 代码 名称" 格式（如"### 1. 600547 山东黄金"）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
@@ -1352,7 +1372,11 @@ class ReviewAgent(BaseAgent):
         upgrades, demotions = [], []
         
         # 优先使用后处理后的列表（包含过热/一票否决/硬性降级的修正）
+        demotion_scores = {}
         if upgrades_sr or demotions_sr:
+            # 构建降级评分映射（保留 composite_score 供边缘池写入用）
+            for sr in (demotions_sr or []):
+                demotion_scores[sr.code] = sr.composite_score
             upgrades = [(sr.name, sr.code) for sr in (upgrades_sr or [])]
             demotions = [(sr.name, sr.code) for sr in (demotions_sr or [])]
         else:
@@ -1393,7 +1417,12 @@ class ReviewAgent(BaseAgent):
         # ── Step 3：降级到边缘池 ──
         if demotions:
             demote_stocks = [
-                {"代码": code, "名称": name, "降级时间": datetime.now().strftime("%Y-%m-%d")}
+                {
+                    "代码": code,
+                    "名称": name,
+                    "综合分": demotion_scores.get(code, 0),
+                    "降级时间": datetime.now().strftime("%Y-%m-%d"),
+                }
                 for name, code in demotions
             ]
             self._remove_from_pool("快筛候选池", [c for _, c in demotions])
