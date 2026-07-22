@@ -76,6 +76,24 @@ class PoolUpdater:
                         entry_price = q[0].get("现价", 0)
                 except Exception:  # 安全降级: 价格获取失败→保持默认价格，不影响池更新
                     pass
+            # 从决策报告提取推荐买入价（优先于实时行情）
+            buy_price_m = re.search(
+                rf'{re.escape(name)}\s*[（(]{re.escape(code)}[）)][^$]*?买入价[：:]\s*([\d.]+)',
+                decision_result
+            )
+            if not buy_price_m:
+                buy_price_m = re.search(
+                    r'买入[价区][^$]*?([\d.]+)\s*[~-]\s*([\d.]+)',
+                    decision_result
+                )
+            if buy_price_m:
+                try:
+                    recommended_price = float(buy_price_m.group(1))
+                    if recommended_price > 0:
+                        entry_price = recommended_price
+                        plog("INFO", f"[PoolUpdater] 📐 从决策报告提取买入价: {name}({code}) {entry_price}元")
+                except (ValueError, IndexError):
+                    pass
             position_warning = self._check_price_position(code, entry_price)
             if position_warning:
                 plog("INFO", f"[PoolUpdater] 🚫 {name}({code}) {position_warning}, 拒绝入S级操作池")
