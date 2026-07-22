@@ -846,10 +846,6 @@ class DecisionAgent(BaseAgent):
 |决策执行时间：{datetime.now().strftime('%H:%M')}
 """
 
-        # ── 先写S级操作池（含质检），再从池反推报告 ──────────────
-        # 这样决策报告只反映真实落池的标的，池外标的不出现在报告中
-        self._update_s_pool(result, scored_stocks=scored_stocks or [])
-        
         # 读取S级操作池今日进入的标的
         pool_confirmed_codes = set()
         s_pool_today_codes = set()
@@ -1003,6 +999,11 @@ class DecisionAgent(BaseAgent):
             self.safe_write_text(out_file, fallback_report)
             plog("INFO", f"[DecisionAgent] ✅ 已替换为空仓报告：{out_file}")
             report = fallback_report
+
+        # ── S级操作池写入（退化检测之后，避免矛盾）────────────
+        if not is_degraded:
+            self._update_s_pool(result, scored_stocks=scored_stocks or [])
+        # ──────────────────────────────────────────────────────
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
         report = self.track_recorder.record_s_pool_eval(report, out_file)
