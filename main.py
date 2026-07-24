@@ -1190,7 +1190,7 @@ def main():
             print(f"  ⚠️ 候选池清理异常（不影响主流程）: {e}")
         try:
             pm = PoolManager()
-            clean_result = pm.clean_expired_edge_pool()
+            clean_result = pm.clean_expired_edge_pool(max_age_days=EDGE_POOL_STALE_DAYS)
             removed_count = len(clean_result.get("removed", []))
             remaining = clean_result.get("remaining_count", 0)
             print(f"  ✅ 边缘池清理完成：移除{removed_count}只，剩余{remaining}只")

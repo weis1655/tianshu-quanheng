@@ -1,1 +1,1 @@
-{"state": "open", "total_calls": 6, "successful_calls": 0, "failed_calls": 6, "rejected_calls": 0, "consecutive_failures": 6, "last_state_change": "2026-07-15T17:45:03.330043"}
+{"state": "half", "total_calls": 29, "successful_calls": 20, "failed_calls": 9, "rejected_calls": 0, "consecutive_failures": 0, "last_state_change": "2026-07-21T14:42:49.492655"}

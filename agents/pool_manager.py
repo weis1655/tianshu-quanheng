@@ -1282,6 +1282,7 @@ class PoolManager:
                     edge_stocks.append({
                         "代码": item.get("代码", ""),
                         "名称": item.get("名称", ""),
+                        "综合分": item.get("综合分", 0),
                         "降级时间": datetime.now().strftime("%Y-%m-%d"),
                         "降级原因": f"止损触发：收盘价{item.get('今日收盘','?')}<止损线{item.get('止损触发','?')}"
                     })

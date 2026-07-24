@@ -152,11 +152,13 @@ register("cost", "每日收盘成本核算", "30 15 * * 1-5", _task_cost)
 def _task_factor():
     """每周因子分析"""
     try:
-        from scripts.factor_analysis import main as fa_main
-        fa_main()
+        from scripts.factor_analysis import analyze as fa_analyze
+        fa_analyze()
         return "因子分析完成"
     except ImportError:
-        exec(open(str(PROJECT_ROOT / "scripts" / "factor_analysis.py")).read())
+        ns = {}
+        exec(open(str(PROJECT_ROOT / "scripts" / "factor_analysis.py")).read(), ns)
+        ns["analyze"]()
         return "因子分析完成(直接执行)"
 
 register("factor", "每周因子分析", "0 10 * * 1", _task_factor)

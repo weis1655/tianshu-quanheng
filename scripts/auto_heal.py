@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-from path_config import ensure_agent_paths; ensure_agent_paths()
+import sys, os; sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents")); from path_config import ensure_agent_paths; ensure_agent_paths()
 """
 天枢权衡 — 自动迭代编排器（Auto-Heal Pipeline）
 
@@ -339,15 +339,29 @@ def create_worktree(issue: dict, idx: int, run: FixRun, paths: "PathsConfig") ->
     branch = f"auto-heal/{safe_type}_{issue['code']}_{datetime.now(TIANSHU_TZ).strftime('%H%M%S')}"
     worktree_path = str(paths.worktree_base / f"heal_{idx:02d}_{safe_type}")
 
-    # 原子锁文件创建
+    # 原子锁文件创建（含过期自愈：超过1小时视为脏锁自动清理）
     lock_file = paths.worktree_base / f".lock_{safe_type}"
     try:
         fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(fd, run.run_id.encode("utf-8"))
         os.close(fd)
     except FileExistsError:
-        logger.warning("[auto_heal]   ⚠️ 同类型修复正在运行，跳过")
-        return "", "", ""
+        # 检查锁文件是否过期（>1小时视为脏锁）
+        try:
+            lock_age = time.time() - lock_file.stat().st_mtime
+            if lock_age > 3600:
+                logger.warning(f"[auto_heal]   ⚠️ 脏锁(>1小时)，强制清理后重试")
+                lock_file.unlink(missing_ok=True)
+                # 重试创建
+                fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(fd, run.run_id.encode("utf-8"))
+                os.close(fd)
+            else:
+                logger.warning("[auto_heal]   ⚠️ 同类型修复正在运行，跳过")
+                return "", "", ""
+        except OSError:
+            logger.warning("[auto_heal]   ⚠️ 同类型修复正在运行，跳过")
+            return "", "", ""
 
     # 清理旧 worktree
     _run_cmd(["git", "-C", str(paths.project), "worktree", "remove", worktree_path, "--force"])

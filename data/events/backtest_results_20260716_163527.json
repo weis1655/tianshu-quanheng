@@ -1,0 +1,163 @@
+{
+  "EV-01": {
+    "event_type": "EV-01",
+    "total_trades": 33,
+    "win_count": 17,
+    "loss_count": 16,
+    "total_return_pct": 6.36,
+    "avg_return_pct": 0.19,
+    "max_return_pct": 2.9,
+    "min_return_pct": -2.54,
+    "win_rate": 51.5,
+    "profit_factor": 1.47,
+    "avg_win_pct": 1.17,
+    "avg_loss_pct": -0.84,
+    "max_consecutive_losses": 7,
+    "max_drawdown": -224.49,
+    "sharpe": 2.47,
+    "calmar": 0.66,
+    "decay_analysis": {
+      "1": 0.19,
+      "3": 0.19,
+      "5": 0.19
+    }
+  },
+  "EV-02": {
+    "event_type": "EV-02",
+    "total_trades": 34,
+    "win_count": 17,
+    "loss_count": 17,
+    "total_return_pct": 0.06,
+    "avg_return_pct": 0.0,
+    "max_return_pct": 2.78,
+    "min_return_pct": -2.22,
+    "win_rate": 50.0,
+    "profit_factor": 1.0,
+    "avg_win_pct": 1.1,
+    "avg_loss_pct": -1.09,
+    "max_consecutive_losses": 4,
+    "max_drawdown": -139.06,
+    "sharpe": 0.02,
+    "calmar": 0.01,
+    "decay_analysis": {
+      "1": 0.0,
+      "3": 0.0,
+      "5": 0.0
+    }
+  },
+  "EV-03": {
+    "event_type": "EV-03",
+    "total_trades": 23,
+    "win_count": 11,
+    "loss_count": 12,
+    "total_return_pct": 0.2,
+    "avg_return_pct": 0.01,
+    "max_return_pct": 2.5,
+    "min_return_pct": -2.22,
+    "win_rate": 47.8,
+    "profit_factor": 1.02,
+    "avg_win_pct": 1.05,
+    "avg_loss_pct": -0.94,
+    "max_consecutive_losses": 4,
+    "max_drawdown": -154.05,
+    "sharpe": 0.11,
+    "calmar": 0.06,
+    "decay_analysis": {
+      "1": 0.01,
+      "3": 0.01,
+      "5": 0.01
+    }
+  },
+  "EV-04": {
+    "event_type": "EV-04",
+    "total_trades": 33,
+    "win_count": 15,
+    "loss_count": 18,
+    "total_return_pct": 2.48,
+    "avg_return_pct": 0.08,
+    "max_return_pct": 2.01,
+    "min_return_pct": -2.3,
+    "win_rate": 45.5,
+    "profit_factor": 1.18,
+    "avg_win_pct": 1.08,
+    "avg_loss_pct": -0.76,
+    "max_consecutive_losses": 7,
+    "max_drawdown": -530.43,
+    "sharpe": 1.07,
+    "calmar": 0.11,
+    "decay_analysis": {
+      "1": 0.08,
+      "3": 0.08,
+      "5": 0.08
+    }
+  },
+  "EV-05": {
+    "event_type": "EV-05",
+    "total_trades": 39,
+    "win_count": 19,
+    "loss_count": 20,
+    "total_return_pct": -2.04,
+    "avg_return_pct": -0.05,
+    "max_return_pct": 2.72,
+    "min_return_pct": -2.29,
+    "win_rate": 48.7,
+    "profit_factor": 0.9,
+    "avg_win_pct": 0.92,
+    "avg_loss_pct": -0.98,
+    "max_consecutive_losses": 5,
+    "max_drawdown": -461.54,
+    "sharpe": -0.7,
+    "calmar": -0.07,
+    "decay_analysis": {
+      "1": -0.05,
+      "3": -0.05,
+      "5": -0.05
+    }
+  },
+  "EV-06": {
+    "event_type": "EV-06",
+    "total_trades": 34,
+    "win_count": 16,
+    "loss_count": 18,
+    "total_return_pct": 2.91,
+    "avg_return_pct": 0.09,
+    "max_return_pct": 2.77,
+    "min_return_pct": -2.06,
+    "win_rate": 47.1,
+    "profit_factor": 1.19,
+    "avg_win_pct": 1.12,
+    "avg_loss_pct": -0.83,
+    "max_consecutive_losses": 5,
+    "max_drawdown": -450.0,
+    "sharpe": 1.12,
+    "calmar": 0.14,
+    "decay_analysis": {
+      "1": 0.09,
+      "3": 0.09,
+      "5": 0.09
+    }
+  },
+  "ALL": {
+    "event_type": "EV-01",
+    "total_trades": 196,
+    "win_count": 105,
+    "loss_count": 91,
+    "total_return_pct": 44.53,
+    "avg_return_pct": 0.23,
+    "max_return_pct": 3.13,
+    "min_return_pct": -2.66,
+    "win_rate": 53.6,
+    "profit_factor": 1.56,
+    "avg_win_pct": 1.19,
+    "avg_loss_pct": -0.88,
+    "max_consecutive_losses": 8,
+    "max_drawdown": -4480.77,
+    "sharpe": 2.86,
+    "calmar": 0.01,
+    "decay_analysis": {
+      "1": 0.23,
+      "3": 0.23,
+      "5": 0.23
+    }
+  }
+}

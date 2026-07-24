@@ -1,0 +1,43 @@
+{"timestamp": "2026-07-17 16:21:23.029613", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-007", "detail": "ST标的禁止交易: ST华药(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.029770", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-005", "detail": "举牌线预警: ST华药(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.029856", "type": "pre_trade", "level": "🔴 红线", "code": "400001", "name": "退市整理A", "rule": "C-007", "detail": "退市整理期标的禁止交易: 退市整理A(400001)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.029916", "type": "pre_trade", "level": "🔴 红线", "code": "400001", "name": "退市整理A", "rule": "C-005", "detail": "举牌线预警: 退市整理A(400001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.029989", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-011", "detail": "买入价115.00超过涨停价110.00(贵州茅台(600519), 前收100.0)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030041", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030108", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-011", "detail": "卖出价85.00低于跌停价90.00(贵州茅台(600519), 前收100.0)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030176", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030254", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-013", "detail": "T+1禁止: 贵州茅台(600519) 当日买入当日卖出（买入日2026-07-17）", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030305", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030371", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "单票仓位超限: 贵州茅台(600519) 当前0.0%+买入90.0%=90.0%>10.0%", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030435", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "单票仓位超限: 贵州茅台(600519) 当前0.0%+买入50.0%=50.0%>10.0%", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030562", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-015", "detail": "内幕信息标的: 贵州茅台(600519) 在敏感期内禁止交易", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030633", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030713", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-015", "detail": "黑名单标的: 贵州茅台(600519) 禁止交易", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030762", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030820", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-007", "detail": "ST标的禁止交易: 平安银行(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030869", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-020", "detail": "标的不在交易白名单: 平安银行(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.030924", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-005", "detail": "举牌线预警: 平安银行(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.031021", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓5.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.031091", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-007", "detail": "ST标的禁止交易: ST华药(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:21:23.031158", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-005", "detail": "举牌线预警: ST华药(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478080", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-007", "detail": "ST标的禁止交易: ST华药(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478199", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-005", "detail": "举牌线预警: ST华药(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478317", "type": "pre_trade", "level": "🔴 红线", "code": "400001", "name": "退市整理A", "rule": "C-007", "detail": "退市整理期标的禁止交易: 退市整理A(400001)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478381", "type": "pre_trade", "level": "🔴 红线", "code": "400001", "name": "退市整理A", "rule": "C-005", "detail": "举牌线预警: 退市整理A(400001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478473", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-011", "detail": "买入价115.00超过涨停价110.00(贵州茅台(600519), 前收100.0)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478533", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478605", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-011", "detail": "卖出价85.00低于跌停价90.00(贵州茅台(600519), 前收100.0)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478659", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478743", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-013", "detail": "T+1禁止: 贵州茅台(600519) 当日买入当日卖出（买入日2026-07-17）", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478802", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478877", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "单票仓位超限: 贵州茅台(600519) 当前0.0%+买入90.0%=90.0%>10.0%", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.478979", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "单票仓位超限: 贵州茅台(600519) 当前0.0%+买入50.0%=50.0%>10.0%", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479054", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-015", "detail": "内幕信息标的: 贵州茅台(600519) 在敏感期内禁止交易", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479107", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479172", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-015", "detail": "黑名单标的: 贵州茅台(600519) 禁止交易", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479236", "type": "pre_trade", "level": "🔴 红线", "code": "600519", "name": "贵州茅台", "rule": "C-005", "detail": "举牌线预警: 贵州茅台(600519) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479310", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-007", "detail": "ST标的禁止交易: 平安银行(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479353", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-020", "detail": "标的不在交易白名单: 平安银行(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.479406", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "平安银行", "rule": "C-005", "detail": "举牌线预警: 平安银行(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.482566", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-007", "detail": "ST标的禁止交易: ST华药(000001)", "action": "block"}
+{"timestamp": "2026-07-17 16:22:27.482671", "type": "pre_trade", "level": "🔴 红线", "code": "000001", "name": "ST华药", "rule": "C-005", "detail": "举牌线预警: ST华药(000001) 拟持仓10.00% ≥5%举牌线，需披露", "action": "block"}

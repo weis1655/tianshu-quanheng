@@ -95,6 +95,8 @@ def fetch_stock_history(code, num_days=40):
         if raw is None:
             raise last_err or Exception("所有 URL 均失败")
         data = json.loads(raw)
+        if data is None:
+            raise ValueError(f"API返回null: {code}")
         # 转为 {date: close} 字典
         prices = {d["day"]: float(d["close"]) for d in data if "day" in d and "close" in d}
         PRICE_CACHE[code] = {"data": prices, "timestamp": time.time()}
@@ -1025,12 +1027,16 @@ def generate_report(days=7, output_file=None):
         try:
             import json as _json
             log_data = _json.loads(decision_log_path.read_text(encoding='utf-8'))
-            # WO-102: 防御 log_data 为 None 或非列表（空JSON/null/字典格式）
-            if not isinstance(log_data, list):
+            # 防御：log_data 可能为 None（文件内容为 null）或非列表
+            if log_data is None or not isinstance(log_data, list):
                 actual_type = type(log_data).__name__
                 print(f"[回头看] ⚠️ 决策日志格式异常（类型={actual_type}），已重置为空列表")
                 log_data = []
-            unverified = [e for e in log_data if e.get('actual_pnl') is None and e.get('code') and e.get('date')]
+            if not log_data:
+                print(f"[回头看] ⚠️ 决策日志为空列表，跳过T+3验证")
+                unverified = []
+            else:
+                unverified = [e for e in log_data if e.get('actual_pnl') is None and e.get('code') and e.get('date')]
             for entry in unverified:
                 key = f"{entry['code']}_{entry['date']}"
                 if key in performance_map:
