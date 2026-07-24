@@ -382,6 +382,13 @@ def extract_review_results(filepath):
             blocks = blocks2
             format_version = 'v1-fallback-1'
     
+    # 格式2b：`**代码 名称**`（加粗标题变体，如 `**5. 003007 直真科技**`）
+    if len(blocks) < 4 or not any(b.strip() for b in blocks[3:min(6, len(blocks))] if b.strip()):
+        blocks2b = re.split(r'\*\*\d*\.?\s*(\d{6})\s+([^\*]+)\*\*', content)
+        if len(blocks2b) >= 4:
+            blocks = blocks2b
+            format_version = 'v1-fallback-1b'
+    
     # 格式3：行级匹配（旧格式 `• 名称（代码）：综合分XX |`）
     if len(blocks) < 4:
         line_results = []
@@ -426,6 +433,24 @@ def extract_review_results(filepath):
         # 提取综合评分
         score_match = re.search(r'\*\*综合评分\*\*\s*\|\s*\*\*(\d+)\*\*\s*\|', block_content)
         score = int(score_match.group(1)) if score_match else 0
+        
+        # 综合评分fallback 1：`- 综合：(60+55+50+45)/4 = 52.5` 或 `- 综合：(70+30+40+35)/4 = 43.75`
+        if score == 0:
+            calc_match = re.search(r'-\s*综合[：:]\s*\([\d\.+]+\s*\)\s*/\s*\d+\s*=\s*(\d+\.?\d*)', block_content)
+            if calc_match:
+                score = int(float(calc_match.group(1)))
+        
+        # 综合评分fallback 2：`- 综合：约52分，降级` 或 `- 综合评分：约45-50分，淘汰`
+        if score == 0:
+            est_match = re.search(r'-\s*综合(?:评分)?[：:]\s*约\s*(\d+)(?:\s*-\s*\d+)?\s*分', block_content)
+            if est_match:
+                score = int(est_match.group(1))
+        
+        # 综合评分fallback 3：`| 综合 | 51.25 |` 或 `| 综合 | 47.5 |`（markdown表格内）
+        if score == 0:
+            table_match = re.search(r'\|\s*综合\s*\|\s*(\d+\.?\d*)\s*\|', block_content)
+            if table_match:
+                score = int(float(table_match.group(1)))
 
         # 提取流转方向和目标池（兼容双箭头和单箭头）
         flow = ''
@@ -441,6 +466,29 @@ def extract_review_results(filepath):
             if flow_match2:
                 flow = flow_match2.group(1)
                 target_pool = flow_match2.group(2).strip()
+        
+        # 流转fallback：从叙事文本提取（"应该降级到边缘池"/"应该淘汰"/"综合：约XX分，降级"）
+        if not flow:
+            flow_match3 = re.search(r'应该\s*(降级|淘汰|升级|保留)', block_content)
+            if flow_match3:
+                flow = flow_match3.group(1)
+                # 从"降级到边缘池"提取目标池
+                pool_m = re.search(r'降级\s*到\s*([^\s，。、]+)', block_content)
+                if pool_m:
+                    target_pool = pool_m.group(1).strip()
+            else:
+                # 从"综合：约XX分，降级/淘汰/保留"提取
+                flow_match4 = re.search(r'综合(?:评分)?[：:]\s*约?\s*\d+[^，。]*[，,]\s*(降级|淘汰|升级|保留)', block_content)
+                if flow_match4:
+                    flow = flow_match4.group(1)
+                else:
+                    # 从"→ <55，淘汰"或"→ 降级到边缘池"提取
+                    flow_match5 = re.search(r'→\s*[<≤]?\s*\d+[^，。]*[，,]?\s*(降级|淘汰|升级|保留)', block_content)
+                    if flow_match5:
+                        flow = flow_match5.group(1)
+                        pool_m = re.search(r'降级\s*到\s*([^\s，。、]+)', block_content)
+                        if pool_m:
+                            target_pool = pool_m.group(1).strip()
 
         # 提取风险标记
         risk_tags = []
