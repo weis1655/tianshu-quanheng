@@ -1,0 +1,30 @@
+[Unit]
+Description=Hermes Agent Gateway - Tianshu Quanheng Scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=seven
+Group=seven
+WorkingDirectory=/home/seven/hermes-data/tianshu-quanheng
+EnvironmentFile=/home/seven/.hermes/.env
+ExecStart=/home/seven/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main gateway run
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# 安全限制
+NoNewPrivileges=true
+ProtectHome=read-only
+ProtectSystem=full
+PrivateTmp=true
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
