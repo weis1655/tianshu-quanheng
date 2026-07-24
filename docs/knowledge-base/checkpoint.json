@@ -1,0 +1,56 @@
+{
+  "project": "天枢权衡知识库",
+  "started": "2026-07-24",
+  "current_phase": 3,
+  "phases": {
+    "phase1": {
+      "name": "知识盘点与体系设计",
+      "status": "completed",
+      "completed_at": "2026-07-24",
+      "deliverables": [
+        "docs/knowledge-base/README.md",
+        "docs/knowledge-base/phase1-design.md"
+      ]
+    },
+    "phase2": {
+      "name": "知识库建设规划",
+      "status": "completed",
+      "completed_at": "2026-07-24",
+      "deliverables": [
+        "docs/knowledge-base/checkpoint.json",
+        "docs/knowledge-base/maintenance-guide.md",
+        "docs/knowledge-base/navigation-guide.md"
+      ]
+    },
+    "phase3": {
+      "name": "逐批文档撰写沉淀",
+      "status": "batch1_complete",
+      "batches": {
+        "batch1": {
+          "status": "completed",
+          "completed_at": "2026-07-24",
+          "documents": [
+            "ARCH-01", "ARCH-03", "ARCH-04", "ARCH-06", "OPS-01",
+            "OPS-03", "OPS-04", "TROUBLE-01", "TROUBLE-99", "VERSION-01"
+          ]
+        },
+        "batch2": {"status": "pending", "documents": [
+          "ARCH-02", "ARCH-05", "OPS-02", "OPS-05", "TROUBLE-02", "TROUBLE-03",
+          "TROUBLE-04", "TROUBLE-05", "TROUBLE-06", "STRAT-01", "STRAT-02",
+          "STRAT-03", "STRAT-09", "VERSION-02"
+        ]},
+        "batch3": {"status": "pending", "documents": [
+          "ARCH-07", "ARCH-08", "OPS-06", "OPS-07", "OPS-08", "TROUBLE-07",
+          "TROUBLE-08", "TROUBLE-09", "TROUBLE-10", "STRAT-04", "STRAT-05",
+          "STRAT-06", "STRAT-07", "STRAT-08", "STRAT-10", "STRAT-11",
+          "VERSION-03", "VERSION-04", "VERSION-05"
+        ]}
+      }
+    },
+    "phase4": {
+      "name": "汇总校验与闭环",
+      "status": "pending",
+      "deliverables": []
+    }
+  }
+}
