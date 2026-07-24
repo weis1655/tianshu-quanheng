@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-07-24 17:53:44",
+  "status": "critical",
+  "exit_code": 2,
+  "summary": {
+    "total_checks": 32,
+    "passed": 25,
+    "warnings": 6,
+    "criticals": 1,
+    "fixed": 0
+  },
+  "alerts": [
+    {
+      "level": "warning",
+      "check": "完整性",
+      "detail": "重点观察池/601888 中国中免: 缺少必填字段 `纳入日期`(别名: ['日期', 'entry_date', 'add_date'])"
+    },
+    {
+      "level": "warning",
+      "check": "完整性",
+      "detail": "重点观察池/301308 江波龙: 缺少必填字段 `纳入日期`(别名: ['日期', 'entry_date', 'add_date'])"
+    },
+    {
+      "level": "warning",
+      "check": "完整性",
+      "detail": "重点观察池_历史池: 统计数(-1)与实际数(1)不一致"
+    },
+    {
+      "level": "warning",
+      "check": "及时性",
+      "detail": "重点观察池_历史池: 缺少更新日期"
+    },
+    {
+      "level": "warning",
+      "check": "完整性",
+      "detail": "边缘池/601808 中海油服: 缺少必填字段 `纳入日期`(别名: ['日期', 'entry_date', 'add_date'])"
+    },
+    {
+      "level": "warning",
+      "check": "完整性",
+      "detail": "边缘池/002920 德赛西威: 缺少必填字段 `纳入日期`(别名: ['日期', 'entry_date', 'add_date'])"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "持仓池: 最后更新于2026-06-05 14:49:05，已49天未更新"
+    },
+    {
+      "level": "info",
+      "check": "及时性",
+      "detail": "决策日志无今日记录"
+    }
+  ],
+  "fixes": []
+}
