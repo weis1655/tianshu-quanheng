@@ -137,15 +137,18 @@ class PoolUpdater:
                 # 日期格式异常，跳过该标的（非关键路径，不阻塞）
                 pass
 
-        # 按code去重合并
+        # 按code去重合并（今日已入池的标的优先保留，不被新推荐挤占）
         existing_codes = {s.get("代码", "") for s in retained_stocks}
         new_deduped = [s for s in new_stocks if s.get("代码", "") not in existing_codes]
-        merged = new_deduped + retained_stocks
+        # 容量限制：先确保保留(stocks)全部保留，新条目不超过容量上限
+        max_remaining = 3 - len(retained_stocks)
+        new_trimmed = new_deduped[:max_remaining] if max_remaining > 0 else []
+        merged = retained_stocks + new_trimmed
 
         data = {
             "池名称": "S级操作池",
             "池定义": "当日决策主推标的，容量≤3，T+0可追，T+1需评估",
-            "stocks": merged[:3],
+            "stocks": merged,
             "统计": {"创建日期": today, "当日进入": len(new_stocks)},
             "历史记录": old_history,
         }
