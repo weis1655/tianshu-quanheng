@@ -411,7 +411,24 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
 
     for line in lines:
         parts = line.split("~")
-        if len(parts) < 40:
+        if len(parts) < 65:
+            plog("WARNING", f"[行情数据] ⚠️ 腾讯API返回字段不足({len(parts)}<65)，可能格式已变更: {line[:80]}")
+            continue
+
+        # 【REP-01】字段位置校验：检查关键字段是否合理
+        raw_name = parts[1].strip() if len(parts) > 1 else ""
+        raw_price = parts[3].strip() if len(parts) > 3 else ""
+        # 校验1: 名称应为中文(含字母/数字/符号，如"上证指数""平安银行""N中芯")
+        is_name_valid = bool(re.search(r'[\u4e00-\u9fa5]', raw_name))
+        # 校验2: 价格应为有效数字
+        is_price_valid = False
+        try:
+            pv = float(raw_price)
+            is_price_valid = pv > 0
+        except ValueError:
+            pass
+        if not is_name_valid or not is_price_valid:
+            plog("WARNING", f"[行情数据] ⚠️ 腾讯API字段校验失败: name={raw_name}, price={raw_price}，可能格式已变更")
             continue
 
         # 判断市场：sh=上海，sz=深圳
@@ -420,16 +437,12 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
         code = parts[2].strip()
 
         try:
-            if len(parts) <= 65:
-                continue  # 字段不足，跳过该条
             price = float(parts[3])
             prev_close = float(parts[4])
-            # P2-1：涨幅提取精度增强
             change = float(parts[31])
             change_pct = float(parts[32])
-            # 交叉验证：用 (现价-昨收)/昨收 重新计算涨跌幅，避免API原始数据误差
+            # 交叉验证：用 (现价-昨收)/昨收 重新计算涨跌幅
             calculated_pct = round((price - prev_close) / prev_close * 100, 2) if prev_close else 0
-            # 如果API涨跌幅与计算值偏差>0.1%，以计算值为准（更精确）
             if calculated_pct and abs(calculated_pct - change_pct) > 0.1:
                 change_pct = calculated_pct
                 change = round(price - prev_close, 2)
@@ -442,9 +455,16 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
             amplitude = float(parts[43])      # 振幅%
             mkt_cap = float(parts[44])        # 流通市值(亿)
             total_cap = float(parts[45])      # 总市值(亿)
-            # 判断交易状态(涨停/跌停)：按ST→创业板/科创板→北交所→主板的优先级覆盖
-            stock_name = parts[1]  # 股票名称，用于ST判断
+            # 【REP-02】自动ST检测
+            stock_name = parts[1]
             is_st = 'ST' in stock_name or '*ST' in stock_name
+            if is_st:
+                # 自动更新ST_STOCKS集合
+                try:
+                    from compliance_manager import ST_STOCKS
+                    ST_STOCKS.add(code)
+                except Exception:
+                    pass
             if is_st:
                 upper_limit = prev_close * 1.05  # ST股5%涨停
                 lower_limit = prev_close * 0.95
