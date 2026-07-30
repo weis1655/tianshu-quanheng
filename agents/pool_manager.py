@@ -466,7 +466,7 @@ class PoolManager:
             try:
                 entry_date = datetime.strptime(entry_date_str, "%Y-%m-%d")
                 age_days = (today - entry_date).days
-                if age_days > max_age_days:
+                if age_days >= max_age_days:
                     removed.append({
                         "代码": stock.get("代码", stock.get("股票代码", "?")),
                         "名称": stock.get("名称", stock.get("股票名称", "?")),

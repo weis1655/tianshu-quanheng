@@ -52,7 +52,7 @@ def sweep_all_pools(pm: PoolManager, dry_run: bool = False) -> dict:
         remaining = []
         for s in stocks:
             try:
-                raw_score = s.get("综合分")
+                raw_score = s.get("综合分") or s.get("综合评分") or s.get("评分")
                 score = float(raw_score) if raw_score is not None else 0
             except (TypeError, ValueError):
                 raw_score = "?"
