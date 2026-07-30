@@ -67,8 +67,21 @@ def fetch_history(
         return []
 
     result = []
+    prev_date = None
     for item in data:
         try:
+            cur_date = item.get("day", "")[:10]
+            # 【REP-05】日期对齐校验：检查K线日期是否连续
+            if prev_date and cur_date:
+                try:
+                    pd = datetime.strptime(prev_date, "%Y-%m-%d")
+                    cd = datetime.strptime(cur_date, "%Y-%m-%d")
+                    gap = (cd - pd).days
+                    if gap > 5:  # 超过5个自然日无数据（含周末/节假日），可能缺失
+                        plog("INFO", f"[K线数据] ⚠️ 日期不连续: {prev_date}→{cur_date} 间隔{gap}天")
+                except ValueError:
+                    pass
+            prev_date = cur_date
             result.append({
                 "日期": item.get("day", "")[:10],
                 "开盘": round(float(item.get("open", 0)), 2),
@@ -522,8 +535,25 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
                 "季涨跌": quarter_chg,
                 "年涨跌": year_chg,
                 # 52周极值: 腾讯API未直接提供，需从历史K线计算
+                # 【REP-03】复权类型标识
+                "复权类型": "qfq",
+                # 【REP-04】多源行情交叉验证
                 "更新时间": datetime.now().strftime("%Y-%m-%d %H:%M"),
             })
+            # 【REP-04】多源行情一致性告警：腾讯vs东方财富价格对比
+            try:
+                em_secid = "1." + code if market == "SH" else "0." + code
+                em_url = f"https://push2.eastmoney.com/api/qt/stock/get?secid={em_secid}&fields=f43,f44"
+                em_req = urllib.request.Request(em_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(em_req, timeout=3) as em_resp:
+                    em_data = json.loads(em_resp.read().decode("utf-8"))
+                em_price = em_data.get("data", {}).get("f43", 0)
+                if em_price and price > 0:
+                    diff = abs(em_price - price) / price * 100
+                    if diff > 1.0:
+                        plog("WARNING", f"[行情数据] ⚠️ 腾讯vs东方财富价格差异{diff:.1f}% {code}: 腾讯={price} 东方财富={em_price}")
+            except Exception:
+                pass  # 交叉验证失败不阻塞主流程
         except (ValueError, IndexError):
             continue
 
