@@ -1,0 +1,44 @@
+{
+  "project": "天枢数据质量体系",
+  "version": "0.1",
+  "start_date": "2026-07-30",
+  "phases": {
+    "phase1": {"status": "completed", "deliverable": "data/项目管理/数据质量体系_P1_调研与设计.md"},
+    "phase2": {"status": "completed", "deliverable": "data/项目管理/数据质量体系_P2_建设方案.md"},
+    "phase3": {"status": "in_progress", "deliverable": "逐批实现"},
+    "phase4": {"status": "pending", "deliverable": "data/项目管理/数据质量体系_P4_闭环报告.md"}
+  },
+  "batches": {
+    "batch1": {
+      "status": "in_progress",
+      "work_orders": {
+        "WO-DQ-001": {"status": "in_progress", "desc": "全量数据质量扫描增强"},
+        "WO-DQ-002": {"status": "pending", "desc": "行情数据缺失/异常检测与修复"},
+        "WO-DQ-003": {"status": "pending", "desc": "评分数据异常检测与修复"},
+        "WO-DQ-004": {"status": "pending", "desc": "LLM输出格式漂移检测"}
+      }
+    },
+    "batch2": {
+      "status": "pending",
+      "work_orders": {
+        "WO-DQ-005": {"status": "pending", "desc": "跨池数据一致性"},
+        "WO-DQ-006": {"status": "pending", "desc": "数据时效性监控"},
+        "WO-DQ-007": {"status": "pending", "desc": "决策日志字段完整性"},
+        "WO-DQ-008": {"status": "pending", "desc": "报告文件完整性"},
+        "WO-DQ-009": {"status": "pending", "desc": "权重配置合法性"},
+        "WO-DQ-010": {"status": "pending", "desc": "池容量超限检测"},
+        "WO-DQ-011": {"status": "pending", "desc": "外部API连通性监控"}
+      }
+    },
+    "batch3": {
+      "status": "pending",
+      "work_orders": {
+        "WO-DQ-012": {"status": "pending", "desc": "数据质量日报"},
+        "WO-DQ-013": {"status": "pending", "desc": "代码格式规范检测"},
+        "WO-DQ-014": {"status": "pending", "desc": "字段命名一致性"},
+        "WO-DQ-015": {"status": "pending", "desc": "异常留痕与追溯"},
+        "WO-DQ-016": {"status": "pending", "desc": "复权状态标识"}
+      }
+    }
+  }
+}
