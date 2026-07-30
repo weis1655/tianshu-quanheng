@@ -539,6 +539,39 @@ class BaseAgent(ABC):
                     time.sleep(wait_time)
                     continue
                 else:
+                    # 第二级降级：SenseNova 全部失败后尝试 OpenCode Zen
+                    try:
+                        plog("INFO", f"[LLM降级] ⚠️ SenseNova 全部重试失败，降级至 OpenCode Zen")
+                        oc_api_key = os.environ.get("OPENCODE_ZEN_API_KEY", "")
+                        if oc_api_key:
+                            oc_payload = {
+                                "model": "opencode-zen",
+                                "messages": messages,
+                                "max_tokens": max_tokens,
+                                "temperature": temperature,
+                            }
+                            if response_format:
+                                oc_payload["response_format"] = response_format
+                            oc_headers = {
+                                "Authorization": f"Bearer {oc_api_key}",
+                                "Content-Type": "application/json",
+                            }
+                            oc_r = requests.post(
+                                "https://opencode.ai/zen/v1/chat/completions",
+                                headers=oc_headers,
+                                json=oc_payload,
+                                timeout=timeout
+                            )
+                            oc_r.raise_for_status()
+                            oc_data = oc_r.json()
+                            oc_message = oc_data.get("choices", [{}])[0].get("message", {})
+                            oc_content = oc_message.get("content") or ""
+                            if oc_content:
+                                _get_metrics().record_llm_call(self.agent_name, success=True, tokens=oc_data.get("usage", {}).get("total_tokens", 0), duration=time.time() - start_time)
+                                self._log_prompt(self.agent_name, "opencode-zen", system, prompt, oc_content)
+                                return oc_content
+                    except Exception as oc_e:
+                        plog("WARNING", f"[LLM降级] ❌ OpenCode Zen 降级也失败: {oc_e}")
                     return f"[LLM调用失败，经 {max_retries} 次重试] {e}"
 
     def safe_read_json(self, file_path: Path, default: Any = None) -> Any:
