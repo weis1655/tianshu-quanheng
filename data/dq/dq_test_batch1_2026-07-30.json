@@ -1,0 +1,60 @@
+{
+  "test_time": "2026-07-30 10:12:08",
+  "batch": "batch1",
+  "total": 10,
+  "passed": 10,
+  "failed": 0,
+  "pass_rate": 100.0,
+  "results": [
+    {
+      "name": "TC-01a: dq_scanner检测到价格为0",
+      "status": "PASS",
+      "detail": "告警数: 4"
+    },
+    {
+      "name": "TC-01b: quote_healer可修复",
+      "status": "PASS",
+      "detail": "成功修复: 1"
+    },
+    {
+      "name": "TC-02: quote_healer检测到价格缺失",
+      "status": "PASS",
+      "detail": "原因: 价格缺失"
+    },
+    {
+      "name": "TC-03a: fix_score_zero识别到score=0>3天",
+      "status": "PASS",
+      "detail": "修复计划: 1条"
+    },
+    {
+      "name": "TC-03b: fix_score_zero降级成功",
+      "status": "PASS",
+      "detail": "降级前: 8, 降级后: 7"
+    },
+    {
+      "name": "TC-04: dq_scanner检测到评分越界",
+      "status": "PASS",
+      "detail": "告警: ['快筛候选池/300502 新易盛: 评分150.0不在0-100范围']"
+    },
+    {
+      "name": "TC-08: dq_scanner检测到价格负值",
+      "status": "PASS",
+      "detail": "告警: ['快筛候选池/300502 新易盛: 价格<=0 (-1.0)']"
+    },
+    {
+      "name": "TC-09: dq_scanner检测到涨跌幅越界",
+      "status": "PASS",
+      "detail": "告警: ['快筛候选池/300502 新易盛: 涨跌幅=25.0%', '快筛候选池/300333 兆日科技: 涨跌幅=20.03%', '快筛候选池/300530 领湃科技: 涨跌幅=20.02%', '快筛候选池/300169 天晟新材: 涨跌幅=20.09%']"
+    },
+    {
+      "name": "TC-11: llm_drift_detector正常运行",
+      "status": "PASS",
+      "detail": "扫描组数: 5, 告警数: 0"
+    },
+    {
+      "name": "TC-13: 权重配置检测器正常运行",
+      "status": "PASS",
+      "detail": "告警: []"
+    }
+  ]
+}
