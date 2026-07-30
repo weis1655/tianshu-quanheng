@@ -1751,9 +1751,11 @@ class PoolManager:
                             stock["综合分"] = new_score
                             stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
                             plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
-            # 扫描评分<65的存量股，自动降级
-            self._scan_and_downgrade(data)
-            self.save_pool("S级操作池", data)
+        # 扫描评分<65的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
+        self._scan_and_downgrade(data)
+        self.save_pool("S级操作池", data)
+
+        if refreshed:
             plog("INFO", f"[PoolManager] ✅ S级操作池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
 
         return refreshed
