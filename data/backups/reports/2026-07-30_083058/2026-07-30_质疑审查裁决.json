@@ -1,0 +1,20 @@
+{
+  "date": "2026-07-30",
+  "total": 1,
+  "total_veto": 0,
+  "total_high": 1,
+  "passed": [],
+  "blocked": [
+    {
+      "code": "601888",
+      "name": "中国中免",
+      "verdict": "challenge_required",
+      "has_high_risk": true,
+      "veto_count": 0,
+      "high_count": 1,
+      "weighted_count": 1.5,
+      "block_reason": ""
+    }
+  ],
+  "gate_status": "blocked"
+}
