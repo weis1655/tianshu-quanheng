@@ -247,10 +247,24 @@ def heal_stock(code: str) -> tuple[dict | None, str]:
 
 
 def write_fix_log(entry: dict):
-    """写入修复日志"""
+    """写入修复日志，同时触发信号重生成标记"""
     FIX_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(FIX_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    # 信号重生成：行情修复后标记需要重算的信号
+    signal_file = DATA_DIR / "dq" / f"signal_regen_{TODAY.isoformat()}.jsonl"
+    signal_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(signal_file, "a", encoding="utf-8") as f:
+        signal = {
+            "time": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+            "pool": entry.get("target", "?").split("/")[0] if "/" in entry.get("target", "") else "?",
+            "target": entry.get("target", "?"),
+            "fix_type": "行情自愈",
+            "before": entry.get("before", ""),
+            "after": entry.get("after", ""),
+            "needs_recalculation": True
+        }
+        f.write(json.dumps(signal, ensure_ascii=False) + "\n")
 
 
 def scan_pool(pool_name: str, dry_run: bool = False) -> list[dict]:

@@ -568,9 +568,8 @@ def check_daily_reports() -> list[dict]:
 
 
 def check_api_connectivity() -> list[dict]:
-    """DET-19: 检查外部API连通性（通过健康检查端点）"""
+    """DET-19: 检查外部API连通性"""
     alerts = []
-    # 检查腾讯行情API
     import urllib.request
     try:
         req = urllib.request.Request("https://qt.gtimg.cn/q=sh000001",
@@ -585,6 +584,78 @@ def check_api_connectivity() -> list[dict]:
         alerts.append({"level": "warning", "check": "可用性-API超时",
                        "detail": f"腾讯行情API不可达: {type(e).__name__}"})
     return alerts
+
+
+def check_rights_adjustment(pool_name: str, data: dict) -> list[dict]:
+    """DET-21: 检查K线数据复权类型标识"""
+    alerts = []
+    stocks = data.get("stocks", [])
+    for stock in stocks:
+        code = _get_stock_code(stock)
+        name = _get_stock_name(stock)
+        has_adjust_tag = "复权类型" in stock or "adjust_type" in stock or "fq_type" in stock
+        if not has_adjust_tag and pool_name in ("持仓池", "S级操作池"):
+            alerts.append({
+                "level": "info", "check": "有效性-复权标识",
+                "detail": f"{pool_name}/{code} {name}: 缺少复权类型标识"
+            })
+    return alerts
+
+
+def check_financial_data(pool_name: str, data: dict) -> list[dict]:
+    """DET-22: 检查基本面/财务数据异常"""
+    alerts = []
+    stocks = data.get("stocks", [])
+    for stock in stocks:
+        code = _get_stock_code(stock)
+        name = _get_stock_name(stock)
+        for pe_key in ["PE", "市盈率", "pe", "pe_ttm"]:
+            pe_val = stock.get(pe_key)
+            if pe_val is not None:
+                try:
+                    pe = float(pe_val)
+                    if pe < 0:
+                        alerts.append({"level": "info", "check": "准确性-PE异常",
+                                       "detail": f"{pool_name}/{code} {name}: PE为负值({pe})"})
+                    elif pe > 500:
+                        alerts.append({"level": "info", "check": "准确性-PE异常",
+                                       "detail": f"{pool_name}/{code} {name}: PE过高({pe})"})
+                except (ValueError, TypeError):
+                    pass
+                break
+        for mkt_key in ["流通市值_亿", "流通市值", "market_cap", "总市值"]:
+            mkt_val = stock.get(mkt_key)
+            if mkt_val is not None:
+                try:
+                    mkt = float(mkt_val)
+                    if mkt <= 0:
+                        alerts.append({"level": "warning", "check": "准确性-市值异常",
+                                       "detail": f"{pool_name}/{code} {name}: 流通市值<=0 ({mkt})"})
+                except (ValueError, TypeError):
+                    pass
+                break
+    return alerts
+
+
+def trigger_signal_regeneration(fixes: list, pool_name: str, fix_type: str):
+    """信号重生成：修复后标记需要重算的信号"""
+    if not fixes:
+        return
+    today = NOW.strftime("%Y-%m-%d")
+    signal_file = DATA_DIR / "dq" / f"signal_regen_{today}.jsonl"
+    signal_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(signal_file, "a", encoding="utf-8") as f:
+        for fix in fixes:
+            signal = {
+                "time": NOW.strftime("%Y-%m-%d %H:%M:%S"),
+                "pool": pool_name,
+                "target": fix.get("target", "?"),
+                "fix_type": fix_type,
+                "before": fix.get("before", ""),
+                "after": fix.get("after", ""),
+                "needs_recalculation": True
+            }
+            f.write(json.dumps(signal, ensure_ascii=False) + "\n")
 
 
 def fix_score_zero(pool_name: str, data: dict, dry_run: bool = False) -> tuple[dict, list[dict]]:
@@ -745,6 +816,8 @@ def main():
             (check_date_format, "有效性-日期"),
             (check_field_naming_consistency, "一致性-字段命名"),
             (check_pool_capacity, "完整性-容量"),
+            (check_financial_data, "准确性-财务"),
+            (check_rights_adjustment, "有效性-复权"),
         ]:
             if check_name == "一致性-评分":
                 alerts = check_fn(pool_name, data, all_scores)
@@ -766,6 +839,10 @@ def main():
             all_fixes.extend(score_fixes)
             data, dup_fixes = fix_duplicates(pool_name, data, dry_run=args.dry_run)
             all_fixes.extend(dup_fixes)
+            # 信号重生成：修复后标记需要重算的信号
+            if not args.dry_run:
+                trigger_signal_regeneration(score_fixes, pool_name, "score=0降级")
+                trigger_signal_regeneration(dup_fixes, pool_name, "去重")
 
     # 2. 决策日志检查
     log_alerts = check_decision_log()
