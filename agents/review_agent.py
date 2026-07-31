@@ -69,7 +69,7 @@ ROLE_PROMPT = """你是一个独立的股票审查专家，负责对候选股票
 - 商誉占净资产超50%
 - 主力已明显出货（高位放量大阴线）
 
-完成三步思考后，再输出结构化结论。
+**⚠️ 关键约束：上述三步思考过程严禁输出，只输出下方的结构化结论格式。**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【你的工作方式】
@@ -81,16 +81,13 @@ ROLE_PROMPT = """你是一个独立的股票审查专家，负责对候选股票
 - S级驱动的股票，四维打分可额外+5分（但不超过100分）
 - B级或C级驱动的股票，四维打分额外-5分
 
-### 输出模板
-
-### 流转方向
-→ 升级/保留/降级 → [目标池名称]
-```
-
 ⚠️ **硬性要求**：
-- 禁止输出任何开场白
+- 禁止输出任何开场白（不准说"用户要求我...""让我先分析...""首先，我需要理解..."等元评论）
 - 每只股票总字数不超过200字
-- **≥75分升级，65-74分保留，55-64分降级，<55分淘汰**
+- **必须使用下方精确的表格格式，禁止使用"- "子弹点格式**
+- 每只股票必须包含明确的四维打分数值（驱动验证/位置分析/量能判断/风险扫描）
+- 每只股票必须包含明确的综合评分数值
+- 每只股票必须包含明确的流转方向（→ 升级/保留/降级 → [目标池名称]）
 
 评分标准：
 - 90-100：极佳机会，强烈建议关注
@@ -105,7 +102,7 @@ ROLE_PROMPT = """你是一个独立的股票审查专家，负责对候选股票
 - 55-64：降级→边缘池（观察区）
 - <55：淘汰→移出候选池
 
-输出格式（禁止任何开场白，直接输出结构化结论）：
+**输出格式（必须严格遵守，每只股票独立输出，禁止任何偏离）：**
 ```markdown
 ## [代码] 股票名称
 
@@ -858,6 +855,8 @@ class ReviewAgent(BaseAgent):
             r'##\s*\[?(\d{6})\]?\s*([\u4e00-\u9fa5]{2,8})',
             # 叙事模式：### N. 代码 名称（如"### 1. 600547 山东黄金"）
             r'###\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
+            # 编号模式：## N. 代码 名称（LLM 2026-07-31开始输出，如"## 1. 688008 澜起科技"）
+            r'##\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
         ]:
             m = re.search(pat, block, re.MULTILINE)
             if m:
@@ -887,6 +886,12 @@ class ReviewAgent(BaseAgent):
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
+        # 编号模式兜底：## N. 代码 名称（2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
@@ -894,6 +899,12 @@ class ReviewAgent(BaseAgent):
             if re.search(r'→\s*(→)?\s*升级', block):
                 upgrades.append((name, code))
             elif re.search(r'→\s*(→)?\s*降级', block):
+                demotions.append((name, code))
+            elif re.search(r'降级\s*→', block):
+                demotions.append((name, code))
+            elif re.search(r'→\s*(→)?\s*淘汰', block):
+                demotions.append((name, code))
+            elif re.search(r'淘汰\s*→', block):
                 demotions.append((name, code))
             # 保留 → 候选池 不参与池流转
 
@@ -925,6 +936,12 @@ class ReviewAgent(BaseAgent):
         if len(blocks) <= 1:
             blocks = re.split(
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # 编号模式兜底：## N. 代码 名称（2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
         for block in blocks:
@@ -1009,6 +1026,16 @@ class ReviewAgent(BaseAgent):
                 return "升级", "重点观察池"
             if re.search(r'→\s*(→)?\s*降级', block):
                 return "降级", "边缘池"
+            # 反向格式：降级→（LLM 2026-07-31格式漂移：写"降级→边缘池"而非"→ 降级"）
+            if re.search(r'(?:升级|保留)\s*→', block):
+                return "升级", "重点观察池"
+            if re.search(r'降级\s*→', block):
+                return "降级", "边缘池"
+            # 淘汰等同降级（LLM按提示词输出"淘汰→移出候选池"，<55分格式）
+            if re.search(r'→\s*(→)?\s*淘汰', block):
+                return "降级", "边缘池"
+            if re.search(r'淘汰\s*→', block):
+                return "降级", "边缘池"
             return "保留", ""
 
         stocks: List[StockReview] = []
@@ -1026,12 +1053,18 @@ class ReviewAgent(BaseAgent):
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
+        # 编号模式兜底：LLM可能输出 "## N. 代码 名称" 格式（如"## 1. 688008 澜起科技"，2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
                 continue
 
-            # 综合评分（多模式兜底）
+            # 综合评分（多模式兜底，用 findall 取最后匹配 = 最终评分）
             score = 0
             for score_pat in [
                 r'综合评分[：:\s]*\[?\*?\s*(\d+)',
@@ -1043,10 +1076,18 @@ class ReviewAgent(BaseAgent):
                 r'\|\s*\*{0,2}综合评分\*{0,2}\s*\|\s*\*{0,2}(\d+)\*{0,2}',
                 # 加权计算式格式：综合：(...) = 45.5分
                 r'综合[：:].*?=\s*(\d+\.?\d*)\s*分',
+                # 子弹点评分格式：≈ 50分 或 = 49.75（LLM 2026-07-31格式漂移）
+                r'[≈=]\s*(\d+\.?\d*)\s*分',
+                # 弱市调整格式：弱市调整-5分：49.75 或 弱市调整：54.75-5=49.75≈50分（LLM 2026-07-31格式漂移）
+                r'弱市调整[^：:]*[：:]\s*(\d+\.?\d*)',
+                # 叙事版格式：综合[^\n]*?\d+分（LLM 2026-07-31叙事版输出，取最后出现的综合评分）
+                r'综合[^\\n]*?(\\d+)\\s*分',
             ]:
-                sm = re.search(score_pat, block)
-                if sm:
-                    score = min(int(sm.group(1)), 100)
+                all_matches = re.findall(score_pat, block)
+                if all_matches:
+                    # 取最后一个匹配（LLM可能多次修改评分，最终评分在后）
+                    last_score = all_matches[-1]
+                    score = min(int(float(last_score)), 100)
                     break
             if score == 0:
                 # 兜底：从 **四维打分**：段落提取各维度评分，用权重计算综合分
