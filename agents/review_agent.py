@@ -69,7 +69,7 @@ ROLE_PROMPT = """你是一个独立的股票审查专家，负责对候选股票
 - 商誉占净资产超50%
 - 主力已明显出货（高位放量大阴线）
 
-完成三步思考后，再输出结构化结论。
+**⚠️ 关键约束：上述三步思考过程严禁输出，只输出下方的结构化结论格式。**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【你的工作方式】
@@ -1062,7 +1062,7 @@ class ReviewAgent(BaseAgent):
             if not code:
                 continue
 
-            # 综合评分（多模式兜底）
+            # 综合评分（多模式兜底，用 findall 取最后匹配 = 最终评分）
             score = 0
             for score_pat in [
                 r'综合评分[：:\s]*\[?\*?\s*(\d+)',
@@ -1078,10 +1078,14 @@ class ReviewAgent(BaseAgent):
                 r'[≈=]\s*(\d+\.?\d*)\s*分',
                 # 弱市调整格式：弱市调整-5分：49.75 或 弱市调整：54.75-5=49.75≈50分（LLM 2026-07-31格式漂移）
                 r'弱市调整[^：:]*[：:]\s*(\d+\.?\d*)',
+                # 叙事版格式：综合[^\n]*?\d+分（LLM 2026-07-31叙事版输出，取最后出现的综合评分）
+                r'综合[^\\n]*?(\\d+)\\s*分',
             ]:
-                sm = re.search(score_pat, block)
-                if sm:
-                    score = min(int(sm.group(1)), 100)
+                all_matches = re.findall(score_pat, block)
+                if all_matches:
+                    # 取最后一个匹配（LLM可能多次修改评分，最终评分在后）
+                    last_score = all_matches[-1]
+                    score = min(int(float(last_score)), 100)
                     break
             if score == 0:
                 # 兜底：从 **四维打分**：段落提取各维度评分，用权重计算综合分

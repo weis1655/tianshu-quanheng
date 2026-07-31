@@ -282,9 +282,9 @@ class DecisionAgent(BaseAgent):
             pass
         dup_warning = ""
         if dup_codes:
-            dup_in_picks = {s["code"] for s in scored_stocks if str(s.get("code", "")) in dup_codes}
-            dup_names = {s["name"] for s in scored_stocks if str(s.get("code", "")) in dup_codes and s.get("name")}
-            scored_stocks[:] = [s for s in scored_stocks if str(s.get("code", "")) not in dup_codes]
+            dup_in_picks = {isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or str(s) for s in scored_stocks if str(isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or s) in dup_codes}
+            dup_names = {isinstance(s, dict) and s.get("name", s.get("股票名称", "")) or "" for s in scored_stocks if str(isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or s) in dup_codes and (isinstance(s, dict) and (s.get("name") or s.get("股票名称")))}
+            scored_stocks[:] = [s for s in scored_stocks if str(isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or s) not in dup_codes]
             for pool_name, pool_data in pools.items():
                 if pool_data.get("stocks"):
                     pool_data["stocks"] = [s for s in pool_data["stocks"]
