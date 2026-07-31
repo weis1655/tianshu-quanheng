@@ -374,8 +374,7 @@ class DecisionAgent(BaseAgent):
             return {"success": False, "error": "审查报告内容不足"}
 
         # ── P1-2：决策前置条件检查 ─────────────────────────────
-        # 质疑报告缺失时已注入缺失声明（见上），不阻塞流程
-        # 空质疑报告（skeptic_empty=True）视为"无质疑"，不阻断流程
+        # 质疑报告缺失/为空时，P1-3覆盖度检查将全部候选判为未覆盖并阻断（不阻塞主流程，仅移除决策候选）
         # ────────────────────────────────────────────────────────
         # 检查2：实时行情数据是否齐备
         pools = self._load_pools() if pools is None else pools
@@ -565,8 +564,8 @@ class DecisionAgent(BaseAgent):
         # 审查通过的标的如果未出现在质疑报告中，注入明确警告
         # 防止 LLM 自行困惑后输出"前置检查失败"
         coverage_warning = ""
-        if not skeptic_empty and skeptic_content and len(skeptic_content.strip()) >= 50 and scored_stocks:
-            skeptic_codes = self._extract_skeptic_covered_codes(skeptic_content)
+        if scored_stocks:
+            skeptic_codes = self._extract_skeptic_covered_codes(skeptic_content) if skeptic_content else set()
             uncovered = [s for s in scored_stocks if s["code"] not in skeptic_codes]
             if uncovered:
                 names = "、".join(f"{s['name']}({s['code']})" for s in uncovered)
