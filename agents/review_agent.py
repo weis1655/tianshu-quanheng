@@ -858,6 +858,8 @@ class ReviewAgent(BaseAgent):
             r'##\s*\[?(\d{6})\]?\s*([\u4e00-\u9fa5]{2,8})',
             # 叙事模式：### N. 代码 名称（如"### 1. 600547 山东黄金"）
             r'###\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
+            # 编号模式：## N. 代码 名称（LLM 2026-07-31开始输出，如"## 1. 688008 澜起科技"）
+            r'##\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
         ]:
             m = re.search(pat, block, re.MULTILINE)
             if m:
@@ -885,6 +887,12 @@ class ReviewAgent(BaseAgent):
         if len(blocks) <= 1:
             blocks = re.split(
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # 编号模式兜底：## N. 代码 名称（2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
         for block in blocks:
@@ -925,6 +933,12 @@ class ReviewAgent(BaseAgent):
         if len(blocks) <= 1:
             blocks = re.split(
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # 编号模式兜底：## N. 代码 名称（2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
         for block in blocks:
@@ -1026,6 +1040,12 @@ class ReviewAgent(BaseAgent):
                 r'(?=###\s*\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
+        # 编号模式兜底：LLM可能输出 "## N. 代码 名称" 格式（如"## 1. 688008 澜起科技"，2026-07-31格式漂移）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
@@ -1043,6 +1063,10 @@ class ReviewAgent(BaseAgent):
                 r'\|\s*\*{0,2}综合评分\*{0,2}\s*\|\s*\*{0,2}(\d+)\*{0,2}',
                 # 加权计算式格式：综合：(...) = 45.5分
                 r'综合[：:].*?=\s*(\d+\.?\d*)\s*分',
+                # 子弹点评分格式：≈ 50分 或 = 49.75（LLM 2026-07-31格式漂移）
+                r'[≈=]\s*(\d+\.?\d*)\s*分',
+                # 弱市调整格式：弱市调整-5分：49.75（LLM 2026-07-31格式漂移）
+                r'弱市调整[：:]\s*(\d+\.?\d*)',
             ]:
                 sm = re.search(score_pat, block)
                 if sm:
