@@ -1107,7 +1107,10 @@ class PoolManager:
         remaining = []
         for s in stocks:
             raw_score = s.get("综合分")
-            score = float(raw_score) if raw_score is not None else 0
+            try:
+                score = float(raw_score) if raw_score is not None else 0
+            except (TypeError, ValueError):  # 非数字评分不阻断扫描，按0分处理走降级
+                score = 0
             level = score_to_level(score)
 
             # WO-002: 评分=0且入池≥3天的标的，直接降级（不等待自然衰减）
