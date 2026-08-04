@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-08-04 09:00:27",
+  "status": "critical",
+  "exit_code": 2,
+  "summary": {
+    "total_checks": 82,
+    "passed": 80,
+    "warnings": 1,
+    "criticals": 1,
+    "fixed": 0
+  },
+  "alerts": [
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/002015 协鑫能科: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "info",
+      "check": "及时性-缺少更新日期",
+      "detail": "重点观察池_历史池: 缺少更新日期"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "持仓池: 最后更新于2026-06-05，已60天未更新"
+    },
+    {
+      "level": "info",
+      "check": "及时性-无今日记录",
+      "detail": "决策日志无今日记录"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 决策报告"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 四段闭环汇总"
+    }
+  ],
+  "fixes": []
+}
