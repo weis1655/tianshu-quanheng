@@ -1,25 +1,15 @@
 {
-  "timestamp": "2026-08-05 09:00:41",
+  "timestamp": "2026-08-05 16:00:46",
   "status": "critical",
   "exit_code": 2,
   "summary": {
     "total_checks": 82,
-    "passed": 78,
-    "warnings": 3,
+    "passed": 81,
+    "warnings": 0,
     "criticals": 1,
     "fixed": 0
   },
   "alerts": [
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/002015 协鑫能科: 数据已111分钟未更新 (盘中>15min)"
-    },
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/300394 天孚通信: 数据已111分钟未更新 (盘中>15min)"
-    },
     {
       "level": "info",
       "check": "及时性-缺少更新日期",
@@ -31,9 +21,9 @@
       "detail": "持仓池: 最后更新于2026-06-05，已61天未更新"
     },
     {
-      "level": "warning",
-      "check": "及时性-数据陈旧",
-      "detail": "S级操作池: 最后更新于2026-08-03，已2天未更新"
+      "level": "info",
+      "check": "有效性-复权标识",
+      "detail": "S级操作池/603993 洛阳钼业: 缺少复权类型标识"
     },
     {
       "level": "info",
