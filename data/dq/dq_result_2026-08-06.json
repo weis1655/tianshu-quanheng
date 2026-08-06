@@ -1,25 +1,15 @@
 {
-  "timestamp": "2026-08-06 09:00:55",
+  "timestamp": "2026-08-06 16:01:00",
   "status": "critical",
   "exit_code": 2,
   "summary": {
     "total_checks": 82,
-    "passed": 79,
-    "warnings": 2,
+    "passed": 81,
+    "warnings": 0,
     "criticals": 1,
     "fixed": 0
   },
   "alerts": [
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/002015 协鑫能科: 数据已110分钟未更新 (盘中>15min)"
-    },
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/300394 天孚通信: 数据已110分钟未更新 (盘中>15min)"
-    },
     {
       "level": "info",
       "check": "及时性-缺少更新日期",
