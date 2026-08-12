@@ -1,3 +1,4 @@
 {"time": "2026-08-12 16:00:16", "pool": "边缘池", "target": "边缘池/603259 药明康德", "fix_type": "去重", "before": "重复条目", "after": "已移除", "needs_recalculation": true}
 {"time": "2026-08-12 16:00:16", "pool": "边缘池", "target": "边缘池/000426 兴业银锡", "fix_type": "去重", "before": "重复条目", "after": "已移除", "needs_recalculation": true}
 {"time": "2026-08-12 16:00:16", "pool": "边缘池", "target": "边缘池/002230 科大讯飞", "fix_type": "去重", "before": "重复条目", "after": "已移除", "needs_recalculation": true}
+{"time": "2026-08-12 16:00:16", "pool": "重点观察池", "target": "重点观察池/002085 万丰奥威", "fix_type": "行情自愈", "before": "价格缺失(价格缺失)", "after": "修复价=10.93 (来源:腾讯行情)", "needs_recalculation": true}
