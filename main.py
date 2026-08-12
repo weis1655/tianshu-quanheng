@@ -35,8 +35,8 @@ import signal
 
 # RPM 限流节流：LLM 调用阶段之间的最小间隔（秒）
 # 商汤 SenseNova RPM 限额较低，密集调用会触发 429
-# 15 秒间隔可确保每分钟不超过 4 次调用
-LLM_THROTTLE_SECONDS = 15
+# 25 秒间隔可确保 5-6 次调用横跨 100+ 秒，低于 5 RPM 滑动窗口
+LLM_THROTTLE_SECONDS = 25
 
 _graceful_shutdown = False
 
