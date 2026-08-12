@@ -27,10 +27,16 @@
 import sys
 import os
 import json
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
 import signal
+
+# RPM 限流节流：LLM 调用阶段之间的最小间隔（秒）
+# 商汤 SenseNova RPM 限额较低，密集调用会触发 429
+# 15 秒间隔可确保每分钟不超过 4 次调用
+LLM_THROTTLE_SECONDS = 15
 
 _graceful_shutdown = False
 
@@ -892,6 +898,8 @@ def main():
         # ── T+1 采集结束 ──────────────────────────────────
 
         # 然后串行：快筛→审查→决策（P0-1：失败级联终止）
+        # RPM 限流节流：每个 LLM 阶段之间间隔，避免 429
+        time.sleep(LLM_THROTTLE_SECONDS)
         pools = orch.get_pools()
         if not check_circuit_breaker("screen"):
             print(f"[熔断器] ⛔ screen 熔断，跳过")
@@ -909,6 +917,9 @@ def main():
             print(json.dumps(card, ensure_ascii=False, indent=2))
             return results
         record_success("screen")
+
+        # RPM 限流节流：screen→review 间隔
+        time.sleep(LLM_THROTTLE_SECONDS)
 
         pools = orch.get_pools()
         if not check_circuit_breaker("review"):
@@ -1147,6 +1158,8 @@ def main():
             record_success("decision")
         else:
             # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
+            # RPM 限流节流：review→skeptic 间隔
+            time.sleep(LLM_THROTTLE_SECONDS)
             pools = orch.get_pools()
             if not check_circuit_breaker("skeptic"):
                 print(f"[熔断器] ⛔ skeptic 熔断，跳过")
@@ -1165,6 +1178,8 @@ def main():
                 results["decision"] = {"success": False, "error": "质疑报告缺失，决策阶段被宪法守卫拦截"}
                 record_failure("decision")
             else:
+                # RPM 限流节流：skeptic→decision 间隔
+                time.sleep(LLM_THROTTLE_SECONDS)
                 pools = orch.get_pools()
                 if not check_circuit_breaker("decision"):
                     print(f"[熔断器] ⛔ decision 熔断，跳过")
