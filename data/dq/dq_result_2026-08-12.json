@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-08-12 09:00:11",
+  "status": "critical",
+  "exit_code": 2,
+  "summary": {
+    "total_checks": 82,
+    "passed": 77,
+    "warnings": 4,
+    "criticals": 1,
+    "fixed": 0
+  },
+  "alerts": [
+    {
+      "level": "info",
+      "check": "及时性-缺少更新日期",
+      "detail": "重点观察池_历史池: 缺少更新日期"
+    },
+    {
+      "level": "warning",
+      "check": "一致性-池内重复",
+      "detail": "边缘池: 603259 存在重复条目"
+    },
+    {
+      "level": "warning",
+      "check": "一致性-池内重复",
+      "detail": "边缘池: 000426 存在重复条目"
+    },
+    {
+      "level": "warning",
+      "check": "一致性-池内重复",
+      "detail": "边缘池: 002230 存在重复条目"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "持仓池: 最后更新于2026-06-05，已68天未更新"
+    },
+    {
+      "level": "warning",
+      "check": "及时性-数据陈旧",
+      "detail": "S级操作池: 最后更新于2026-08-10，已2天未更新"
+    },
+    {
+      "level": "info",
+      "check": "及时性-无今日记录",
+      "detail": "决策日志无今日记录"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 决策报告"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 四段闭环汇总"
+    }
+  ],
+  "fixes": []
+}
