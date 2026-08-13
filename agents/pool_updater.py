@@ -149,7 +149,7 @@ class PoolUpdater:
             "池名称": "S级操作池",
             "池定义": "当日决策主推标的，容量≤3，T+0可追，T+1需评估",
             "stocks": merged,
-            "统计": {"创建日期": today, "当日进入": len(new_stocks)},
+            "统计": {"创建日期": today, "当日进入": len(new_stocks), "更新日期": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
             "历史记录": old_history,
         }
 

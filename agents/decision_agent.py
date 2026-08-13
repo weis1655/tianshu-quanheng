@@ -545,6 +545,19 @@ class DecisionAgent(BaseAgent):
             if all_scored_stocks and GateController.is_all_blocked(all_scored_stocks, blocked_codes):
                 plog("INFO", "[二审制Gate] ✅ 所有候选标的均被质疑拦截，执行空仓决策")
                 yellow_alerts = GateController.get_yellow_alerts(all_scored_stocks)
+                # P1-3: 空仓分支也记录决策日志（含被Gate拦截的标的）
+                try:
+                    self.track_recorder.record_to_evo(
+                        all_scored_stocks,
+                        "二审制Gate全拦截空仓",
+                        review_report=review_report,
+                        pools=pools,
+                        hypothesis_extractor=self._extract_hypothesis,
+                        hypothesis_enhancer=self._enhance_hypothesis_from_decision,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    plog("INFO", f"[决策日志] ⚠️ 空仓分支记录决策日志失败: {e}")
                 return self._build_empty_decision(today, pools, market_env,
                                                    "二审制Gate：所有候选标的均未通过质疑审查",
                                                    yellow_alerts=yellow_alerts)
@@ -1009,7 +1022,7 @@ class DecisionAgent(BaseAgent):
         report = self.track_recorder.record_s_pool_eval(report, out_file)
 
         # P1-3: 记录决策日志（含可验证假设，从五池直取核心逻辑兜底）
-        # 使用 all_scored_stocks（闸门过滤前的完整评分列表），确保S级标的也被记录
+        # 使用 all_scored_stocks（Gate过滤前的全量评分列表），确保被Gate阻塞的标也被记录
         self._record_to_evo(all_scored_stocks, result, review_report, pools=pools)
 
         # ── P0: 推荐追踪器——记录每日推荐 ───────────────────────
