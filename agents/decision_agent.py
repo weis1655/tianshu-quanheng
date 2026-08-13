@@ -1009,7 +1009,8 @@ class DecisionAgent(BaseAgent):
         report = self.track_recorder.record_s_pool_eval(report, out_file)
 
         # P1-3: 记录决策日志（含可验证假设，从五池直取核心逻辑兜底）
-        self._record_to_evo(scored_stocks, result, review_report, pools=pools)
+        # 使用 all_scored_stocks（闸门过滤前的完整评分列表），确保S级标的也被记录
+        self._record_to_evo(all_scored_stocks, result, review_report, pools=pools)
 
         # ── P0: 推荐追踪器——记录每日推荐 ───────────────────────
         self._record_recommendation_tracker(today, result)

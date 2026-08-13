@@ -1580,6 +1580,8 @@ class ReviewAgent(BaseAgent):
         # 写统计
         stats = data.get("统计", {})
         stats["累计进入"] = stats.get("累计进入", 0) + len(filtered)
+        stats["持仓数"] = len(data.get("stocks", []))
+        stats["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         data["统计"] = stats
 
         self.safe_write_json(pool_file, data)
