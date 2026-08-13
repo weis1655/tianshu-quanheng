@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "scan_time": "2026-07-31 16:00:44",
+=======
+  "scan_time": "2026-07-31 10:00:40",
+>>>>>>> origin/main
   "scan_days": 3,
   "groups": {
     "review_score": {
