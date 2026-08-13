@@ -1031,17 +1031,11 @@ class ReviewAgent(BaseAgent):
                 return "升级", "重点观察池"
             if re.search(r'降级\s*→', block):
                 return "降级", "边缘池"
-<<<<<<< HEAD
-            # 淘汰等同降级
-            if re.search(r'→\s*(→)?\s*淘汰', block):
-                return "降级", "边缘池"
-=======
-            # 淘汰等同降级（LLM按提示词输出"淘汰→移出候选池"，<55分格式）
+# 淘汰等同降级（LLM按提示词输出"淘汰→移出候选池"，<55分格式）
             if re.search(r'→\s*(→)?\s*淘汰', block):
                 return "降级", "边缘池"
             if re.search(r'淘汰\s*→', block):
                 return "降级", "边缘池"
->>>>>>> origin/main
             return "保留", ""
 
         stocks: List[StockReview] = []
