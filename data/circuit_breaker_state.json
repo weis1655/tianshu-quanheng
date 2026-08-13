@@ -1,5 +1,1 @@
-<<<<<<< HEAD
-{"state": "half", "total_calls": 77, "successful_calls": 66, "failed_calls": 11, "rejected_calls": 0, "consecutive_failures": 0, "last_state_change": "2026-08-11T09:57:29.453267"}
-=======
-{"state": "half", "total_calls": 46, "successful_calls": 36, "failed_calls": 10, "rejected_calls": 0, "consecutive_failures": 0, "last_state_change": "2026-07-31T09:18:32.803525"}
->>>>>>> origin/main
+{"state": "closed", "total_calls": 1, "successful_calls": 1, "failed_calls": 0, "rejected_calls": 0, "consecutive_failures": 0, "last_state_change": "2026-08-14T07:10:41.222051"}
