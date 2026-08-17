@@ -1,0 +1,30 @@
+{
+  "date": "2026-08-17",
+  "total": 2,
+  "total_veto": 0,
+  "total_high": 2,
+  "passed": [],
+  "blocked": [
+    {
+      "code": "002085",
+      "name": "万丰奥威",
+      "verdict": "challenge_required",
+      "has_high_risk": true,
+      "veto_count": 0,
+      "high_count": 2,
+      "weighted_count": 2.0,
+      "block_reason": ""
+    },
+    {
+      "code": "603986",
+      "name": "兆易创新",
+      "verdict": "challenge_required",
+      "has_high_risk": true,
+      "veto_count": 0,
+      "high_count": 2,
+      "weighted_count": 2.8,
+      "block_reason": ""
+    }
+  ],
+  "gate_status": "blocked"
+}
