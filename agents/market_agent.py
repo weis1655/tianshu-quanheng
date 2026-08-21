@@ -547,7 +547,7 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
                 em_req = urllib.request.Request(em_url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(em_req, timeout=3) as em_resp:
                     em_data = json.loads(em_resp.read().decode("utf-8"))
-                em_price = em_data.get("data", {}).get("f43", 0)
+                em_price = float(em_data.get("data", {}).get("f43", 0)) / 100.0
                 if em_price and price > 0:
                     diff = abs(em_price - price) / price * 100
                     if diff > 1.0:
