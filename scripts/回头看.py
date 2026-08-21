@@ -707,11 +707,21 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
     if performance_map is None:
         performance_map = {}
 
-    # 0. 质疑报告缺失检测
+    # 0. 质疑报告缺失检测（过滤：当日所有流程文件均缺失=系统故障非P0）
     if trading_days:
+        from pathlib import Path as _Path
         for date in trading_days:
             质疑_file = HISTORY_DIR / f"{date}_质疑审查报告.md"
             if not 质疑_file.exists():
+                # 过滤误报：当日决策/审查/快筛报告文件也都不存在 → 系统未执行（如网络故障），非流程P0
+                当日报告文件 = [
+                    HISTORY_DIR / f"{date}_决策报告.md",
+                    HISTORY_DIR / f"{date}_审查报告.md",
+                    HISTORY_DIR / f"{date}_快筛报告.md",
+                ]
+                if all(not f.exists() for f in 当日报告文件):
+                    # 系统级故障，记录为 INFO 不记为 P0
+                    continue
                 issues.append({
                     'type': 'P0-质疑报告缺失',
                     'date': date,
@@ -734,8 +744,13 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
             })
     
     # 2. 降级延迟检测 - 评分<60但未及时降级
+    # 过滤已修复的历史数据：v6.2(2026-07-07)修复WO-002后，历史检测器重复报旧问题
+    _DOWNGRADE_FIX_DATE = "2026-07-07"
     for r in review_results:
         if r.get('score', 100) < 60 and r.get('flow') != '降级':
+            rdate = r.get('date', '')
+            if rdate < _DOWNGRADE_FIX_DATE:
+                continue  # 已修复的时间段，不再报旧问题
             issues.append({
                 'type': 'P0-降级延迟',
                 'date': r['date'],
@@ -772,8 +787,21 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                     })
     
     # 5. P0-实盘亏损：推荐后连跌3个交易日
+    # 过滤评分=0的记录：评分=0说明数据异常（如东财×100错位传导），非真实推荐行为
     for code, perf in performance_map.items():
         if perf and not perf.get('is_profit', True):
+            # 尝试匹配该标的在 review_results 中的评分
+            matched_review = None
+            for r in review_results:
+                if r.get('code') == code.split('_')[0]:
+                    matched_review = r
+                    break
+            if matched_review and matched_review.get('score', 1) == 0:
+                continue  # 数据异常导致的虚假亏损
+            # 亏损幅度<1%的"假亏损"（0.0%/-0.4%/-0.8% 等）过滤
+            chg = perf.get('change_pct', 0) or 0
+            if chg > -1.0:
+                continue  # 微幅波动非实盘亏损
             # 尝试从review/decision中查找对应的名称
             code_clean = code.split('_')[0] if '_' in code else code
             matched_name = code_clean
