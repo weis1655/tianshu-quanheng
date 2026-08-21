@@ -401,7 +401,7 @@ def extract_review_results(filepath):
             
             # 从行中提取流转方向：`→ 升级XX` 或 `→ 降级XX`
             line_rest = content[line_match.end():line_match.end()+100]
-            flow_match = re.search(r'→\s*(升级|降级|保留|排除)\s*(\S*)', line_rest)
+            flow_match = re.search(r'→\s*(升级|降级|保留|排除|淘汰)\s*(\S*)', line_rest)
             flow = flow_match.group(1) if flow_match else ''
             target_pool = flow_match.group(2).strip() if flow_match else ''
             
@@ -456,13 +456,13 @@ def extract_review_results(filepath):
         flow = ''
         target_pool = ''
         # 先试双箭头 `→ X → Y`
-        flow_match = re.search(r'→\s*(升级|降级|保留|排除)\s*→\s*([^\n]+)', block_content)
+        flow_match = re.search(r'→\s*(升级|降级|保留|排除|淘汰)\s*→\s*([^\n]+)', block_content)
         if flow_match:
             flow = flow_match.group(1)
             target_pool = flow_match.group(2).strip()
         else:
             # 再试单箭头 `→ X Y`（旧格式）
-            flow_match2 = re.search(r'→\s*(升级|降级|保留|排除)\s+(\S+)', block_content)
+            flow_match2 = re.search(r'→\s*(升级|降级|保留|排除|淘汰)\s+(\.?\S+)', block_content)
             if flow_match2:
                 flow = flow_match2.group(1)
                 target_pool = flow_match2.group(2).strip()
@@ -747,7 +747,11 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
     # 过滤已修复的历史数据：v6.2(2026-07-07)修复WO-002后，历史检测器重复报旧问题
     _DOWNGRADE_FIX_DATE = "2026-07-07"
     for r in review_results:
-        if r.get('score', 100) < 60 and r.get('flow') != '降级':
+        score = r.get('score', 100)
+        if score < 60 and r.get('flow') not in ('降级', '淘汰'):
+            # 评分=0 = 数据异常（如东财f43错位传导），非真实降级延迟
+            if score == 0:
+                continue
             rdate = r.get('date', '')
             if rdate < _DOWNGRADE_FIX_DATE:
                 continue  # 已修复的时间段，不再报旧问题
@@ -792,10 +796,17 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
         if perf and not perf.get('is_profit', True):
             # 尝试匹配该标的在 review_results 中的评分
             matched_review = None
+            # 优先匹配同日期；否则取最后一天的记录
+            target_date = perf.get('entry_date', '')
             for r in review_results:
-                if r.get('code') == code.split('_')[0]:
+                if r.get('code') == code.split('_')[0] and r.get('date') == target_date:
                     matched_review = r
                     break
+            if not matched_review:
+                for r in reversed(review_results):
+                    if r.get('code') == code.split('_')[0]:
+                        matched_review = r
+                        break
             if matched_review and matched_review.get('score', 1) == 0:
                 continue  # 数据异常导致的虚假亏损
             # 亏损幅度<1%的"假亏损"（0.0%/-0.4%/-0.8% 等）过滤
