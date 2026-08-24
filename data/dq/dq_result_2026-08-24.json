@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-24 09:00:22",
+  "timestamp": "2026-08-24 16:00:28",
   "status": "critical",
   "exit_code": 2,
   "summary": {
@@ -29,11 +29,6 @@
       "level": "info",
       "check": "及时性-无今日记录",
       "detail": "决策日志无今日记录"
-    },
-    {
-      "level": "info",
-      "check": "完整性-报告缺失",
-      "detail": "今日未生成 质疑审查裁决"
     }
   ],
   "fixes": []
