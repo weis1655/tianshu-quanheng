@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-25 09:00:40",
+  "timestamp": "2026-08-25 16:00:45",
   "status": "critical",
   "exit_code": 2,
   "summary": {
@@ -29,16 +29,6 @@
       "level": "info",
       "check": "及时性-无今日记录",
       "detail": "决策日志无今日记录"
-    },
-    {
-      "level": "info",
-      "check": "完整性-报告缺失",
-      "detail": "今日未生成 决策报告"
-    },
-    {
-      "level": "info",
-      "check": "完整性-报告缺失",
-      "detail": "今日未生成 四段闭环汇总"
     }
   ],
   "fixes": []
