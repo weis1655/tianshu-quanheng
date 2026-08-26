@@ -1119,6 +1119,11 @@ class ReviewAgent(BaseAgent):
                 flow_dir = "降级"
                 target_pool = "边缘池"
                 plog("WARNING", f"[ReviewAgent] 🚫 评分提取失败强制降级: {name}({code}) score=0→边缘池")
+            # ═══ P0-降级延迟修复: 低分硬性降级（score < AUTO_DOWNGRADE_SCORE → 边缘池）═══
+            if 0 < score < AUTO_DOWNGRADE_SCORE and flow_dir != "降级":
+                flow_dir = "降级"
+                target_pool = "边缘池"
+                plog("INFO", f"[ReviewAgent] 🔴 低分硬性降级: {name}({code}) {score}分<{AUTO_DOWNGRADE_SCORE}分→边缘池")
             # ═══════════════════════════════════════════════════
 
             # 四维评分
