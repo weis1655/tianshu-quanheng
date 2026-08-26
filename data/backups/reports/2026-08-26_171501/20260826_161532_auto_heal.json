@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-08-26T16:15:32.155964+08:00",
+  "run_id": "20260826_161532",
+  "state": "fixing",
+  "results": [
+    {
+      "issue": {
+        "type": "P0-降级延迟",
+        "code": "600903",
+        "detail": "评分31分但未降级，应降入边缘池"
+      },
+      "status": "merged",
+      "pr_url": "https://github.com/weis1655/tianshu-quanheng/pull/38",
+      "reason": null
+    }
+  ],
+  "report": "/home/seven/hermes-data/tianshu-quanheng/data/回顾报告/2026-08-26_回头看报告_v3.md",
+  "log": "/home/seven/hermes-data/tianshu-quanheng/data/历史记录/20260826_161532_auto_heal.json"
+}
