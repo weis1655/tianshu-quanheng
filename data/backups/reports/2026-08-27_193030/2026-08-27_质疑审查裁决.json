@@ -1,0 +1,120 @@
+{
+  "date": "2026-08-27",
+  "total": 11,
+  "total_veto": 0,
+  "total_high": 0,
+  "passed": [],
+  "blocked": [
+    {
+      "code": "688041",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "300394",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "600362",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "603993",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "601138",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "688041",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "300394",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "600362",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "603993",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "601138",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    },
+    {
+      "code": "688041",
+      "name": "?",
+      "verdict": "challenge_required",
+      "has_high_risk": false,
+      "veto_count": 0,
+      "high_count": 0,
+      "weighted_count": 0,
+      "block_reason": ""
+    }
+  ],
+  "gate_status": "blocked"
+}
