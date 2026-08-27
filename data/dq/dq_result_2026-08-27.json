@@ -1,25 +1,15 @@
 {
-  "timestamp": "2026-08-27 09:00:12",
+  "timestamp": "2026-08-27 16:18:27",
   "status": "critical",
   "exit_code": 2,
   "summary": {
     "total_checks": 82,
-    "passed": 78,
-    "warnings": 2,
+    "passed": 80,
+    "warnings": 0,
     "criticals": 2,
     "fixed": 0
   },
   "alerts": [
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/600362 江西铜业: 数据已110分钟未更新 (盘中>15min)"
-    },
-    {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/603993 洛阳钼业: 数据已110分钟未更新 (盘中>15min)"
-    },
     {
       "level": "critical",
       "check": "及时性-数据陈旧",
@@ -29,11 +19,6 @@
       "level": "critical",
       "check": "及时性-数据陈旧",
       "detail": "S级操作池: 最后更新于2026-08-20，已7天未更新"
-    },
-    {
-      "level": "info",
-      "check": "及时性-无今日记录",
-      "detail": "决策日志无今日记录"
     }
   ],
   "fixes": []
