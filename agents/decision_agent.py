@@ -37,7 +37,7 @@ from pool_updater import PoolUpdater
 from track_recorder import TrackRecorder
 from gate_controller import GateController
 from decision_utils import extract_scores, build_empty_decision
-from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE, YELLOW_ALERT_MIN, YELLOW_ALERT_MAX, SCORE_C_LEVEL, HARD_RULE_TURNOVER_RATE
+from thresholds import DECISION_MIN_SCORE, HARD_DOWNGRADE_SCORE, YELLOW_ALERT_MIN, YELLOW_ALERT_MAX, SCORE_C_LEVEL, HARD_RULE_TURNOVER_RATE, ML_BLOCK_THRESHOLD
 from thresholds import POSITION_PCT_STRONG, POSITION_PCT_NORMAL, POSITION_PCT_WEAK
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
