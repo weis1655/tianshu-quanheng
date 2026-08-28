@@ -1,39 +1,39 @@
 {
-  "timestamp": "2026-08-28 09:00:39",
+  "timestamp": "2026-08-28 16:00:49",
   "status": "critical",
   "exit_code": 2,
   "summary": {
     "total_checks": 82,
-    "passed": 74,
-    "warnings": 6,
+    "passed": 79,
+    "warnings": 1,
     "criticals": 2,
     "fixed": 0
   },
   "alerts": [
     {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/688041 海光信息: 数据已1096分钟未更新 (盘中>15min)"
+      "level": "info",
+      "check": "及时性-盘后数据陈旧",
+      "detail": "重点观察池/688041 海光信息: 数据已25小时未更新"
     },
     {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/300394 天孚通信: 数据已1096分钟未更新 (盘中>15min)"
+      "level": "info",
+      "check": "及时性-盘后数据陈旧",
+      "detail": "重点观察池/300394 天孚通信: 数据已25小时未更新"
     },
     {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/601138 工业富联: 数据已1096分钟未更新 (盘中>15min)"
+      "level": "info",
+      "check": "及时性-盘后数据陈旧",
+      "detail": "重点观察池/601138 工业富联: 数据已25小时未更新"
     },
     {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/600362 江西铜业: 数据已1096分钟未更新 (盘中>15min)"
+      "level": "info",
+      "check": "及时性-盘后数据陈旧",
+      "detail": "重点观察池/600362 江西铜业: 数据已25小时未更新"
     },
     {
-      "level": "warning",
-      "check": "及时性-盘中数据过期",
-      "detail": "重点观察池/603993 洛阳钼业: 数据已1096分钟未更新 (盘中>15min)"
+      "level": "info",
+      "check": "及时性-盘后数据陈旧",
+      "detail": "重点观察池/603993 洛阳钼业: 数据已25小时未更新"
     },
     {
       "level": "critical",
