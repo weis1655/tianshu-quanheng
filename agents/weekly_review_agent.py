@@ -129,7 +129,8 @@ class WeeklyReviewAgent:
             for s in stocks:
                 code = s.get("股票代码") or s.get("代码", "?")
                 name = s.get("股票名称") or s.get("名称", "?")
-                date_str = s.get(date_field, "").strip()
+                # 边缘池等历史数据只有「降级时间」无「纳入日期」，回退取值以免整池静默漏检
+                date_str = (s.get(date_field, "") or s.get("降级时间", "")).strip()
 
                 if not date_str:
                     # 无日期字段则跳过（持仓池等无需按时间淘汰的池）
@@ -306,6 +307,12 @@ class WeeklyReviewAgent:
             return {"report_lines": ["\n## 🔬 假设验证\n⚠️ 决策日志读取失败"], "verified": [], "pool_actions": []}
 
         records = log.get("决策记录", [])
+
+        # 排除未执行决策：仅有推荐价（无实际建仓/入场价）的记录，用今日现价回溯验证无意义，
+        # 会污染胜率统计并触发错误的五池降级（本次发现 39 条 5~8 月积压记录）
+        records = [r for r in records
+                   if (r.get("$is_executed") is not False
+                       and (r.get("推荐价格") or 0) > 0)]
 
         # 取上周的决策记录（新增）
         week_records = [
@@ -490,20 +497,12 @@ class WeeklyReviewAgent:
         Args:
             dry_run: True=仅报告，不实际执行流转动作
         """
-        # D3：周五约束 — 非周五仅检查不执行流程
-        if self.today.weekday() >= 5:
-            plog("INFO", f"📅 周末模式：周复盘跳过（{self.today.strftime('%A')}），仅做池健康检查")
-            hygiene = self.pool_hygiene()
-            return {
-                "success": True,
-                "report": "周末模式：周复盘跳过\n\n" + "\n".join(hygiene["report_lines"]),
-                "hygiene_actions": hygiene["actions"],
-                "verified": [],
-                "pool_actions": [],
-                "executed": [],
-                "driver_stats": {},
-            }
-        if self.today.weekday() != 4:  # 4=Friday
+        # D3：周五约束 — 周五为主运行日；周末继续执行规则流程（池卫生/假设验证/权重修正），仅跳过ML重训
+        # 修正：此前周末直接早退，导致每周六周复盘 0 产出、不落盘报告文件
+        self.weekend_mode = self.today.weekday() >= 5
+        if self.weekend_mode:
+            plog("INFO", f"📅 周末模式（{self.today.strftime('%A')}）：执行规则复盘，跳过ML重训")
+        elif self.today.weekday() != 4:  # 4=Friday
             plog("INFO", f"  ⚠️ 周复盘设计为周五运行（今天{self.today.strftime('%A')}），继续执行但可能缺少整周数据")
         plog("INFO", "📋 开始周复盘...")
 
@@ -596,8 +595,8 @@ class WeeklyReviewAgent:
         # 合并报告
         all_lines = []
         
-        # ── P1: 自动ML重训（每周复盘触发）─────────────────────
-        if not dry_run:
+        # ── P1: 自动ML重训（每周复盘触发；周末跳过以避开休市数据空窗）──────────
+        if not dry_run and not self.weekend_mode:
             plog("INFO", "  🤖 触发ML模型自动重训...")
             try:
                 import subprocess
