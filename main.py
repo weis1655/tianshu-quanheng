@@ -1156,6 +1156,49 @@ def main():
             else:
                 results["decision"] = {"success": True, "report": "弱市不操作"}
             record_success("decision")
+
+            # ── 弱市决策报告落盘（修复：原仅写内存，Cron邮件/飞书无文件可读）──
+            try:
+                from safe_file_utils import safe_write_file
+                weak_decision_path = PROJECT_ROOT / "data" / "历史记录" / f"{____today}_决策报告.md"
+                weak_body = [
+                    f"# 【决策报告】{____today}（弱市模式）",
+                    "",
+                    "## 📊 市场状态",
+                    f"- 市场状态：**{_ms.get('state','')}**（上证 {_ms.get('sh_chg',0):+.2f}%）",
+                    f"- S级池容量上限：{_ms.get('s_pool_cap',0)}",
+                    "- 执行策略：弱市简化审查（纯规则引擎，零LLM决策调用）",
+                    "",
+                    "## 🎯 今日结论",
+                    (f"- **可关注（非买入）**：{len(urgent_candidates)}只标的评分≥85 且通过简化审查"
+                     if urgent_candidates
+                     else "- **不操作**：无标的评分≥85，弱市纪律要求空仓观望"),
+                    "",
+                    f"## 🔎 简化审查通过（{len(simplified_passed)}只，按评分降序）",
+                ]
+                weak_body += [
+                    f"- {name}（{code}）{score:.0f}分"
+                    for code, name, score in sorted(simplified_passed, key=lambda x: -x[2])
+                ]
+                weak_body += ["", f"## 🚫 简化审查否决（{len(simplified_blocked)}只）"]
+                if simplified_blocked:
+                    weak_body += [
+                        f"- {name}（{code}）：{'；'.join(flags)}"
+                        for code, name, flags in simplified_blocked
+                    ]
+                else:
+                    weak_body.append("（无否决）")
+                weak_body += [
+                    "",
+                    "## ⚠️ 风险提示",
+                    "- 弱市纪律：评分<85的标的不建议建仓，仅纳入观察跟踪",
+                    "- 本报告由规则引擎生成（非LLM定性判断），仅供参考，不构成投资建议",
+                ]
+                if safe_write_file(weak_decision_path, "\n".join(weak_body)):
+                    print(f"  📝 已写入弱市决策报告")
+                results["decision"]["saved_to"] = str(weak_decision_path)
+            except Exception as e:
+                print(f"  ⚠️ 弱市决策报告落盘失败: {e}")
         else:
             # ── 质疑者 Gate：审查通过后必经 SkepticAgent ──────────
             # RPM 限流节流：review→skeptic 间隔
