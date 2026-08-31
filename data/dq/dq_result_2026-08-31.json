@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-08-31 09:00:20",
+  "status": "critical",
+  "exit_code": 2,
+  "summary": {
+    "total_checks": 82,
+    "passed": 74,
+    "warnings": 5,
+    "criticals": 3,
+    "fixed": 0
+  },
+  "alerts": [
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/688041 海光信息: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/300394 天孚通信: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/601138 工业富联: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/600362 江西铜业: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "warning",
+      "check": "及时性-盘中数据过期",
+      "detail": "重点观察池/603993 洛阳钼业: 数据已110分钟未更新 (盘中>15min)"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "重点观察池_历史池: 最后更新于2026-08-13，已18天未更新"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "边缘池: 最后更新于2026-08-27，已4天未更新"
+    },
+    {
+      "level": "critical",
+      "check": "及时性-数据陈旧",
+      "detail": "S级操作池: 最后更新于2026-08-20，已11天未更新"
+    },
+    {
+      "level": "info",
+      "check": "及时性-无今日记录",
+      "detail": "决策日志无今日记录"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 决策报告"
+    },
+    {
+      "level": "info",
+      "check": "完整性-报告缺失",
+      "detail": "今日未生成 四段闭环汇总"
+    }
+  ],
+  "fixes": []
+}
