@@ -539,65 +539,45 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
     # CLAUDE.md 已移除（内容为人工审核规则，OpenCode 不需要）
 
     # ── 代码级诊断注入：已知问题类型的精确定位信息 ──────────────
+    # ── 已知问题类型快速定位注入（精简版：只给问题+目标+验证，不给答案）──
+    # 2026-09-01 精简：删除"代码诊断+修复方向"分析段落，避免变成"思考题"。
+    # 只保留：问题摘要 + 目标文件/函数 + 编译验证命令，让 OpenCode 自行动手。
     code_diagnosis = ""
     issue_type = issue.get("type", "")
 
     if "过热漏检" in issue_type:
         code_diagnosis = """
-## 代码诊断（精确定位）
-**已知bug**: 过热检测边界值 off-by-one，评分70分不触发任何规则。
-
-**文件**: `agents/review_scorer.py` — `OverheatDetector.detect()`
-- **RULE-2 (L91)**: `composite_score > 70` — 月涨>25%时，评分=70不触发（应 `>=`）
-- **RULE-5.5 (L142)**: `composite_score > WARN2_SCORE_FALLBACK` — WARN2_SCORE_FALLBACK=70，评分=70不触发（应 `>=`）
-
-**修复指令**：将两处的 `>` 改为 `>=`，使评分=70时也能触发过热检测。
-"""
+## 目标
+文件: `agents/review_scorer.py` — `OverheatDetector.detect()`
+问题: 过热检测边界值 off-by-one，评分=70不触发任何规则
+验证: `python3 -m py_compile agents/review_scorer.py`"""
     elif "降级延迟" in issue_type:
         code_diagnosis = """
-## 代码诊断（精确定位）
-**已知bug**: 低分标的（<60分）未被降级到边缘池。
-
-**审查点**:
-- `agents/review_agent.py` L917: `if sr.composite_score < 60:` — 硬性降级阈值，修正评分后降级
-- `agents/pool_manager.py`: 需检查是否有 `auto_cleanup_expired` 或类似自动降级函数
-- `agents/gate_controller.py`: 检查存量扫描逻辑是否覆盖了低分标的
-
-**修复方向**:
-1. 如果 review_agent.py 的 L917 已正确，检查 `_apply_pool_updates()` 中 demotions 是否被正确执行
-2. 检查 `pool_manager.py` 是否缺少自动降级函数（目前查无）
-"""
+## 目标
+文件: `agents/review_agent.py` — `_apply_pool_updates()` / `agents/pool_manager.py`
+问题: 低分标的（<60分）未被降级到边缘池
+验证: `python3 -m py_compile agents/review_agent.py`"""
     elif "质疑报告缺失" in issue_type:
         code_diagnosis = """
-## 代码诊断（精确定位）
-**已知bug**: SkepticAgent 未产生质疑报告或报告未被正确读取。
-
-**审查点**:
-- `agents/skeptic_agent.py`: `skeptic_analysis()` 函数是否正常返回
-- `agents/decision_agent.py`: 读取质疑报告的逻辑是否有异常
-- 检查 `data/历史记录/` 目录是否有质疑报告文件
-"""
+## 目标
+文件: `agents/skeptic_agent.py` — `skeptic_analysis()` / `agents/decision_agent.py`
+问题: 质疑报告未生成或未被决策层正确读取
+验证: `python3 -m py_compile agents/skeptic_agent.py`"""
     elif "决策越权" in issue_type:
         code_diagnosis = """
-## 代码诊断（精确定位）
-**已知bug**: 决策执行越权，超出允许仓位或不在允许标的范围内。
-
-**审查点**:
-- `agents/decision_agent.py`: 检查 `max_position`、`position_sizing` 等仓位限制逻辑
-- `agents/gate_controller.py`: 检查S级操作池准入规则
-- `agents/pool_manager.py`: 检查池容量限制 `POOL_CAPACITY_LIMITS`
-"""
+## 目标
+文件: `agents/decision_agent.py` — `max_position`/`position_sizing` / `agents/gate_controller.py`
+问题: 决策执行越权，超出允许仓位或不在允许标的范围内
+验证: `python3 -m py_compile agents/decision_agent.py`"""
 
     prompt = f"""你正在修复天枢权衡系统的代码问题。工作目录: {worktree}
 
-## 问题描述
+## 问题
 {issue_type}: 股票 {issue['code']}
 详情: {issue.get('detail', '')}
 """
     if cgc_hint:
-        prompt += f"""
-## 代码图定位（CGC查询结果）
-以下为代码库中与问题相关的函数位置，作为修复参考：
+        prompt += f"""\n## 代码图定位
 {cgc_hint}
 """
     if code_context:
@@ -605,17 +585,14 @@ def build_opencode_prompt(issue: dict, worktree: str, cgc_timeout: int = 15, cgc
     if code_diagnosis:
         prompt += code_diagnosis
     prompt += """
-## 修复指令
-1. 根据问题类型，定位相关代码
-2. 修复代码（最小改动原则，只改1-2行）
-3. 运行 python3 -m py_compile 验证语法
-4. 输出修复的：文件名、行号、改动内容
+## 行动
+1. 直接定位目标代码并修复（最小改动，只改必要行）
+2. 编译验证命令见上方"验证"字段
+3. 完成后输出：文件名、行号、改动内容
 
 ## 约束
 - 只修问题直接相关的代码
-- 不修改测试文件
-- 不修改配置文件
-- 不升级依赖版本
+- 不修改测试文件 / 配置文件 / 依赖版本
 - 修复完即止，不要做额外优化
 """
     return prompt
