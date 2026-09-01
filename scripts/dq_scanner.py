@@ -351,14 +351,47 @@ def check_cross_pool_score_consistency(pool_name: str, data: dict, all_scores: d
     return alerts
 
 
+# 事件驱动型池（周复盘/降级触发更新），放宽陈旧阈值并降级告警级别
+# 2026-09-01 修复：此类池频繁误报CRITICAL，实为正常无事件
+EVENT_DRIVEN_POOLS = {"重点观察池_历史池", "边缘池"}
+
+
+def _refresh_pool_stats(pool_path: str, data: dict) -> None:
+    """空池/无事件池：刷新统计.更新日期戳 + 写文件，避免下次误报陈旧"""
+    try:
+        stats = data.setdefault("统计", {})
+        stats["更新日期"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
+        with open(pool_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def check_timeliness(pool_name: str, data: dict) -> list[dict]:
-    """检查数据及时性（DET-09: 池数据过期检测）"""
+    """检查数据及时性（DET-09: 池数据过期检测）
+
+    分级策略（2026-09-01修复）：
+    - 每日高频池（快筛/重点观察/S级/持仓）：days_diff>1 → critical
+    - 事件驱动池（历史池/边缘池）：days_diff>7 → info（放宽7天）
+    - 空池事件驱动池：刷新更新戳 + 报 info，不报 critical
+    """
     alerts = []
     stats = data.get("统计", {})
+    stocks = data.get("stocks", [])
+    is_empty_pool = len(stocks) == 0
+
+    # 空事件驱动池：刷新戳 + 报 info
+    if pool_name in EVENT_DRIVEN_POOLS and is_empty_pool:
+        pool_path = str(POOLS_DIR / f"{pool_name}.json")
+        _refresh_pool_stats(pool_path, data)
+        alerts.append({
+            "level": "info", "check": "及时性-空池正常",
+            "detail": f"{pool_name}: 当前为空池，已刷新更新戳"
+        })
+        return alerts
+
     update_date_str = stats.get("更新日期", "")
     if not update_date_str:
-        # 从个股更新时间取最大值
-        stocks = data.get("stocks", [])
         max_time = ""
         for s in stocks:
             ut = _get_update_time(s)
@@ -367,16 +400,34 @@ def check_timeliness(pool_name: str, data: dict) -> list[dict]:
         if max_time:
             update_date_str = max_time
 
+    # S池空池：刷新戳 + info（弱市正常空仓）
+    if pool_name == "S级操作池" and is_empty_pool:
+        pool_path = str(POOLS_DIR / f"{pool_name}.json")
+        _refresh_pool_stats(pool_path, data)
+        alerts.append({
+            "level": "info", "check": "及时性-空池正常",
+            "detail": f"{pool_name}: 当前为空池（弱市无标的达阈值），已刷新更新戳"
+        })
+        return alerts
+
     if update_date_str:
         dt = _safe_parse_date(update_date_str)
         if dt:
             days_diff = (TODAY - dt).days
             if days_diff > 1:
-                level = "warning" if days_diff <= 3 else "critical"
-                alerts.append({
-                    "level": level, "check": "及时性-数据陈旧",
-                    "detail": f"{pool_name}: 最后更新于{update_date_str[:10]}，已{days_diff}天未更新"
-                })
+                if pool_name in EVENT_DRIVEN_POOLS:
+                    # 事件驱动池放宽到7天，且只报info
+                    if days_diff > 7:
+                        alerts.append({
+                            "level": "info", "check": "及时性-事件池陈旧",
+                            "detail": f"{pool_name}: 最后更新于{update_date_str[:10]}，已{days_diff}天（事件驱动池，无新事件属正常）"
+                        })
+                else:
+                    level = "warning" if days_diff <= 3 else "critical"
+                    alerts.append({
+                        "level": level, "check": "及时性-数据陈旧",
+                        "detail": f"{pool_name}: 最后更新于{update_date_str[:10]}，已{days_diff}天未更新"
+                    })
     else:
         alerts.append({
             "level": "info", "check": "及时性-缺少更新日期",
