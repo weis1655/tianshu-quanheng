@@ -538,11 +538,27 @@ class BaseAgent(ABC):
                 )
 
                 if attempt < max_retries:
-                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    # 429 限流：拉长退避时间（15-30s），给商汤 API 喘息时间；
+                    # 10:58 实测瞬时 429 拥塞时，原 2^attempt 退避(1-3s)太短，
+                    # fallback 立刻被同样 429 误伤。429 时优先同模型长退避重试，
+                    # 不急于降级到 fallback。
+                    is_429 = getattr(r, "status_code", 0) == 429  # r from raise_for_status above; only set on HTTPError
+                    if is_429:
+                        retry_after = r.headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                wait_time = min(float(retry_after), 60)
+                            except ValueError:
+                                wait_time = 20
+                        else:
+                            wait_time = 15 + random.uniform(0, 15)
+                        plog("INFO", f"[LLM退避] ⏳ 429限流，等待{wait_time:.0f}s后重试（{attempt+1}/{max_retries}）")
+                    else:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
                     time.sleep(wait_time)
                     continue
                 else:
-                    # 第二级降级：SenseNova 主模型失败后降级。
+                    # 主模型所有重试(含429长退避)均失败后，尝试备用模型。
                     # 降级链：deepseek-v4-flash → sensenova-6.8-flash-lite（均经 token.sensenova.cn，免费）
                     # OpenCode Zen (opencode-zen) 已于 2026-09-02 实测 401 不可用，移除。
                     import requests as _requests
