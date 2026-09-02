@@ -542,7 +542,7 @@ class BaseAgent(ABC):
                     # 10:58 实测瞬时 429 拥塞时，原 2^attempt 退避(1-3s)太短，
                     # fallback 立刻被同样 429 误伤。429 时优先同模型长退避重试，
                     # 不急于降级到 fallback。
-                    is_429 = getattr(r, "status_code", 0) == 429  # r from raise_for_status above; only set on HTTPError
+                    is_429 = (r is not None) and getattr(r, "status_code", 0) == 429  # r set on HTTPError, None on timeout
                     if is_429:
                         retry_after = r.headers.get("Retry-After")
                         if retry_after:
