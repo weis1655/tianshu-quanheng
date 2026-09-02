@@ -453,9 +453,12 @@ class BaseAgent(ABC):
         # 从环境变量获取 SenseNova API 配置
         api_key = os.environ.get("SENSENOVA_API_KEY") or os.environ.get("SN_API_KEY") or os.environ.get("SN_CHAT_API_KEY")
         base_url = os.environ.get("SN_CHAT_BASE_URL") or os.environ.get("SN_BASE_URL") or "https://token.sensenova.cn/v1"
-        model = os.environ.get("SN_CHAT_MODEL") or "sensenova-6.7-flash-lite"
-        # 降级模型：主模型超时/限流失败后尝试
-        fallback_model = "sensenova-6.7-flash-lite"
+        model = os.environ.get("SN_CHAT_MODEL") or "sensenova-6.8-flash-lite"
+        # 降级模型：主模型 404/限流失败后尝试。6.7-flash-lite 已被商汤下线(2026-09-02 实测404)，
+        # 改用 deepseek-v4-flash 作为主/降级模型对（均经 token.sensenova.cn 路由，免费）。
+        # 三级降级链：主模型 → deepseek-v4-flash → sensenova-6.8-flash-lite
+        fallback_model = "deepseek-v4-flash"
+        fallback_model_2 = "sensenova-6.8-flash-lite"
 
         if not api_key:
             return "[SenseNova: API Key 未配置]"
@@ -539,40 +542,36 @@ class BaseAgent(ABC):
                     time.sleep(wait_time)
                     continue
                 else:
-                    # 第二级降级：SenseNova 全部失败后尝试 OpenCode Zen
-                    try:
-                        plog("INFO", f"[LLM降级] ⚠️ SenseNova 全部重试失败，降级至 OpenCode Zen")
-                        oc_api_key = os.environ.get("OPENCODE_ZEN_API_KEY", "")
-                        if oc_api_key:
-                            oc_payload = {
-                                "model": "opencode-zen",
-                                "messages": messages,
-                                "max_tokens": max_tokens,
-                                "temperature": temperature,
-                            }
+                    # 第二级降级：SenseNova 主模型失败后降级。
+                    # 降级链：deepseek-v4-flash → sensenova-6.8-flash-lite（均经 token.sensenova.cn，免费）
+                    # OpenCode Zen (opencode-zen) 已于 2026-09-02 实测 401 不可用，移除。
+                    import requests as _requests
+                    sn_key = os.environ.get("SENSENOVA_API_KEY") or os.environ.get("SN_API_KEY") or os.environ.get("SN_CHAT_API_KEY")
+                    sn_base = os.environ.get("SN_CHAT_BASE_URL") or os.environ.get("SN_BASE_URL") or "https://token.sensenova.cn/v1"
+                    for fallback_m in ("deepseek-v4-flash", "sensenova-6.8-flash-lite"):
+                        if not sn_key:
+                            break
+                        try:
+                            plog("INFO", f"[LLM降级] ⚠️ SenseNova 主模型失败，降级至 {fallback_m}")
+                            fb_payload = {"model": fallback_m, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
                             if response_format:
-                                oc_payload["response_format"] = response_format
-                            oc_headers = {
-                                "Authorization": f"Bearer {oc_api_key}",
-                                "Content-Type": "application/json",
-                            }
-                            oc_r = requests.post(
-                                "https://opencode.ai/zen/v1/chat/completions",
-                                headers=oc_headers,
-                                json=oc_payload,
-                                timeout=timeout
+                                fb_payload["response_format"] = response_format
+                            fb_r = _requests.post(
+                                f"{sn_base}/chat/completions",
+                                headers={"Authorization": f"Bearer {sn_key}", "Content-Type": "application/json"},
+                                json=fb_payload, timeout=timeout
                             )
-                            oc_r.raise_for_status()
-                            oc_data = oc_r.json()
-                            oc_message = oc_data.get("choices", [{}])[0].get("message", {})
-                            oc_content = oc_message.get("content") or ""
-                            if oc_content:
-                                _get_metrics().record_llm_call(self.agent_name, success=True, tokens=oc_data.get("usage", {}).get("total_tokens", 0), duration=time.time() - start_time)
-                                self._log_prompt(self.agent_name, "opencode-zen", system, prompt, oc_content)
-                                return oc_content
-                    except Exception as oc_e:
-                        plog("WARNING", f"[LLM降级] ❌ OpenCode Zen 降级也失败: {oc_e}")
-                    return f"[LLM调用失败，经 {max_retries} 次重试] {e}"
+                            fb_r.raise_for_status()
+                            fb_data = fb_r.json()
+                            fb_msg = fb_data.get("choices", [{}])[0].get("message", {})
+                            fb_content = fb_msg.get("content") or fb_msg.get("reasoning") or fb_msg.get("reasoning_content") or ""
+                            if fb_content:
+                                _get_metrics().record_llm_call(self.agent_name, success=True, tokens=fb_data.get("usage", {}).get("total_tokens", 0), duration=time.time() - start_time)
+                                self._log_prompt(self.agent_name, f"fallback-{fallback_m}", system, prompt, fb_content)
+                                return fb_content
+                        except Exception as fb_e:
+                            plog("WARNING", f"[LLM降级] ❌ {fallback_m} 降级失败: {fb_e}")
+                    return f"[LLM调用失败，经 {max_retries} 次重试+降级均失败] {e}"
 
     def safe_read_json(self, file_path: Path, default: Any = None) -> Any:
         """
