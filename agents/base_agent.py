@@ -491,6 +491,7 @@ class BaseAgent(ABC):
             if use_fallback:
                 plog("INFO", f"[LLM降级] ⚠️ {model} 重试{max_retries}次均失败，降级至 {fallback_model}")
             payload["model"] = current_model
+            r = None  # 提前初始化，避免 ReadTimeout 时 r 未绑定导致 except 内 UnboundLocalError
             try:
                 start_time = time.time()
                 r = requests.post(
@@ -530,6 +531,9 @@ class BaseAgent(ABC):
             except Exception as e:
                 duration = time.time() - start_time if 'start_time' in locals() else 0
                 self.stats["llm_errors"] += 1
+                # r 已在 try 前初始化为 None，此处直接读 getattr 即可；
+                # HTTPError 时 r.status_code=429/4xx/5xx，timeout 时 r=None → 0。
+                resp_status = getattr(r, "status_code", 0) if r is not None else 0
 
                 _get_metrics().record_llm_call(
                     self.agent_name,
@@ -542,7 +546,7 @@ class BaseAgent(ABC):
                     # 10:58 实测瞬时 429 拥塞时，原 2^attempt 退避(1-3s)太短，
                     # fallback 立刻被同样 429 误伤。429 时优先同模型长退避重试，
                     # 不急于降级到 fallback。
-                    is_429 = (r is not None) and getattr(r, "status_code", 0) == 429  # r set on HTTPError, None on timeout
+                    is_429 = response_status == 429
                     if is_429:
                         retry_after = r.headers.get("Retry-After")
                         if retry_after:
