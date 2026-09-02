@@ -503,7 +503,7 @@ class BaseAgent(ABC):
                 data = r.json()
                 # 商汤 API 可能将内容放在 reasoning 或 content 字段
                 message = data.get("choices", [{}])[0].get("message", {})
-                content = message.get("content") or message.get("reasoning") or ""
+                content = message.get("content") or message.get("reasoning") or message.get("reasoning_content") or ""
                 duration = time.time() - start_time
 
                 if content is None:
