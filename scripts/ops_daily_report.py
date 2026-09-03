@@ -35,6 +35,8 @@ def collect_metrics(target_date: str) -> dict:
         "api_success_rate": 0,
         "p0_found": 0,
         "p0_fixed": 0,
+        "dq_checks": 0,
+        "decision_loss_backtest": 0,
         "pool_changes": [],
         "decisions_made": 0,
         "auto_heal_prs": 0,
@@ -73,12 +75,23 @@ def collect_metrics(target_date: str) -> dict:
             except Exception:
                 pass
 
-    # 3. 回头看报告中的P0
+    # 3. 数据质量 P0（真 P0：读 dq_result 的 criticals，数据管道严重故障）
+    dq_path = PROJECT_ROOT / "data" / "dq" / f"dq_result_{target_date}.json"
+    if dq_path.exists():
+        try:
+            dq = json.loads(dq_path.read_text(encoding="utf-8"))
+            summ = dq.get("summary", {}) if isinstance(dq, dict) else {}
+            metrics["p0_found"] = int(summ.get("criticals", 0))
+            metrics["dq_checks"] = int(summ.get("total_checks", 0))
+        except Exception:
+            pass
+
+    # 4. 决策质量反馈：回头看报告中的"实盘亏损"条数（降级，非 P0）
     review_dir = PROJECT_ROOT / "data" / "回顾报告"
     for report_path in sorted(review_dir.glob(f"{target_date}_回头看报告_v3*.md"), reverse=True):
         try:
             text = report_path.read_text(encoding="utf-8")
-            metrics["p0_found"] = len(re.findall(r"### 🔴 P0-", text))
+            metrics["decision_loss_backtest"] = len(re.findall(r"### 🔴 P0-实盘亏损", text))
             break
         except Exception:
             pass
@@ -135,7 +148,8 @@ def generate_report(metrics: dict) -> str:
     lines.append(f"| LLM 调用 | {metrics['llm_calls']} 次 |")
     lines.append(f"| API 成功率 | {metrics['api_success_rate']}% ({metrics['api_success']}/{metrics['api_success'] + metrics['api_failure']}) |")
     lines.append(f"| 决策数 | {metrics['decisions_made']} 次 |")
-    lines.append(f"| P0 发现 | {metrics['p0_found']} 个 |")
+    lines.append(f"| 数据质量 P0 (严重) | {metrics['p0_found']} 个 |")
+    lines.append(f"| 决策亏损回测 | {metrics.get('decision_loss_backtest', 0)} 条 |")
     lines.append(f"| Auto-Heal PR | {metrics['auto_heal_prs']} 个 |")
     lines.append(f"| Auto-Heal 合并 | {metrics['auto_heal_merged']} 个 |")
     lines.append(f"")
