@@ -790,13 +790,12 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                         'detail': f"决策执行但审查未通过（评分<70）: {stock['name']}"
                     })
     
-    # 5. P0-实盘亏损：推荐后连跌3个交易日
+    # 5. 实盘回撤（决策质量反馈，非系统P0，降级单独记录并按幅度分级）
     # 过滤评分=0的记录：评分=0说明数据异常（如东财×100错位传导），非真实推荐行为
+    loss_feedback = []
     for code, perf in performance_map.items():
         if perf and not perf.get('is_profit', True):
-            # 尝试匹配该标的在 review_results 中的评分
             matched_review = None
-            # 优先匹配同日期；否则取最后一天的记录
             target_date = perf.get('entry_date', '')
             for r in review_results:
                 if r.get('code') == code.split('_')[0] and r.get('date') == target_date:
@@ -809,11 +808,9 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                         break
             if matched_review and matched_review.get('score', 1) == 0:
                 continue  # 数据异常导致的虚假亏损
-            # 亏损幅度<1%的"假亏损"（0.0%/-0.4%/-0.8% 等）过滤
             chg = perf.get('change_pct', 0) or 0
             if chg > -1.0:
-                continue  # 微幅波动非实盘亏损
-            # 尝试从review/decision中查找对应的名称
+                continue  # 微幅波动(>-1%)不计
             code_clean = code.split('_')[0] if '_' in code else code
             matched_name = code_clean
             for r in review_results:
@@ -825,8 +822,16 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                     if s['code'] == code_clean:
                         matched_name = s['name']
                         break
-            issues.append({
-                'type': 'P0-实盘亏损',
+            # 按回撤幅度分级（非P0，决策质量反馈）
+            if chg <= -10.0:
+                level = 'severe'     # 🔴 严重回撤
+            elif chg <= -5.0:
+                level = 'moderate'   # 🟠 中度回撤
+            else:
+                level = 'normal'     # ⚪ 正常回撤
+            loss_feedback.append({
+                'type': '决策回撤',
+                'level': level,
                 'date': perf.get('entry_date', ''),
                 'code': code_clean,
                 'name': matched_name,
@@ -834,8 +839,8 @@ def detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                 'detail': (f"推荐后{perf.get('hold_days', 3)}个交易日跌幅"
                            f"{perf.get('change_pct', 0):.1f}%，入{perf.get('entry_date', '')}→出{perf.get('exit_date', '')}")
             })
-    
-    return issues
+
+    return issues, loss_feedback
 
 
 def calculate_fast_screen_accuracy(files, trading_days):
@@ -1174,11 +1179,12 @@ def generate_report(days=7, output_file=None):
     actual_accuracy = round(len([p for p in all_perf.values() if p and p.get('is_profit')]) / len([p for p in all_perf.values() if p]) * 100, 1) if [p for p in all_perf.values() if p] else 0
     avg_return = round(sum(p['change_pct'] for p in all_perf.values() if p) / len([p for p in all_perf.values() if p]), 2) if [p for p in all_perf.values() if p] else 0
 
-    # 检测P0级问题
-    p0_issues = detect_p0_issues(review_results, decision_results, fast_screen_stocks,
+    # 检测P0级问题（实盘回撤已降级为非P0的决策质量反馈，单独返回）
+    p0_issues, loss_feedback = detect_p0_issues(review_results, decision_results, fast_screen_stocks,
                                   trading_days=trading_days, performance_map=performance_map)
     p0_count = sum(1 for i in p0_issues if i['type'].startswith('P0'))
     p1_count = sum(1 for i in p0_issues if i['type'].startswith('P1'))
+    loss_count = len(loss_feedback)
     
     # === 跨期对比（策略C）===
     state = load_state()
@@ -1199,6 +1205,7 @@ def generate_report(days=7, output_file=None):
         'downgrade_accuracy': review['downgrade_accuracy'] if review else 0,
         'p0_count': p0_count,
         'p1_count': p1_count,
+        'decision_loss_backtest_count': loss_count,
         'actual_accuracy': actual_accuracy,
         'avg_return': avg_return,
         'perf_sample_count': len(all_perf),
@@ -1259,10 +1266,35 @@ def generate_report(days=7, output_file=None):
 
 """
 
+    # 📉 决策质量反馈（非P0：实盘回撤按幅度分级）
+    if loss_feedback:
+        level_icon = {'severe': '🔴 严重', 'moderate': '🟠 中度', 'normal': '⚪ 正常'}
+        level_key = {'severe': 0, 'moderate': 1, 'normal': 2}
+        sorted_fb = sorted(loss_feedback, key=lambda x: level_key.get(x.get('level', 'normal'), 3))
+        report += """## 📉 决策质量反馈（实盘回撤，非P0系统故障）
+
+> 推荐后连跌记录，属正常投资决策反馈，按回撤幅度分级；仅 >10% 标记严重，供复盘参考，不触发系统级告警。
+
+"""
+        for fb in sorted_fb:
+            icon = level_icon.get(fb.get('level', 'normal'), '⚪ 正常')
+            report += f"""### {icon} {fb['name']}({fb['code']})
+
+| 项目 | 详情 |
+|------|------|
+| 日期 | {fb['date']} |
+| 代码 | {fb['code']} |
+| 回撤幅度 | {fb.get('level','')}-{fb.get('detail','')} |
+
+"""
+
+
     # 📈 趋势对比（策略C）
     if history:
+        loss_backtest_count = loss_count
         trend_rows = [
             ('P0问题', 'p0_count', f'{p0_count}个', False),
+            ('决策回撤', 'decision_loss_backtest_count', f'{loss_backtest_count}条', True),
             ('决策主推准确率', 'decision_accuracy', f'{decision_accuracy}%', False),
             ('审查升级准确率', 'review_accuracy', f'{review_accuracy}%', False),
             ('升级市场准确率', 'upgrade_market_accuracy', f'{review["upgrade_market_accuracy"] if review else "N/A"}%', False),
@@ -1550,10 +1582,12 @@ def generate_report(days=7, output_file=None):
 |----------|------|----------|
 """
     
-    # p0_count computed earlier
+    # p0_count computed earlier（实盘回撤已从P0中剥离，计入下方决策质量段）
     # p1_count computed earlier
     report += f"| P0级问题 | {p0_count}个 | 🔴 紧急 |\n"
     report += f"| P1级问题 | {p1_count}个 | 🟡 重要 |\n"
+    if loss_count > 0:
+        report += f"| 决策回撤（非P0） | {loss_count}条 | 📉 决策质量 |\n"
     
     # P1级问题详情
     if p1_count > 0:
@@ -1645,7 +1679,7 @@ def generate_report(days=7, output_file=None):
 """
     
     # Level-3：进化闭环 — 输出结构化 P0 摘要供 auto_heal 解析
-    p0_severity = {"P0-过热漏检": 5, "P0-降级延迟": 4, "P0-实盘亏损": 3, "P0-质疑报告缺失": 4}
+    p0_severity = {"P0-过热漏检": 5, "P0-降级延迟": 4, "P0-质疑报告缺失": 4}
     top3_p0 = sorted([i for i in p0_issues if i['type'].startswith('P0')],
                      key=lambda x: p0_severity.get(x['type'], 1), reverse=True)[:3]
     top3_json = json.dumps([{

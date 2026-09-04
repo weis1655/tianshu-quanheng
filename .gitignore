@@ -53,3 +53,4 @@ logs/
 *.pem
 *.key
 *.crt
+data/backups/

@@ -1,0 +1,52 @@
+{
+  "scan_time": "2026-09-04 10:00:40",
+  "scan_days": 3,
+  "groups": {
+    "review_score": {
+      "name": "审查评分提取",
+      "logs": [],
+      "total_lines": 0,
+      "total_matched": 0,
+      "overall_rate": 100.0,
+      "sample_unmatched": []
+    },
+    "review_flow": {
+      "name": "审查流向判断",
+      "logs": [],
+      "total_lines": 0,
+      "total_matched": 0,
+      "overall_rate": 100.0,
+      "sample_unmatched": []
+    },
+    "decision_picks": {
+      "name": "决策主推标的",
+      "logs": [],
+      "total_lines": 0,
+      "total_matched": 0,
+      "overall_rate": 100.0,
+      "sample_unmatched": []
+    },
+    "decision_trade_info": {
+      "name": "决策交易信息",
+      "logs": [],
+      "total_lines": 0,
+      "total_matched": 0,
+      "overall_rate": 100.0,
+      "sample_unmatched": []
+    },
+    "skeptic_verdict": {
+      "name": "质疑裁决",
+      "logs": [],
+      "total_lines": 0,
+      "total_matched": 0,
+      "overall_rate": 100.0,
+      "sample_unmatched": []
+    }
+  },
+  "drift_detected": false,
+  "drift_count": 0,
+  "total_logs": 0,
+  "alerts": [],
+  "overall_rate": 100.0,
+  "health": "healthy"
+}
