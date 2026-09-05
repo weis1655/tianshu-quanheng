@@ -261,7 +261,6 @@ def extract_p0_issues(content: str) -> list[dict]:
         ptype = m.group(1)
         if ptype in seen_types or ptype in SKIP_TYPES:
             continue
-        seen_types.add(ptype)
         if len(issues) >= 3:
             break
 
@@ -272,11 +271,22 @@ def extract_p0_issues(content: str) -> list[dict]:
 
         code_match = re.search(r"\|\s*代码\s*\|\s*(\d{6})", block)
         detail_match = re.search(r"\|\s*说明\s*\|\s*([^|]+)", block)
+        detail_text = detail_match.group(1).strip() if detail_match else ""
 
+        # P0-降级延迟：score=0 是数据错位（如东财f43×100传导），非真实降级延迟
+        # 与 回头看.py L752-754 的过滤规则保持同步（2026-09-05 修复）
+        # 注意：此处不加入 seen_types，允许后续同类型有效条目继续被提取
+        if "降级延迟" in ptype:
+            score_m = re.search(r"评分\s*(\d+)\s*分", detail_text)
+            if score_m and int(score_m.group(1)) == 0:
+                logger.info(f"[auto_heal] ⏭️ 跳过 {ptype} ({code_match.group(1) if code_match else '?'}) score=0（数据错位误报）")
+                continue
+
+        seen_types.add(ptype)
         issues.append({
             "type": ptype,
             "code": code_match.group(1) if code_match else "",
-            "detail": detail_match.group(1).strip() if detail_match else "",
+            "detail": detail_text,
         })
 
     logger.info(f"[auto_heal] 🔍 提取到 {len(issues)} 个P0问题:")
