@@ -80,12 +80,42 @@ def test_tc006_position_oversize():
 
 
 def test_tc007_reporting_line():
-    """TC-007: 流通股占比≥5%举牌线 → 拦截"""
+    """TC-007: 流通股占比≥5%举牌线 → 拦截
+    09-07 修复后：需同时提供 buy_shares + total_float_shares 才启用 share-based 检查
+    场景：已持流通股 4.9%，买入 20000 股后达 5.1%（超 5% 举牌线）
+    参数设计：先让单票仓位检查通过，再触发举牌线
+    """
     c = reset_checker()
-    passed, reasons = c.check_all("600519", "贵州茅台", 500000, 1_000_000,
-                                  100.0, 100.0, current_float_pct=4.5)
-    assert not passed, "≥5%举牌线应拦截"
+    total_capital = 100_000_000    # 总资金 1 亿
+    current_position_pct = 5.0     # 已持 5%
+    buy_amount = 800_000           # 买入 80 万，占总资金 0.8%，累计 5.8% < 10% 通过
+    total_float_shares = 10_000_000  # 流通股 1000 万
+    current_float_pct = 4.9        # 已持流通股 4.9%
+    buy_shares = 20_000            # 买入 2 万股 → 累计 5.1% 触举牌线
+    passed, reasons = c.check_all("600519", "贵州茅台", buy_amount, total_capital,
+                                  100.0, 100.0,
+                                  current_position_pct=current_position_pct,
+                                  current_float_pct=current_float_pct,
+                                  buy_shares=buy_shares,
+                                  total_float_shares=total_float_shares)
+    assert not passed, f"≥5%举牌线应拦截，实际通过。reasons={reasons}"
+    assert any("举牌线" in r for r in reasons), f"应含举牌线预警，实际={reasons}"
     print("  ✅ TC-007: 举牌线拦截")
+
+
+def test_tc007b_reporting_line_skipped_without_shares():
+    """TC-007b: 缺 buy_shares/total_float_shares 时举牌线静默跳过
+    09-07 修复的关键回归：不再用旧的资金比例+流通股比例混加算法，
+    而是缺数据就静默跳过（不产生假 block）
+    """
+    c = reset_checker()
+    passed, reasons = c.check_all("600519", "贵州茅台", 50_000, 1_000_000,
+                                  100.0, 100.0,
+                                  current_position_pct=1.0,
+                                  current_float_pct=4.5)
+    # 缺 shares 数据，举牌线检查跳过；单票仓位 5% < 10% 通过
+    assert passed, f"缺 shares 数据应放行（举牌线静默跳过），实际拦截。reasons={reasons}"
+    print("  ✅ TC-007b: 缺 shares 时举牌线静默跳过")
 
 
 def test_tc008_insider_info():
@@ -187,6 +217,7 @@ def main():
         ("TC-005", "T+1拦截", test_tc005_t_plus_1),
         ("TC-006", "仓位超限拦截", test_tc006_position_oversize),
         ("TC-007", "举牌线拦截", test_tc007_reporting_line),
+        ("TC-007b", "举牌线缺shares静默跳过", test_tc007b_reporting_line_skipped_without_shares),
         ("TC-008", "内幕信息拦截", test_tc008_insider_info),
         ("TC-009", "黑名单拦截", test_tc009_blacklist),
         ("TC-010", "白名单外拦截", test_tc010_whitelist),

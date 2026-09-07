@@ -245,7 +245,9 @@ class ComplianceChecker:
     def check_position_limit(self, code: str, name: str, buy_amount: float,
                               total_capital: float, current_position_pct: float,
                               current_float_pct: float = 0,
-                              market_state: str = "震荡") -> Tuple[bool, str]:
+                              market_state: str = "震荡",
+                              buy_shares: Optional[int] = None,
+                              total_float_shares: Optional[float] = None) -> Tuple[bool, str]:
         """检查持仓合规"""
         # 单票仓位百分比
         max_pos = (COMPLIANCE_CONFIG["weak_market_max_position_pct"]
@@ -261,10 +263,17 @@ class ComplianceChecker:
         if buy_amount > COMPLIANCE_CONFIG["max_single_amount"]:
             return False, f"单票金额超限: {name}({code}) 买入{buy_amount:.0f}>{COMPLIANCE_CONFIG['max_single_amount']:.0f}"
 
-        # 举牌线检查
-        new_float_pct = current_float_pct + (buy_amount / total_capital * 100)
-        if new_float_pct >= COMPLIANCE_CONFIG["reporting_line_pct"]:
-            return False, f"举牌线预警: {name}({code}) 拟持仓{new_float_pct:.2f}% ≥5%举牌线，需披露"
+        # 举牌线检查（09-07 修复：share-based 计算，缺数据静默跳过）
+        # 原实现把资金比例（buy_amount/total_capital）与流通股比例（current_float_pct）混加，
+        # 属类别错误；且 current_float_pct 生产链路从未供给，本检查在实盘静默失效。
+        # 现改为：当且仅当 buy_shares + total_float_shares 齐备时用流通股数计算，
+        # 否则跳过（缺数据 log 由调用方负责）。
+        if buy_shares is not None and total_float_shares and total_float_shares > 0:
+            new_float_shares = (current_float_pct / 100.0 * total_float_shares
+                                + buy_shares)
+            new_float_pct = new_float_shares / total_float_shares * 100
+            if new_float_pct >= COMPLIANCE_CONFIG["reporting_line_pct"]:
+                return False, f"举牌线预警: {name}({code}) 拟持仓{new_float_pct:.2f}% ≥{COMPLIANCE_CONFIG['reporting_line_pct']}%举牌线，需披露"
 
         return True, ""
 
@@ -299,7 +308,9 @@ class ComplianceChecker:
                   current_position_pct: float = 0, current_float_pct: float = 0,
                   buy_date: Optional[str] = None, today: Optional[str] = None,
                   is_st: bool = False, is_kcb: bool = False, is_cyb: bool = False,
-                  market_state: str = "震荡", whitelist: Optional[Set[str]] = None) -> Tuple[bool, List[str]]:
+                  market_state: str = "震荡", whitelist: Optional[Set[str]] = None,
+                  buy_shares: Optional[int] = None,
+                  total_float_shares: Optional[float] = None) -> Tuple[bool, List[str]]:
         """
         全量合规检查 — 一次性前置拦截
 
@@ -336,7 +347,9 @@ class ComplianceChecker:
 
         # 检查持仓
         pos_passed, pos_reason = self.check_position_limit(code, name, buy_amount, total_capital,
-                                                            current_position_pct, current_float_pct, market_state)
+                                                            current_position_pct, current_float_pct, market_state,
+                                                            buy_shares=buy_shares,
+                                                            total_float_shares=total_float_shares)
         if not pos_passed:
             failures.append(f"[C-005/006/010] {pos_reason}")
             self.logger.log("pre_trade", "🔴 红线", code, name, "C-005", pos_reason, "block")

@@ -543,7 +543,18 @@ def extract_decision_results(filepath):
     
     # 检查阻塞（质疑报告缺失、无法制定执行计划等）
     if re.search(r'(无法制定执行计划|等待质疑审查报告|质疑审查报告缺失|无法执行|⏸️)', content):
-        result['is_blocked'] = True
+        # 09-07 修复：正则命中后交叉验证——若同日已生成 *_质疑审查裁决.json 或 *_质疑审查报告.md，
+        # 说明 Skeptic 报告实际存在，LLM 只是用"无法执行"等词描述空仓决策，不判 blocked
+        date_str = parse_date_from_filename(os.path.basename(filepath))
+        skeptic_report_exists = False
+        if date_str:
+            sibling_dir = os.path.dirname(os.path.abspath(filepath))
+            for pattern in (f"{date_str}_质疑审查裁决.json", f"{date_str}_质疑审查报告.md"):
+                if os.path.isfile(os.path.join(sibling_dir, pattern)):
+                    skeptic_report_exists = True
+                    break
+        if not skeptic_report_exists:
+            result['is_blocked'] = True
     
     # === 多格式主推提取 ===
     format_version = 'unknown'
