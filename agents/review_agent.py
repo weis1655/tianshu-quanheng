@@ -248,7 +248,7 @@ class ReviewAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx),
-            max_tokens=4000
+            max_tokens=6000
         )
 
         # 格式化报告
@@ -857,6 +857,8 @@ class ReviewAgent(BaseAgent):
             r'###\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
             # 编号模式：## N. 代码 名称（LLM 2026-07-31开始输出，如"## 1. 688008 澜起科技"）
             r'##\s*\d+\.\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
+            # 自由格式：### 代码 名称（LLM 2026-09-08格式漂移，如"### 300014 亿纬锂能"）
+            r'###\s*(\d{6})\s*([\u4e00-\u9fa5]{2,8})',
         ]:
             m = re.search(pat, block, re.MULTILINE)
             if m:
@@ -890,6 +892,12 @@ class ReviewAgent(BaseAgent):
         if len(blocks) <= 1:
             blocks = re.split(
                 r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # 自由格式兜底：### 代码 名称（2026-09-08格式漂移，如"### 300014 亿纬锂能"）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
         for block in blocks:
@@ -942,6 +950,12 @@ class ReviewAgent(BaseAgent):
         if len(blocks) <= 1:
             blocks = re.split(
                 r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # 自由格式兜底：### 代码 名称（2026-09-08格式漂移，如"### 300014 亿纬锂能"）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
         for block in blocks:
@@ -1059,38 +1073,63 @@ class ReviewAgent(BaseAgent):
                 r'(?=##\s+\d+\.\s*\d{6}\s*[\u4e00-\u9fa5])',
                 result
             )
+        # 自由格式兜底：### 代码 名称（2026-09-08格式漂移，如"### 300014 亿纬锂能"）
+        if len(blocks) <= 1:
+            blocks = re.split(
+                r'(?=###\s*\d{6}\s*[\u4e00-\u9fa5])',
+                result
+            )
+        # ═══ 全局评分段预提取（LLM自由文本输出时，评分可能在全部分块之外的独立段落）═══
+        _global_scores: dict = {}
+        _score_section = re.search(
+            r'(?:Now let me score|综合评分|最终评分|评分汇总)[^\n]*',
+            result, re.IGNORECASE
+        )
+        if _score_section:
+            _sec_text = result[_score_section.start():]
+            for _cm in re.finditer(r'(\d{6})\s*[\u4e00-\u9fa5]{0,8}[^:：\n]*?[:：]\s*', _sec_text):
+                _c = _cm.group(1)
+                _end = _sec_text.find('\n**', _cm.end())
+                _sub = _sec_text[_cm.start():_end if _end > 0 else len(_sec_text)]
+                _dims = re.findall(r'(?:驱动验证|位置分析|量能判断|风险扫描|Score)\s*[:：]?\s*(\d+)', _sub, re.IGNORECASE)
+                if len(_dims) >= 4:
+                    _w = [0.25, 0.35, 0.20, 0.20]
+                    _global_scores[_c] = min(int(sum(int(s) * w for s, w in zip(_dims[:4], _w))), 100)
+            if _global_scores:
+                plog("INFO", f"[ReviewAgent] 📐 全局评分段预提取: {len(_global_scores)} 只 {_global_scores}")
         for block in blocks:
             code, name = self._extract_stock_from_block(block)
             if not code:
                 continue
 
             # 综合评分（多模式兜底，用 findall 取最后匹配 = 最终评分）
-            score = 0
-            for score_pat in [
-                r'综合评分[：:\s]*\[?\*?\s*(\d+)',
-                r'综合(?:分|评分)\s*[：:\s]*\*?\s*(\d+)',
-                r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',
-                r'[（(]\s*(\d+)\s*分\s*[)）]',
-                r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',
-                r'(?:综合|标的|审查)?评分[：:\s]*\*?\s*(\d+)(?:\s*分)?',
-                r'\|\s*\*{0,2}综合评分\*{0,2}\s*\|\s*\*{0,2}(\d+)\*{0,2}',
-                # 加权计算式格式：综合：(...) = 45.5分
-                r'综合[：:].*?=\s*(\d+\.?\d*)\s*分',
-                # 子弹点评分格式：≈ 50分 或 = 49.75（LLM 2026-07-31格式漂移）
-                r'[≈=]\s*(\d+\.?\d*)\s*分',
-                # 弱市调整格式：弱市调整-5分：49.75 或 弱市调整：54.75-5=49.75≈50分（LLM 2026-07-31格式漂移）
-                r'弱市调整[^：:]*[：:]\s*(\d+\.?\d*)',
-                # 叙事版格式：综合[^\n]*?\d+分（LLM 2026-07-31叙事版输出，取最后出现的综合评分）
-                r'综合[^\\n]*?(\\d+)\\s*分',
-            ]:
-                all_matches = re.findall(score_pat, block)
-                if all_matches:
-                    # 取最后一个匹配（LLM可能多次修改评分，最终评分在后）
-                    last_score = all_matches[-1]
-                    score = min(int(float(last_score)), 100)
-                    break
+            score = _global_scores.get(code, 0)
             if score == 0:
-                # 兜底：从 **四维打分**：段落提取各维度评分，用权重计算综合分
+                for score_pat in [
+                    r'综合评分[：:\s]*\[?\*?\s*(\d+)',
+                    r'综合(?:分|评分)\s*[：:\s]*\*?\s*(\d+)',
+                    r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',
+                    r'[（(]\s*(\d+)\s*分\s*[)）]',
+                    r'(\d+)\s*分[，,。\.\s]*(?:综合|四维|审查)',
+                    r'(?:综合|标的|审查)?评分[：:\s]*\*?\s*(\d+)(?:\s*分)?',
+                    r'\|\s*\*{0,2}综合评分\*{0,2}\s*\|\s*\*{0,2}(\d+)\*{0,2}',
+                    # 加权计算式格式：综合：(...) = 45.5分
+                    r'综合[：:].*?=\s*(\d+\.?\d*)\s*分',
+                    # 子弹点评分格式：≈ 50分 或 = 49.75（LLM 2026-07-31格式漂移）
+                    r'[≈=]\s*(\d+\.?\d*)\s*分',
+                    # 弱市调整格式：弱市调整-5分：49.75 或 弱市调整：54.75-5=49.75≈50分（LLM 2026-07-31格式漂移）
+                    r'弱市调整[^：:]*[：:]\s*(\d+\.?\d*)',
+                    # 叙事版格式：综合[^\n]*?\d+分（LLM 2026-07-31叙事版输出，取最后出现的综合评分）
+                    r'综合[^\n]*?(\d+)\s*分',
+                ]:
+                    all_matches = re.findall(score_pat, block)
+                    if all_matches:
+                        # 取最后一个匹配（LLM可能多次修改评分，最终评分在后）
+                        last_score = all_matches[-1]
+                        score = min(int(float(last_score)), 100)
+                        break
+            if score == 0:
+                # 兜底1：从 **四维打分**：段落提取各维度评分，用权重计算综合分
                 dim_scores = re.findall(r'[^\d]*(\d+)\s*分', block.split('四维打分')[-1].split('\n')[0]) if '四维打分' in block else []
                 if len(dim_scores) >= 4:
                     weights = [0.25, 0.35, 0.20, 0.20]  # 驱动/位置/量能/风险
@@ -1098,7 +1137,27 @@ class ReviewAgent(BaseAgent):
                     score = min(int(weighted), 100)
                     plog("INFO", f"[ReviewAgent] 📐 四维打分兜底: {name}({code}) 维度={dim_scores[:4]} 综合={score}分")
                 else:
-                    plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
+                    # 兜底2：从英文风格维度评分提取（如"驱动验证: 82"或"位置分析: 72"）
+                    dim_scores_eng = re.findall(
+                        r'(?:驱动验证|位置分析|量能判断|风险扫描)\s*[:：]\s*(\d+)',
+                        block
+                    )
+                    if len(dim_scores_eng) >= 4:
+                        weights = [0.25, 0.35, 0.20, 0.20]
+                        weighted = sum(int(s) * w for s, w in zip(dim_scores_eng[:4], weights))
+                        score = min(int(weighted), 100)
+                        plog("INFO", f"[ReviewAgent] 📐 英文维度兜底: {name}({code}) 维度={dim_scores_eng[:4]} 综合={score}分")
+                    else:
+                        # 兜底3：从加权计算式提取（如"Weighted: ... = 70.7"或"加权 = 70.7"）
+                        w_match = re.search(
+                            r'(?:Weighted|加权|综合|最终)[^=\n]*=\s*(\d+\.?\d*)',
+                            block
+                        )
+                        if w_match:
+                            score = min(int(float(w_match.group(1))), 100)
+                            plog("INFO", f"[ReviewAgent] 📐 加权计算兜底: {name}({code}) = {score}分")
+                        else:
+                            plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
 
             # 信心度
             confidence = ""
