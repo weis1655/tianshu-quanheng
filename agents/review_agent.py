@@ -28,7 +28,7 @@ from logger import StructuredLogger
 from pool_manager import PoolManager
 from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
-from thresholds import AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, score_to_level
+from thresholds import AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, ML_LOW_CONFIDENCE, score_to_level
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -282,7 +282,7 @@ class ReviewAgent(BaseAgent):
         parsed_result = self._parse_review_result_v2(result)
         
         # 更新池（使用后处理的upgrades/demotions，非LLM原始文本）
-        self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
+        self._apply_pool_updates(result, parsed_result.upgrades if parsed_result else [], parsed_result.demotions if parsed_result else [])
 
         # ── v5.91: 重点观察池评估结果追加到审查报告.md ──────────
         # 批量评估升级后的重点池数据只写入了池JSON，未同步到审查报告.md
@@ -339,7 +339,7 @@ class ReviewAgent(BaseAgent):
                     sr.core_logic += f" | 📈 因子信号{sig}/6，加{bonus:.0f}分"
                     plog("INFO", f"[ReviewAgent] 📈 因子信号加分: {sr.name}({sr.code}) {sig}/6 → +{bonus:.0f}分")
 
-        # ═══ P0-修复（2026-06-10）：评分膨胀 — 市场状态评分通缩 ═══
+        # ── P0-修复（2026-06-10）：评分膨胀 — 市场状态评分通缩 ═══
         market_state = self._get_market_state()
         DEFLATION_MAP = {"偏空": 8, "震荡偏弱": 5, "震荡": 3, "震荡偏强": 0, "偏多": 0}
         deflation = DEFLATION_MAP.get(market_state.get("state", "震荡"), 3)
@@ -357,15 +357,14 @@ class ReviewAgent(BaseAgent):
                 fd = factor_map.get(sr.code, {})
                 sig = fd.get("factor_signal", 0) if isinstance(fd, dict) else 0
                 if sig >= 3 and sr.composite_score >= 75:  # 通缩后仍≥75的才需要减半
-                    original_bonus = min(round(sig * 0.5, 0), 2)  # 4因子最大bonus=2
-                    # 弱市减半加分
+                    original_bonus = min(round(sig * 0.5, 0), 2)
                     half_bonus = max(0, original_bonus // 2)
                     diff = original_bonus - half_bonus
                     sr.composite_score = max(40, sr.composite_score - diff)
                     sr.core_logic = sr.core_logic.replace(f"因子信号{sig}/6，加{original_bonus:.0f}分",
                                                            f"因子信号{sig}/6，弱市减半加{half_bonus:.0f}分")
                     plog("INFO", f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
-        # ════════════════════════════════════════════════════════════════
+        # ════════════════════════════════════════════════════════════════════════
 
         # ═══ P2-修复（2026-06-10）：QualityGate 上移 — 审查阶段历史表现检查 ═══
         try:
@@ -380,43 +379,16 @@ class ReviewAgent(BaseAgent):
                     original = sr.composite_score
                     sr.composite_score = gate_ret["adjusted_score"]
                     sr.core_logic += f" | 🚫 历史质检: {gate_ret['reason']}"
-                    # 如果通缩后低于SCORE_C_LEVEL分→强制降级
                     if sr.composite_score < SCORE_C_LEVEL:
                         sr.flow_direction = "降级"
                         sr.target_pool = "边缘池"
                     plog("INFO", f"[ReviewAgent] 🚫 质检拦截: {sr.name}({sr.code}) {original}→{sr.composite_score} {gate_ret['reason']}")
+        except Exception as e:
+            plog("INFO", f"[ReviewAgent] ⚠️ QualityGate异常: {e}")
 
-            # ML评分低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
-            for sr in review_result.stocks:
-                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.composite_score >= DECISION_MIN_SCORE:
-                    sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
-                    plog("INFO", f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
-                    # ML评分降级：LLM高分但ML低分，说明模型不认可
-                    if sr.flow_direction == "升级":
-                        sr.flow_direction = "降级"
-                        sr.target_pool = "边缘池"
-                        sr.core_logic += f" | 📉 ML{sr.ml_score}分<45，LLM高分背离，降级"
-                        plog("INFO", f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
-        except ImportError:  # 安全降级: ML评分模块未安装→跳过ML降级，仅用LLM评分
-            pass
-        # ═══════════════════════════════════════════════════════════════════════
-
-        # ═══ ML评分前置拦截：升级重点池前先过ML阈值 ═══════════════
-        _ml_blocked = []
-        for sr in review_result.stocks:
-            if sr.ml_score is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.flow_direction == "升级":
-                sr.flow_direction = "降级"
-                sr.target_pool = "边缘池"
-                sr.core_logic += f" | 🚫 ML{sr.ml_score}分<45，前置拦截"
-                _ml_blocked.append(sr)
-                plog("INFO", f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
-        if _ml_blocked:
-            parsed_result.demotions.extend(_ml_blocked)
-            self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
-            plog("INFO", f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
-        # ═══════════════════════════════════════════════════════════════════════
-
-        # ═══ ML评分模型 — 并列显示（2026-06-11）═══════════════════════════
+        # ═══ P0-3: ML-LLM背离规则修正（先算ML再判背离，未打分不判） ════════════════
+        # 先执行ML评分（依赖因子），再做背离检查，避免"未打分"被误判为真实背离
+        ml_scores_available = False
         try:
             from scripts.ml_scorer import predict_ml_score
             for sr in review_result.stocks:
@@ -434,15 +406,42 @@ class ReviewAgent(BaseAgent):
                         "ma20_pos": detail.get("ma20_pos", 0),
                     }
                     ml_result = predict_ml_score(ml_factors, llm_score=sr.composite_score)
-                    ml_score = ml_result["ml_score"]
-                    win_prob = ml_result["win_prob"]
-                    sr.ml_score = ml_score
-                    sr.ml_win_prob = win_prob
-                    sr.core_logic += f" | 🤖 ML{ml_score}分(胜{win_prob*100:.0f}%)"
-                    plog("INFO", f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{ml_score}分 胜率{win_prob*100:.0f}%")
+                    sr.ml_score = ml_result["ml_score"]
+                    sr.ml_win_prob = ml_result["win_prob"]
+                    sr.core_logic += f" | 🤖 ML{sr.ml_score}分(胜{sr.ml_win_prob*100:.0f}%)"
+                    plog("INFO", f"[ReviewAgent] 🤖 ML评分: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+            ml_scores_available = True
         except Exception as e:
             plog("INFO", f"[ReviewAgent] ⚠️ ML评分异常: {e}")
-        # ════════════════════════════════════════════════════════════════════
+
+        # 仅当ML实际可用且评分成功时，才判背离；避免"未打分"被当作真实低分
+        if ml_scores_available:
+            # 低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
+            for sr in review_result.stocks:
+                if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.composite_score >= DECISION_MIN_SCORE:
+                    sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
+                    plog("INFO", f"[ReviewAgent] ⚠️ ML低信心: {sr.name}({sr.code}) LLM{sr.composite_score}→ML{sr.ml_score}分 胜率{sr.ml_win_prob*100:.0f}%")
+                    if sr.flow_direction == "升级":
+                        sr.flow_direction = "降级"
+                        sr.target_pool = "边缘池"
+                        sr.core_logic += f" | 📉 ML{sr.ml_score}分<45，LLM高分背离，降级"
+                        plog("INFO", f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
+
+        # ═══ ML评分前置拦截：升级重点池前先过ML阈值 ═══════════════
+        if ml_scores_available:
+            _ml_blocked = []
+            for sr in review_result.stocks:
+                if sr.ml_score is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.flow_direction == "升级":
+                    sr.flow_direction = "降级"
+                    sr.target_pool = "边缘池"
+                    sr.core_logic += f" | 🚫 ML{sr.ml_score}分<45，前置拦截"
+                    _ml_blocked.append(sr)
+                    plog("INFO", f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
+            if _ml_blocked:
+                parsed_result.demotions.extend(_ml_blocked)
+                self._apply_pool_updates(result, parsed_result.upgrades if parsed_result else [], parsed_result.demotions if parsed_result else [])
+                plog("INFO", f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
+        # ════════════════════════════════════════════════════════════════════════
 
         # ═══ P0-降级延迟修复：评分调整后重新检查硬性降级阈值 ═══
         # 因子加分/市场通缩/质检调整后，部分标的评分可能降至60以下

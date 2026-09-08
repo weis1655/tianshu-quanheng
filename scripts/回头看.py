@@ -1144,6 +1144,9 @@ def generate_report(days=7, output_file=None):
                 key = f"{entry['code']}_{entry['date']}"
                 if key in performance_map:
                     continue  # 已通过Source A/B验证过
+                # 窗口守卫：仅验证分析窗口内的记录，避免旧数据污染合并指标
+                if trading_days and entry['date'] not in trading_days:
+                    continue
                 perf = verify_recommendation(entry['code'], entry['date'], hold_days=3)
                 if perf:
                     performance_map[key] = perf

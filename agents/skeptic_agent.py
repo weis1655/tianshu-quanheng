@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from base_agent import BaseAgent, build_agent_system_prompt
-from logger import StructuredLogger
+from logger import StructuredLogger, plog
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -202,8 +202,45 @@ class SkepticAgent(BaseAgent):
             response_format={"type": "json_object"}
         )
 
-        # 解析与生成
+        # 截断检测：LLM输出可能被截断导致JSON不完整
+        def _is_truncated(text: str) -> bool:
+            # 未闭合的JSON花括号
+            if text.count('{') > text.count('}'):
+                return True
+            # 末尾缺少闭合引号或逗号
+            stripped = text.rstrip()
+            if stripped and stripped[-1] in '",':
+                return True
+            return False
+
+        # 解析与生成（含截断重试）
         challenges = self._parse_challenges(result)
+        if not challenges and _is_truncated(result):
+            plog("WARNING", f"[SkepticAgent] ⚠️ 输出疑似截断({len(result)}chars)，重试(max_tokens=2000)")
+            result = self.call_llm(
+                user_prompt,
+                system=build_agent_system_prompt(SYSTEM_PROMPT, "SkepticAgent"),
+                max_tokens=2000,
+                temperature=0.2,
+            )
+            challenges = self._parse_challenges(result)
+        if not challenges:
+            plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为规则化挑战")
+            # 降级为规则化挑战：对每只标的生成基于基本数据的默认质疑
+            for s in stock_list:
+                code = s.get("code", s.get("代码", ""))
+                name = s.get("name", s.get("名称", "?"))
+                challenges.append({
+                    "code": str(code),
+                    "name": str(name),
+                    "challenges": [
+                        {"dimension": "风险低估", "question": "LLM质疑审查不可用，规则模式：需人工复核该标的风险", "severity": "medium"},
+                    ],
+                    "overall_verdict": "challenge_required",
+                    "veto_count": 0,
+                    "high_count": 0,
+                    "weighted_count": 0,
+                })
         # ── P0-1: 客观财务因子自动裁决覆盖 ──
         auto_flags = self._apply_auto_risk_overrides(stock_list, review_report, market_state)
         for flag in auto_flags:

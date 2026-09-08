@@ -574,6 +574,35 @@ class DecisionAgent(BaseAgent):
         evo_history = self._inject_evo_history(scored_stocks)
         # ──────────────────────────────────────────────────────────
 
+        # ═══ P0-跨日幻觉守卫：决策候选必须来自今日快筛池 ═══
+        _today_fs_codes = set()
+        _fs_pool_file = self.pool_dir / "快筛候选池.json"
+        if _fs_pool_file.exists():
+            try:
+                _fs_data = self.safe_read_json(_fs_pool_file, {})
+                _today_fs_codes = {str(s.get("代码", s.get("股票代码", ""))) for s in _fs_data.get("stocks", [])}
+            except Exception:
+                pass
+        _stale_warning = ""
+        if _today_fs_codes and scored_stocks:
+            _stale_stocks = [s for s in scored_stocks
+                           if str(s.get("code", s.get("代码", ""))) not in _today_fs_codes
+                           and str(s.get("code", s.get("代码", ""))) not in {s.get("代码", s.get("股票代码", "")) for s in self._active_s_stocks}]
+            if _stale_stocks:
+                _names = ", ".join(f"{s['name']}({s['code']})" for s in _stale_stocks[:5])
+                _stale_warning = (
+                    f"\n\n## 🚫 跨日数据警告\n"
+                    f"以下标的**不在今日快筛候选池中**（可能来自昨日残留或跨日数据），已排除出候选：\n"
+                    f"{_names}\n"
+                    f"请仅对今日快筛池内的标的制定方案。\n"
+                )
+                # 从评分列表中移除跨日标的
+                _stale_codes = {str(s.get("code", s.get("代码", ""))) for s in _stale_stocks}
+                scored_stocks = [s for s in scored_stocks if str(s.get("code", s.get("代码", ""))) not in _stale_codes]
+                llm_visible = [s for s in scored_stocks if s.get("score", 0) >= DECISION_MIN_SCORE]
+                scored_summary = self._format_scored_stocks(llm_visible)
+                plog("INFO", f"[决策守卫] 🚫 跨日数据清理: {len(_stale_stocks)} 只非今日快筛标的已移除: {_names}")
+        # ═══ 跨日幻觉守卫结束 ═══
         # ── P1-3：Skeptic 报告覆盖度检查 ─────────────────────────
         # 审查通过的标的如果未出现在质疑报告中，注入明确警告
         # 防止 LLM 自行困惑后输出"前置检查失败"
@@ -666,6 +695,8 @@ class DecisionAgent(BaseAgent):
             header_parts.append(skeptic_section)
         if coverage_warning:
             header_parts.append(coverage_warning)
+        if _stale_warning:
+            header_parts.append(_stale_warning)
         # ── P0-3：S级操作池优先注入（LLM可见）───────────────
         if s_pool_section:
             header_parts.append(s_pool_section)
