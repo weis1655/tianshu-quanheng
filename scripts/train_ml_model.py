@@ -21,9 +21,12 @@ MODEL_DIR = BASE / "data" / "ml_model"
 FEATURE_KEYS = [
     "score", "ma5_div", "ma10_div", "ret5", "ret20",
     "vol20", "vol_ratio", "day_range", "ma20_pos",
-    "amplitude", "gap_up", "ma20_slope", "ret5_annual"
+    "bias_5", "bias_20", "turnover", "amplitude",
+    "gap_up", "vol_ma5", "ma20_slope", "ret5_annual",
+    "pe", "pb", "mktcap_rank",  # 基本面
+    "market_state",  # 市场状态: 0=熊 1=震荡 2=牛
 ]
-# 13 个独立特征（非冗余）
+# 21 个特征（含基本面 + 市场状态）
 TARGET = "r3"  # r3比r5更可预测(AUC 0.628 vs 0.598)
 
 def load_dataset():

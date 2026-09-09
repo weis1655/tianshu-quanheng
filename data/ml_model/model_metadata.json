@@ -1,5 +1,5 @@
 {
-  "model_type": "ridge",
+  "model_type": "gb",
   "feature_names": [
     "score",
     "ma5_div",
@@ -10,68 +10,92 @@
     "vol_ratio",
     "day_range",
     "ma20_pos",
+    "bias_5",
+    "bias_20",
+    "turnover",
     "amplitude",
     "gap_up",
+    "vol_ma5",
     "ma20_slope",
-    "ret5_annual"
+    "ret5_annual",
+    "pe",
+    "pb",
+    "mktcap_rank",
+    "market_state"
   ],
-  "n_features": 13,
+  "n_features": 21,
   "target": "r3",
-  "n_records": 315,
+  "n_records": 8233,
   "cv_results": {
     "Ridge": {
-      "r2_mean": -0.4895,
-      "r2_std": 0.225,
-      "mae": 6.9605
+      "r2_mean": -0.0454,
+      "r2_std": 0.1005,
+      "mae": 5.1225
     },
     "Ridge-5": {
-      "r2_mean": -0.4028,
-      "r2_std": 0.1725,
-      "mae": 6.7366
+      "r2_mean": -0.0438,
+      "r2_std": 0.099,
+      "mae": 5.1186
     },
     "GB": {
-      "r2_mean": -0.4627,
-      "r2_std": 0.265,
-      "mae": 6.7353
+      "r2_mean": -0.0405,
+      "r2_std": 0.106,
+      "mae": 5.0968
     },
     "GB-Clf": {
-      "auc_mean": 0.6392,
-      "auc_std": 0.1026
+      "auc_mean": 0.5555,
+      "auc_std": 0.0264
     }
   },
-  "baseline_r2": -0.1523,
-  "full_r2": 0.0638,
-  "full_auc": 0.9844,
+  "baseline_r2": -0.0464,
+  "full_r2": 0.193,
+  "full_auc": 0.7185,
   "feature_importance_reg": {
-    "amplitude": 0.1852,
-    "ma20_pos": 0.1759,
-    "ret20": 0.1546,
-    "day_range": 0.1011,
-    "ma10_div": 0.0808,
-    "ret5": 0.0543,
-    "gap_up": 0.0526,
-    "ret5_annual": 0.0525,
-    "ma20_slope": 0.0461,
-    "vol_ratio": 0.0419,
-    "score": 0.022,
-    "ma5_div": 0.0175,
-    "vol20": 0.0155
+    "pb": 0.1967,
+    "amplitude": 0.1367,
+    "market_state": 0.1001,
+    "ret20": 0.089,
+    "ma20_slope": 0.0644,
+    "mktcap_rank": 0.0564,
+    "vol20": 0.0518,
+    "pe": 0.0507,
+    "ret5_annual": 0.0454,
+    "gap_up": 0.0416,
+    "ret5": 0.0304,
+    "bias_20": 0.0244,
+    "ma10_div": 0.0221,
+    "day_range": 0.0202,
+    "ma20_pos": 0.0154,
+    "vol_ma5": 0.0153,
+    "vol_ratio": 0.0129,
+    "bias_5": 0.0098,
+    "turnover": 0.0086,
+    "ma5_div": 0.008,
+    "score": 0.0
   },
   "feature_importance_clf": {
-    "ret5_annual": 0.1512,
-    "vol_ratio": 0.1445,
-    "vol20": 0.0937,
-    "ret20": 0.0872,
-    "gap_up": 0.0832,
-    "day_range": 0.0749,
-    "amplitude": 0.0663,
-    "ret5": 0.0603,
-    "ma10_div": 0.058,
-    "ma20_slope": 0.0574,
-    "ma20_pos": 0.0465,
-    "score": 0.0408,
-    "ma5_div": 0.0362
+    "pb": 0.1595,
+    "market_state": 0.1241,
+    "ma20_slope": 0.1029,
+    "pe": 0.0789,
+    "mktcap_rank": 0.0674,
+    "vol20": 0.0635,
+    "amplitude": 0.0612,
+    "ret20": 0.0567,
+    "gap_up": 0.0538,
+    "ret5_annual": 0.0499,
+    "bias_20": 0.0363,
+    "ret5": 0.0335,
+    "ma20_pos": 0.0214,
+    "ma10_div": 0.021,
+    "vol_ma5": 0.0179,
+    "day_range": 0.0152,
+    "turnover": 0.0149,
+    "vol_ratio": 0.0106,
+    "bias_5": 0.0057,
+    "ma5_div": 0.0039,
+    "score": 0.0017
   },
-  "generated_at": "2026-09-09 09:47:17",
+  "generated_at": "2026-09-09 10:05:07",
   "sklearn_version": "1.9.0"
 }
