@@ -1,7 +1,8 @@
 {
-  "model_type": "gb",
-  "feature_names": [
-    "score",
+  "version": "v5",
+  "trained_at": "2026-09-09T10:00:00",
+  "model_type": "LightGBM",
+  "features": [
     "ma5_div",
     "ma10_div",
     "ret5",
@@ -12,90 +13,41 @@
     "ma20_pos",
     "bias_5",
     "bias_20",
-    "turnover",
     "amplitude",
     "gap_up",
-    "vol_ma5",
     "ma20_slope",
     "ret5_annual",
     "pe",
     "pb",
-    "mktcap_rank",
-    "market_state"
+    "score",
+    "is_cand",
+    "has_dragon_tiger",
+    "dt_net_inflow"
   ],
-  "n_features": 21,
+  "feature_count": 20,
   "target": "r3",
-  "n_records": 8233,
-  "cv_results": {
-    "Ridge": {
-      "r2_mean": -0.0454,
-      "r2_std": 0.1005,
-      "mae": 5.1225
-    },
-    "Ridge-5": {
-      "r2_mean": -0.0438,
-      "r2_std": 0.099,
-      "mae": 5.1186
-    },
-    "GB": {
-      "r2_mean": -0.0405,
-      "r2_std": 0.106,
-      "mae": 5.0968
-    },
-    "GB-Clf": {
-      "auc_mean": 0.5555,
-      "auc_std": 0.0264
-    }
-  },
-  "baseline_r2": -0.0464,
-  "full_r2": 0.193,
-  "full_auc": 0.7185,
-  "feature_importance_reg": {
-    "pb": 0.1967,
-    "amplitude": 0.1367,
-    "market_state": 0.1001,
-    "ret20": 0.089,
-    "ma20_slope": 0.0644,
-    "mktcap_rank": 0.0564,
-    "vol20": 0.0518,
-    "pe": 0.0507,
-    "ret5_annual": 0.0454,
-    "gap_up": 0.0416,
-    "ret5": 0.0304,
-    "bias_20": 0.0244,
-    "ma10_div": 0.0221,
-    "day_range": 0.0202,
-    "ma20_pos": 0.0154,
-    "vol_ma5": 0.0153,
-    "vol_ratio": 0.0129,
-    "bias_5": 0.0098,
-    "turnover": 0.0086,
-    "ma5_div": 0.008,
-    "score": 0.0
-  },
-  "feature_importance_clf": {
-    "pb": 0.1595,
-    "market_state": 0.1241,
-    "ma20_slope": 0.1029,
-    "pe": 0.0789,
-    "mktcap_rank": 0.0674,
-    "vol20": 0.0635,
-    "amplitude": 0.0612,
-    "ret20": 0.0567,
-    "gap_up": 0.0538,
-    "ret5_annual": 0.0499,
-    "bias_20": 0.0363,
-    "ret5": 0.0335,
-    "ma20_pos": 0.0214,
-    "ma10_div": 0.021,
-    "vol_ma5": 0.0179,
-    "day_range": 0.0152,
-    "turnover": 0.0149,
-    "vol_ratio": 0.0106,
-    "bias_5": 0.0057,
-    "ma5_div": 0.0039,
-    "score": 0.0017
-  },
-  "generated_at": "2026-09-09 10:05:07",
-  "sklearn_version": "1.9.0"
+  "n_records": 8228,
+  "n_candidates": 236,
+  "cv_auc": 0.5843,
+  "full_r2": 0.2615,
+  "full_auc": 0.7128,
+  "cls_cv_auc": 0.5801,
+  "cls_model": "GradientBoosting",
+  "auto_degrade": false,
+  "sample_weight": 5.0,
+  "new_features": [
+    "has_dragon_tiger",
+    "dt_net_inflow",
+    "is_cand"
+  ],
+  "removed_features": [
+    "vol_ma5",
+    "turnover"
+  ],
+  "fixes": [
+    "PE clip [1,200]",
+    "dataset_v3 dict structure handled",
+    "is_main + score>50 candidate marking",
+    "Dragon tiger data from RPT_DAILYBILLBOARD_DETAILSNEW"
+  ]
 }
