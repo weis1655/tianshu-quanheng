@@ -151,6 +151,9 @@ def load_historical_decisions(days=60) -> list:
             pass
 
     # Source 4: 标准化决策日志 data/decision_log.json（优先使用有实际盈亏的记录）
+    # Bug修复: 原score=max(ts,fs), 但tech_score/fundamental_score多为0(系统未真实打分),
+    # 导致score=0全部被min_score=70过滤, 143条回放记录进不了回测。
+    # 修复: score计算为0时给中性评分70(已在70-79区间, 表示"已决策但评分缺失")。
     std_log = PROJECT_ROOT / "data" / "decision_log.json"
     if std_log.exists():
         try:
@@ -160,6 +163,8 @@ def load_historical_decisions(days=60) -> list:
                     ts = r.get("tech_score", 0) or 0
                     fs = r.get("fundamental_score", 0) or 0
                     score = max(ts, fs)
+                    if score < 1:  # 评分缺失(系统未打分), 用中性评分而非0
+                        score = 70
                     pnl = r.get("actual_pnl")
                     if pnl not in (None, 0, "", 0.0):
                         records.append({
@@ -174,13 +179,21 @@ def load_historical_decisions(days=60) -> list:
             print(f"  ⚠️ 标准化决策日志加载失败: {e}")
 
     # 去重
-    seen = set()
-    unique = []
+    # Bug修复: 原set去重"先出现者保留", 但Source1(复盘记录, pnl多为0)先于Source4
+    # (data/decision_log, 有actual_pnl) append, 导致Source4的160条有盈亏记录被去重删除,
+    # 只剩Source1的零pnl记录(被后续pnl==0过滤掉) -> 回测只跑2-3笔。
+    # 修复: 用dict按key覆盖, 后出现的(有实际盈亏的)覆盖前面的(零pnl占位)。
+    # 注意: Source4只append pnl非零的记录, 覆盖安全。
+    unique_map = {}
     for r in records:
         key = f"{r['code']}_{r['date']}"
-        if key not in seen:
-            seen.add(key)
-            unique.append(r)
+        existing = unique_map.get(key)
+        # 覆盖条件: 新记录pnl非零(真实盈亏) 或 原记录pnl为零/缺失
+        new_pnl = r.get("pnl", 0)
+        old_pnl = existing.get("pnl", 0) if existing else 0
+        if existing is None or (new_pnl != 0 and old_pnl == 0):
+            unique_map[key] = r
+    unique = list(unique_map.values())
     
     return unique
 
@@ -231,20 +244,26 @@ def backtest(strategy: dict, records: list) -> dict:
             continue
 
         # ── ACC-03: 去除随机因子，使用确定性过滤 ──────────────
-        # 确定性的Gate阻塞模拟：用代码哈希替代随机
-        gate_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_gate")) % 100 < 15
-        if gate_blocked:
-            continue
-
-        # ── ACC-03: 确定性涨跌停成交概率 ─────────────────────
-        limit_blocked = False
-        if abs(pnl) >= 9.0:
-            # 用代码哈希确定阻塞（30%概率）
-            limit_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_limit")) % 100 >= 30
-        elif abs(pnl) >= 7.0:
-            limit_blocked = abs(hash(f"{r.get('code','')}_{r.get('date','')}_nearlimit")) % 100 >= 70
-        if limit_blocked:
-            continue
+        # Bug修复1: 原用Python hash()跨进程非确定性(字符串hash受PYTHONHASHSEED影响,
+        # 同进程内不同次运行可能不同), 导致回测结果不稳定(2笔/1笔不一致)。改用md5稳定哈希。
+        # Bug修复2: 对已成交回放数据(source=std_log)不施加成交概率模拟——
+        # 这些决策已真实成交并产生actual_pnl, 模拟"能否成交"逻辑错误,
+        # 应只对"未执行决策"做概率过滤, 已成交的直接计入。
+        import hashlib
+        def _stable_pct(s):
+            return int(hashlib.md5(s.encode()).hexdigest()[:8], 16) % 100
+        # 已成交回放数据直接计入, 不模拟成交概率
+        if r.get("source") != "std_log":
+            gate_blocked = _stable_pct(f"{r.get('code','')}_{r.get('date','')}_gate") < 15
+            if gate_blocked:
+                continue
+            limit_blocked = False
+            if abs(pnl) >= 9.0:
+                limit_blocked = _stable_pct(f"{r.get('code','')}_{r.get('date','')}_limit") >= 30
+            elif abs(pnl) >= 7.0:
+                limit_blocked = _stable_pct(f"{r.get('code','')}_{r.get('date','')}_nearlimit") >= 70
+            if limit_blocked:
+                continue
 
         # ── B05: 环境延迟折损 — 0.2%收益损耗 ───────────────
         delay_cost = abs(pnl) * 0.002
@@ -302,10 +321,12 @@ def backtest(strategy: dict, records: list) -> dict:
     del results["_daily_pnls"]
 
     # ── ACC-10: 修正TOP列表排序 ──────────────────────────
+    # Bug修复: 原逻辑交易<10笔时sorted[-5:]返回全部, 导致TOP盈利和TOP亏损
+    # 取到完全相同的批次(沙箱2笔时盈利亏损内容一致)。现分正负分别取:
     all_trades = results.pop("_all_trades", [])
     sorted_by_pnl = sorted(all_trades, key=lambda x: x.get("pnl", 0), reverse=True)
-    results["top_gainers"] = sorted_by_pnl[:5]
-    results["top_losers"] = sorted_by_pnl[-5:] if len(sorted_by_pnl) >= 5 else sorted_by_pnl
+    results["top_gainers"] = [t for t in sorted_by_pnl if t.get("pnl", 0) > 0][:5]
+    results["top_losers"] = [t for t in sorted(all_trades, key=lambda x: x.get("pnl", 0)) if t.get("pnl", 0) < 0][:5]
 
     return results
 
