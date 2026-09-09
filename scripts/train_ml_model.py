@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ML 评分模型 v6 — 2026-09-09
-最终版: r10目标 + GB(n=100,d=3) + 候选池加权
-CV AUC=0.6364 (r3版本: 0.5893)
+"""ML 评分模型 v7 — 2026-09-09
+最终版: r10目标 + XGBoost(n=200,lr=0.03,正则) + dt_norm + 候选池5x加权
+CV AUC=0.6411 (v6: 0.6343, v3: 0.556)
 """
 import json, numpy as np
 from pathlib import Path
@@ -11,6 +11,7 @@ from sklearn.metrics import r2_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.linear_model import Ridge
 from lightgbm import LGBMRegressor, LGBMClassifier
+from xgboost import XGBRegressor, XGBClassifier
 import urllib.request, urllib.parse
 from joblib import dump
 from datetime import datetime
@@ -23,7 +24,7 @@ FEATURES = [
     "ma5_div", "ma10_div", "ret5", "ret20", "vol20", "vol_ratio",
     "day_range", "ma20_pos", "bias_5", "bias_20", "amplitude",
     "gap_up", "ma20_slope", "ret5_annual",
-    "pe", "pb", "score", "is_cand", "has_dragon_tiger",
+    "pe", "pb", "score", "is_cand", "has_dragon_tiger", "dt_norm",
 ]
 
 def lj(p):
@@ -46,7 +47,7 @@ def load_dragon_tiger():
 
 def main():
     print("="*60)
-    print(f"  ML v6 — {TARGET} — GB(n=100,d=3) + 加权 + 龙虎榜")
+    print(f"  ML v7 — {TARGET} — XGB(n=200,lr=0.03) + dt_norm + 加权")
     print("="*60)
 
     # 1. 加载数据
@@ -75,6 +76,9 @@ def main():
     for r in recs:
         key = (str(r.get("code","")).strip(), r.get("date",""))
         r["has_dragon_tiger"] = 1 if key in dt_map else 0
+        r["dt_net_inflow"] = dt_map.get(key, 0)
+        # 归一化龙虎榜净买入额 (原始值范围-28亿~28亿, /1e8后约-28~28)
+        r["dt_norm"] = r["dt_net_inflow"] / 1e8
     n_dt = sum(1 for r in recs if r["has_dragon_tiger"])
     print(f"  龙虎榜命中: {n_dt} 条 ({n_dt/len(recs)*100:.2f}%)")
 
@@ -87,10 +91,10 @@ def main():
     print(f"X shape: {X.shape}, y range: [{y.min():.2f}, {y.max():.2f}]")
 
     # 保存数据
-    np.save(MODEL_DIR / "X_v6.npy", X)
-    np.save(MODEL_DIR / "y_v6.npy", y)
-    np.save(MODEL_DIR / "sw_v6.npy", sw)
-    with open(MODEL_DIR / "dataset_v6.json", "w") as f:
+    np.save(MODEL_DIR / "X_v7.npy", X)
+    np.save(MODEL_DIR / "y_v7.npy", y)
+    np.save(MODEL_DIR / "sw_v7.npy", sw)
+    with open(MODEL_DIR / "dataset_v7.json", "w") as f:
         json.dump(recs, f, ensure_ascii=False, indent=2)
 
     # 5. 基线
@@ -112,6 +116,7 @@ def main():
         "Ridge": Ridge(alpha=1.0),
         "GradientBoosting": GradientBoostingRegressor(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42),
         "LightGBM": LGBMRegressor(n_estimators=100, max_depth=5, learning_rate=0.05, num_leaves=31, random_state=42, verbose=-1),
+        "XGBoost": XGBRegressor(n_estimators=200, max_depth=3, learning_rate=0.03, random_state=42, subsample=0.8, colsample_bytree=0.8, eval_metric="rmse", n_jobs=-1),
     }
     best_name, best_auc = None, 0
     for name, model in models.items():
@@ -151,6 +156,7 @@ def main():
     cls_models = {
         "GradientBoosting": GradientBoostingClassifier(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42),
         "LightGBM": LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.05, num_leaves=31, random_state=42, verbose=-1),
+        "XGBoost": XGBClassifier(n_estimators=200, max_depth=3, learning_rate=0.03, random_state=42, subsample=0.8, colsample_bytree=0.8, eval_metric="logloss", n_jobs=-1),
     }
     bcn, bca = None, 0
     for name, cm in cls_models.items():
@@ -185,8 +191,8 @@ def main():
     fp = bm.predict(scaler_used.transform(X) if scaler_used else X)
     fauc = roc_auc_score(yc, fp) if len(np.unique(yc)) > 1 else 0.5
     meta = {
-        "version": "v6",
-        "trained_at": "2026-09-09T10:00:00",
+        "version": "v7",
+        "trained_at": "2026-09-09T13:20:00",
         "model_type": best_name,
         "features": FEATURES,
         "feature_count": len(FEATURES),
@@ -200,18 +206,20 @@ def main():
         "cls_model": bcn,
         "auto_degrade": fauc < 0.58,
         "sample_weight": WEIGHT,
-        "model_params": {"n_estimators": 100, "max_depth": 3, "learning_rate": 0.05},
-        "changes_from_v5": [
-            "Target r3→r10 (中长期更可预测)",
-            "GB n=100 d=3 (最佳CV AUC=0.6364)",
-            "去掉dt_net_inflow (高噪音)",
+        "model_params": {"n_estimators": 200, "max_depth": 3, "learning_rate": 0.03,
+                         "subsample": 0.8, "colsample_bytree": 0.8},
+        "changes_from_v6": [
+            "模型 GB→XGBoost (n=200,lr=0.03,正则化, CV AUC 0.6343→0.6411)",
+            "加 dt_norm (龙虎榜净买入/1e8归一化, 贡献+0.005)",
+            "候选池子模型不可行: 225条样本集中在后期, 时序验证早期折无候选样本",
+            "北向资金/融资余额API在沙箱网络全部返回失败, 数据源不可用",
         ],
     }
     with open(MODEL_DIR / "model_metadata.json", "w") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     print(f"\n{'='*60}")
-    print(f"  v6 完成")
+    print(f"  v7 完成")
     print(f"  回归: {best_name}  CV AUC={best_auc:.4f}  全量={fauc:.4f}")
     print(f"  分类: {bcn}  CV AUC={bca:.4f}")
     print(f"  目标: {TARGET} (10日收益)")

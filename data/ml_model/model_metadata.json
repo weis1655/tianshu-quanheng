@@ -1,7 +1,7 @@
 {
-  "version": "v6",
-  "trained_at": "2026-09-09T10:00:00",
-  "model_type": "GradientBoosting",
+  "version": "v7",
+  "trained_at": "2026-09-09T13:20:00",
+  "model_type": "XGBoost",
   "features": [
     "ma5_div",
     "ma10_div",
@@ -21,27 +21,31 @@
     "pb",
     "score",
     "is_cand",
-    "has_dragon_tiger"
+    "has_dragon_tiger",
+    "dt_norm"
   ],
-  "feature_count": 19,
+  "feature_count": 20,
   "target": "r10",
   "n_records": 6955,
   "n_candidates": 225,
-  "cv_auc": 0.6343,
-  "full_r2": 0.3822,
-  "full_auc": 0.7284,
-  "cls_cv_auc": 0.6355,
+  "cv_auc": 0.6411,
+  "full_r2": 0.3952,
+  "full_auc": 0.7345,
+  "cls_cv_auc": 0.6364,
   "cls_model": "GradientBoosting",
   "auto_degrade": false,
   "sample_weight": 5.0,
   "model_params": {
-    "n_estimators": 100,
+    "n_estimators": 200,
     "max_depth": 3,
-    "learning_rate": 0.05
+    "learning_rate": 0.03,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8
   },
-  "changes_from_v5": [
-    "Target r3→r10 (中长期更可预测)",
-    "GB n=100 d=3 (最佳CV AUC=0.6364)",
-    "去掉dt_net_inflow (高噪音)"
+  "changes_from_v6": [
+    "模型 GB→XGBoost (n=200,lr=0.03,正则化, CV AUC 0.6343→0.6411)",
+    "加 dt_norm (龙虎榜净买入/1e8归一化, 贡献+0.005)",
+    "候选池子模型不可行: 225条样本集中在后期, 时序验证早期折无候选样本",
+    "北向资金/融资余额API在沙箱网络全部返回失败, 数据源不可用"
   ]
 }

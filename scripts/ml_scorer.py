@@ -10,12 +10,12 @@ from pathlib import Path
 BASE = Path(__file__).parent.parent
 MODEL_DIR = BASE / "data" / "ml_model"
 
-# v6 特征列表 (与 train_ml_model.py 保持一致)
+# v7 特征列表 (与 train_ml_model.py 保持一致, 含 dt_norm)
 FEATURE_KEYS = [
     "ma5_div", "ma10_div", "ret5", "ret20", "vol20", "vol_ratio",
     "day_range", "ma20_pos", "bias_5", "bias_20", "amplitude",
     "gap_up", "ma20_slope", "ret5_annual",
-    "pe", "pb", "score", "is_cand", "has_dragon_tiger",
+    "pe", "pb", "score", "is_cand", "has_dragon_tiger", "dt_norm",
 ]
 
 _model_reg = None
@@ -26,22 +26,25 @@ def load_models():
     global _model_reg, _model_clf, _meta
     import joblib
     if _model_reg is None:
-        # v6: model_GradientBoosting.joblib
-        reg_path = MODEL_DIR / "model_GradientBoosting.joblib"
-        clf_path = MODEL_DIR / "model_cls_GradientBoosting.joblib"
+        # v7: 回归=XGBoost, 分类=GradientBoosting (取 metadata 为准)
+        meta_file = MODEL_DIR / "model_metadata.json"
+        meta = {}
+        if meta_file.exists():
+            meta = json.loads(meta_file.read_text())
+        reg_type = meta.get("model_type", "XGBoost")
+        cls_type = meta.get("cls_model", "GradientBoosting")
+        reg_path = MODEL_DIR / f"model_{reg_type}.joblib"
+        clf_path = MODEL_DIR / f"model_cls_{cls_type}.joblib"
         if not reg_path.exists():
             # 兼容旧版本
-            reg_path = MODEL_DIR / "model_LightGBM.joblib"
-            clf_path = MODEL_DIR / "model_cls_LightGBM.joblib"
+            reg_path = MODEL_DIR / "model_GradientBoosting.joblib"
+            clf_path = MODEL_DIR / "model_cls_GradientBoosting.joblib"
         if not reg_path.exists():
             raise FileNotFoundError(f"模型文件不存在: {MODEL_DIR}")
-        
+
         _model_reg = joblib.load(reg_path)
         _model_clf = joblib.load(clf_path)
-        
-        meta_file = MODEL_DIR / "model_metadata.json"
-        if meta_file.exists():
-            _meta = json.loads(meta_file.read_text())
+        _meta = meta
     return _model_reg, _model_clf
 
 def predict_ml_score(factors: dict, llm_score: int = 0) -> dict:
@@ -121,7 +124,7 @@ def show_model_summary():
         print("⚠️ 模型元数据不存在，请先训练")
         return
     meta = json.loads(meta_file.read_text())
-    print(f"🤖 ML评分模型 v{meta.get('version', '?')} 摘要")
+    print(f"🤖 ML评分模型 {meta.get('version', '?')} 摘要")
     print(f"   模型类型: {meta.get('model_type', 'unknown')}")
     print(f"   目标变量: {meta.get('target', '?')}")
     print(f"   训练数据: {meta.get('n_records', '?')} 条, {meta.get('feature_count', '?')} 特征")
