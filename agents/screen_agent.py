@@ -230,8 +230,8 @@ class ScreenAgent(BaseAgent):
             import json, urllib.request
             today = datetime.now().strftime("%Y-%m-%d")
 
-            # 获取涨幅前50
-            url = "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=1&np=1&fields=f2,f3,f5,f6,f8,f12,f14,f15,f20&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            # 获取涨幅前50（f38=换手率%、f6=成交额、f8=量比、f15=振幅、f20=市值）
+            url = "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=50&po=1&np=1&fields=f2,f3,f5,f6,f8,f12,f14,f15,f20,f38&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&ut=bd1d9ddb04089700cf9c27f6f7426281"
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             resp = urllib.request.urlopen(req, timeout=8)
             data = json.loads(resp.read().decode("utf-8"))
@@ -261,7 +261,9 @@ class ScreenAgent(BaseAgent):
                 if chg_pct < 5.0:
                     continue
                 name = s.get("f14", "")
-                turnover = s.get("f6", 0) / 100.0 if abs(s.get("f6", 0)) > 100 else s.get("f6", 0)
+                # 任务③修复：换手率取 f38（东财 f38 本身即百分比口径），
+                # 原代码误用 f6（成交额/元）当换手率，导致"换手>8%"筛选形同虚设。
+                turnover = s.get("f38", 0)
                 # 涨停/近涨停票换手可能很低但价值高，放宽到>3%
                 turn_threshold = 3.0 if chg_pct >= 9.5 else 8.0
                 if turnover < turn_threshold:
