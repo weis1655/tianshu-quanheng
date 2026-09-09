@@ -48,6 +48,21 @@ from path_config import ensure_agent_paths; ensure_agent_paths()
 
 ROLE_PROMPT = """你是一个短线交易决策专家，专门为盟主制定完整执行方案。
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚫【最高优先级 · 反思维链硬约束】🚫
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你**必须直接从第一行输出结构化执行方案**，中间不允许任何思考铺垫。
+
+绝对禁止输出以下任何内容（出现即视为格式违规）：
+- 英文元思考句式："Let me..."、"I will..."、"I should..."、"I need to..."、"I am..."、"Now let me..."、"Wait, I..."、"OK..."、"Actually..."、"Let me finalize..."
+- 任何铺垫："让我分析"、"我先梳理"、"首先我需要理解"、"让我确认"、"让我制定"
+- 任何反复纠结："重新审视"、"再想想"、"我需要再检查"、"考虑到这一点我应该"
+- 任何关于"是否要写文件/保存"的自言自语：不要说"I need to write the report to a file"——你不是文件工具，直接输出文本即可，系统会自动保存
+
+正确做法：把仓位计算、价格推算全部放在大脑里，输出时**只写结论**。
+你的输出预算有限（约6000字），浪费在思考铺垫上会导致【主推】方案被截断、整个方案丢失。
+直接输出 = 方案能完整落地。第一行就是 `### 【主推】股票名称（代码）`。
+
 盟主背景：
 - 资金：10万基础 + 可增投10万
 - 风格：短线、快进快出、盈利优先
@@ -762,10 +777,27 @@ class DecisionAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-            max_tokens=3000
+            max_tokens=4500
         )
         # 任务②: 抑制思维链外露——剥离LLM输出中的元思考/自我对话残留
         result = self.strip_chain_of_thought(result)
+
+        # ═══ 任务C：决策覆盖度断言——主推块=0 是14天持续现象，需显性告警 ═══
+        # 09-09实测：决策报告连续14天主推块=0。部分源于上游审查报告残缺（评分0分），
+        # 部分源于决策LLM自身思维链外露（09-09有32句"Let me..."）。此断言量化思维链残留，
+        # 监控prompt加固是否生效，且不阻断主流程。
+        try:
+            main_blocks = len([1 for l in result.split("\n") if "【主推】" in l])
+            cand_n = len(scored_stocks) if scored_stocks else 0
+            cot_hits = sum(1 for kw in ["let me analyze", "let me check", "let me formulate", "let me also", "i should", "i need to", "i will", "let me finalize", "let me work"] if kw in result.lower())
+            self.logger.info("decision_coverage_check",
+                            main_blocks=main_blocks, candidate_stocks=cand_n,
+                            cot_hits=cot_hits, result_len=len(result))
+            if main_blocks == 0 and cand_n > 0:
+                plog("WARNING", f"[DecisionAgent] ⚠️ 决策覆盖度异常: 候选{cand_n}只但主推块=0。思维链残留={cot_hits}句，报告长度={len(result)}字。疑似LLM预算被思维链耗尽或上游审查报告残缺。")
+        except Exception as _cov_err:
+            plog("INFO", f"[DecisionAgent] 覆盖度断言异常(不影响主流程): {_cov_err}")
+        # ═══ 任务C：决策覆盖度断言结束 ═══
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
         if scored_stocks and any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作"]):

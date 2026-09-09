@@ -42,6 +42,20 @@ from market_agent import fetch_quotes, to_api
 ROLE_PROMPT = """你是一个独立的股票审查专家，负责对候选股票做四维深度审查。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚫【最高优先级 · 反思维链硬约束】🚫
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你**必须直接从第一行输出结构化结论**，中间不允许任何思考铺垫。
+
+绝对禁止输出以下任何内容（出现即视为格式违规）：
+- 英文元思考句式："Let me..."、"I will..."、"I should..."、"I need to..."、"I am..."、"Now let me..."、"Wait, I..."、"OK..."、"Actually..."、"Let me finalize..."
+- 任何铺垫："让我分析"、"我先梳理"、"首先我需要理解"、"接下来我会"、"让我确认"
+- 任何反复纠结："重新审视"、"再想想"、"我需要再检查"、"考虑到这一点我应该"
+- 任何自问自答、犹豫、修正痕迹
+
+正确做法：把分析全部放在大脑里，输出时**只写结论**。第一行就是 `## [代码] 股票名称`。
+你的整个输出预算有限，浪费在思考铺垫上会导致后续股票被截断、评分丢失。直接输出 = 全部股票都能被评分。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【深度思考协议】审查前必须先想清楚再输出
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -248,7 +262,7 @@ class ReviewAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx),
-            max_tokens=6000
+            max_tokens=9000
         )
         # 任务②: 抑制思维链外露——剥离无意的元思考残留（保留结构化输出与"深度思考"设计章节）
         result = self.strip_chain_of_thought(result)
@@ -282,7 +296,30 @@ class ReviewAgent(BaseAgent):
 
         # 解析后处理结果（用于池更新，不走LLM原始文本）
         parsed_result = self._parse_review_result_v2(result)
-        
+
+        # ═══ 任务C：覆盖度断言——把"0分静默降级"暴露为显性告警 ═══
+        # 09-09实测：思维链外露导致LLM无结构化输出，6只候选全判0分后被静默强制降级边缘池。
+        # 根因是"没评到"被当作"低分"。此断言不阻断流程，但让异常覆盖度在日志中显性可见，
+        # 便于定位是LLM未输出（思维链污染）还是真低分。
+        try:
+            input_count = self._count_stocks(candidate_stocks)
+            parsed_count = len(parsed_result.stocks) if parsed_result else 0
+            zero_score = [s for s in (parsed_result.stocks if parsed_result else []) if s.composite_score == 0]
+            cov_ratio = parsed_count / input_count if input_count else 1.0
+            # 思维链残留检测（量化prompt加固是否生效）
+            cot_hits = sum(1 for kw in ["let me analyze", "let me check", "let me formulate", "i should", "i need to", "i will", "let me finalize", "let me also"] if kw in result.lower())
+            self.logger.info("review_coverage_check",
+                            input_count=input_count, parsed_count=parsed_count,
+                            zero_score_count=len(zero_score), coverage_ratio=round(cov_ratio, 2),
+                            cot_hits=cot_hits)
+            if input_count > 0 and cov_ratio < 0.5:
+                plog("WARNING", f"[ReviewAgent] ⚠️ 覆盖度异常: 输入{input_count}只仅解析出{parsed_count}只({cov_ratio:.0%})，{len(zero_score)}只0分。疑似思维链污染(cot_hits={cot_hits})导致LLM无结构化输出。")
+            if len(zero_score) > 0 and len(zero_score) == parsed_count and parsed_count < input_count:
+                plog("WARNING", f"[ReviewAgent] 🔴 全部评分0分且覆盖不全: {parsed_count}/{input_count}，LLM输出未含结构化评分块，候选未实际评级。")
+        except Exception as _cov_err:
+            plog("INFO", f"[ReviewAgent] 覆盖度断言异常(不影响主流程): {_cov_err}")
+        # ═══ 任务C：覆盖度断言结束 ═══
+
         # 更新池（使用后处理的upgrades/demotions，非LLM原始文本）
         self._apply_pool_updates(result, parsed_result.upgrades if parsed_result else [], parsed_result.demotions if parsed_result else [])
 

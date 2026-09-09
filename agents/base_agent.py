@@ -172,14 +172,38 @@ class BaseAgent(ABC):
             r"^\s*我需要(?:先|基于|理解)",
             r"^\s*让我基于",
             r"^\s*接下来[，,]?\s*我(?:将|会|来)",
+            # 英文元思考句式（09-09实测32句全是英文，原中文模式完全拦不住）
+            r"^\s*let\s+me\b",
+            r"^\s*i\s+(?:will|should|need\s+to|am\s+gonna|i\s+(?:realize|decide|plan|think|believe))",
+            r"^\s*i\s+i(?:realize|think|decide|plan)",
+            r"^\s*(?:wait|actually|so)[,\.]?\s+(?:i\s+|we\s+|let\s)",
+            r"^\s*(?:ok|okay)[,\.]?\s+(?:i\s+|let\s+me|so)",
+            r"^\s*(?:now|next|then)\s+let\s+me\b",
+            r"^\s*i'\s?ll\s+",
+            r"^\s*let's\b",
         ]
         lines = []
         for line in text.split("\n"):
             stripped = line.strip()
-            if stripped and any(_re.match(p, stripped) for p in meta_line_patterns):
-                # 只丢弃短元思考行（长行可能是正文，保守保留）
-                if len(stripped) <= 60:
+            if not stripped:
+                lines.append(line)
+                continue
+            # 英文元思考句式（IGNORECASE，且限于09-09实测的思维链动词，避免误伤正文）
+            en_pats = [
+                r"^\s*let\s+me\s+(?:analyze|check|formulate|reconsider|calculate|finalize|go\s+through|also\s+consider|re[_-]?read|also\s+check|be\s+careful|work\s+with|also\s+look|look\s+at|determine|plan|review|score)",
+                r"^\s*i\s+(?:will|should|need\s+to|am\s+gonna|i\s+(?:realize|decide|plan|think|believe))",
+                r"^\s*(?:wait|actually|so)[,\.]?\s+(?:i\s+|we\s+|let\s)",
+                r"^\s*(?:ok|okay)[,\.]?\s+(?:i\s+|let\s+me|so)",
+                r"^\s*(?:now|next|then)\s+let\s+me\b",
+                r"^\s*i'\s?ll\s+",
+                r"^\s*let's\b",
+            ]
+            if any(_re.match(p, stripped, _re.IGNORECASE) for p in en_pats):
+                if len(stripped) <= 120:
                     continue
+            # 中文元思考：维持原模式 + 60字符保守守卫
+            if any(_re.match(p, stripped) for p in meta_line_patterns) and len(stripped) <= 60:
+                continue
             lines.append(line)
         text = "\n".join(lines)
 
