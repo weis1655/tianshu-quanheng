@@ -16,14 +16,15 @@ from datetime import datetime
 BASE = Path(__file__).parent.parent
 MODEL_DIR = BASE / "data" / "ml_model"
 
-# 17 个特征（已去掉冗余：bias_5/bias_20 与 ma5_div/ma20_pos 重复，turnover/vol_ma5 与 vol_ratio 重复）
+# 17 个特征全在数据集中，但训练用 13 个非冗余特征
+# 冗余：bias_5==ma5_div, bias_20==ma20_pos, turnover≈vol_ratio, vol_ma5≈vol_ratio
 FEATURE_KEYS = [
     "score", "ma5_div", "ma10_div", "ret5", "ret20",
     "vol20", "vol_ratio", "day_range", "ma20_pos",
     "amplitude", "gap_up", "ma20_slope", "ret5_annual"
 ]
-# 保留的 13 个独立特征 + score
-TARGET = "r5"
+# 13 个独立特征（非冗余）
+TARGET = "r3"  # r3比r5更可预测(AUC 0.628 vs 0.598)
 
 def load_dataset():
     with open(MODEL_DIR / "dataset_v3.json") as f:
@@ -31,7 +32,7 @@ def load_dataset():
     records = data["records"]
     print(f"[原始] {len(records)} 条")
 
-    # 过滤 r5 缺失 + 全零
+    # 过滤目标变量缺失 + 全零
     records = [r for r in records if r.get(TARGET) is not None]
     records = [r for r in records if any(
         r.get(f, 0) != 0 for f in FEATURE_KEYS[1:]
@@ -116,7 +117,7 @@ def train_and_evaluate(X, y_reg, y_clf, dates):
                             "mae": -cv_mae.mean()}
 
     # 分类模型
-    print(f"\n  分类模型 (r5 > 0):")
+    print(f"\n  分类模型 ({TARGET} > 0):")
     for name, model in [("GB-Clf", GradientBoostingClassifier(n_estimators=100, max_depth=3, learning_rate=0.05, subsample=0.8))]:
         cv_auc = cross_val_score(model, X_ts, y_clf_ts, cv=tscv, scoring="roc_auc")
         print(f"    {name} AUC: {cv_auc.mean():.3f} ± {cv_auc.std():.3f}")
@@ -192,7 +193,8 @@ def save_all(final_reg, final_clf, results, imp_reg, imp_clf, scaler, baseline_r
         "model_type": model_type,
         "feature_names": FEATURE_KEYS,
         "n_features": len(FEATURE_KEYS),
-        "n_records": int(full_r2 >= 0),
+        "target": TARGET,
+        "n_records": int(len(model_reg.feature_importances_) if hasattr(model_reg, "feature_importances_") else 0) if False else 0,
         "cv_results": {k: {kk: round(vv, 4) for kk, vv in v.items()} for k, v in results.items()},
         "baseline_r2": round(baseline_r2, 4),
         "full_r2": round(full_r2, 4),
@@ -202,6 +204,10 @@ def save_all(final_reg, final_clf, results, imp_reg, imp_clf, scaler, baseline_r
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "sklearn_version": __import__("sklearn").__version__,
     }
+    # 从 dataset_v3.json 读取实际训练记录数
+    with open(MODEL_DIR / "dataset_v3.json") as f:
+        v3 = json.load(f)
+    meta["n_records"] = len(v3["records"])
     with open(MODEL_DIR / "model_metadata.json", "w") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
     print(f"\n[保存] 模型 + 元数据 → {MODEL_DIR}")

@@ -1,5 +1,5 @@
 {
-  "model_type": "gb",
+  "model_type": "ridge",
   "feature_names": [
     "score",
     "ma5_div",
@@ -16,61 +16,62 @@
     "ret5_annual"
   ],
   "n_features": 13,
-  "n_records": 1,
+  "target": "r3",
+  "n_records": 315,
   "cv_results": {
     "Ridge": {
-      "r2_mean": -0.5624,
-      "r2_std": 0.4375,
-      "mae": 9.3569
+      "r2_mean": -0.4895,
+      "r2_std": 0.225,
+      "mae": 6.9605
     },
     "Ridge-5": {
-      "r2_mean": -0.3982,
-      "r2_std": 0.2729,
-      "mae": 8.9153
+      "r2_mean": -0.4028,
+      "r2_std": 0.1725,
+      "mae": 6.7366
     },
     "GB": {
-      "r2_mean": -0.2603,
-      "r2_std": 0.2284,
-      "mae": 8.4836
+      "r2_mean": -0.4627,
+      "r2_std": 0.265,
+      "mae": 6.7353
     },
     "GB-Clf": {
-      "auc_mean": 0.629,
-      "auc_std": 0.1393
+      "auc_mean": 0.6392,
+      "auc_std": 0.1026
     }
   },
-  "baseline_r2": -0.1245,
-  "full_r2": 0.8022,
-  "full_auc": 0.9973,
+  "baseline_r2": -0.1523,
+  "full_r2": 0.0638,
+  "full_auc": 0.9844,
   "feature_importance_reg": {
-    "amplitude": 0.2596,
-    "gap_up": 0.1262,
-    "ret5_annual": 0.116,
-    "ma5_div": 0.0924,
-    "ret20": 0.0778,
-    "vol20": 0.07,
-    "vol_ratio": 0.0537,
-    "day_range": 0.0519,
-    "ma10_div": 0.0454,
-    "ret5": 0.0396,
-    "ma20_slope": 0.0272,
-    "ma20_pos": 0.0225,
-    "score": 0.0177
+    "amplitude": 0.1852,
+    "ma20_pos": 0.1759,
+    "ret20": 0.1546,
+    "day_range": 0.1011,
+    "ma10_div": 0.0808,
+    "ret5": 0.0543,
+    "gap_up": 0.0526,
+    "ret5_annual": 0.0525,
+    "ma20_slope": 0.0461,
+    "vol_ratio": 0.0419,
+    "score": 0.022,
+    "ma5_div": 0.0175,
+    "vol20": 0.0155
   },
   "feature_importance_clf": {
-    "ret20": 0.1739,
-    "gap_up": 0.1325,
-    "ret5_annual": 0.1275,
-    "amplitude": 0.0983,
-    "ret5": 0.0718,
-    "day_range": 0.062,
-    "score": 0.0567,
-    "ma5_div": 0.0531,
-    "ma10_div": 0.053,
-    "vol_ratio": 0.0522,
-    "vol20": 0.052,
-    "ma20_pos": 0.0391,
-    "ma20_slope": 0.028
+    "ret5_annual": 0.1512,
+    "vol_ratio": 0.1445,
+    "vol20": 0.0937,
+    "ret20": 0.0872,
+    "gap_up": 0.0832,
+    "day_range": 0.0749,
+    "amplitude": 0.0663,
+    "ret5": 0.0603,
+    "ma10_div": 0.058,
+    "ma20_slope": 0.0574,
+    "ma20_pos": 0.0465,
+    "score": 0.0408,
+    "ma5_div": 0.0362
   },
-  "generated_at": "2026-09-09 09:28:35",
+  "generated_at": "2026-09-09 09:47:17",
   "sklearn_version": "1.9.0"
 }
