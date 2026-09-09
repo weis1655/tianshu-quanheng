@@ -37,14 +37,30 @@ class PoolUpdater:
         plog("INFO", f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
         if not matches:
             plog("INFO", f"[PoolUpdater] 📄 报告末尾300字符: ...{decision_result[-300:]}")
-            # 检查是否包含"主推"字样但不匹配格式
+            # 任务①: 07-21原则「有可执行交易信息即有效」的落地。
+            # LLM若未按【主推】格式输出，不再整批丢弃，而是从「有可执行交易信息」的
+            # 标的中宽松提取（需带6位代码 + 仓位/止损/止盈/买入/目标价等行动字段），
+            # 避免因格式漂移导致有效决策整批丢失S池记录。
+            broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
             if "主推" in decision_result:
                 plog("INFO", f"[PoolUpdater] ⚠️ 发现「主推」字样但正则未匹配，可能是格式异常")
-                # 宽松匹配：找StockName(Code)格式
-                broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
-                if broad:
-                    plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但缺乏【主推】标记")
-            return
+            if broad:
+                # 仅保留「确有可执行交易信息」的标的：检查其标题行附近是否含行动字段
+                action_kw = ("仓位", "止损", "止盈", "买入", "买入价", "目标价", "操作", "方案")
+                text = decision_result
+                kept = []
+                for name, code in broad:
+                    idx = text.find(f"{name}")
+                    window = text[idx:idx+400] if idx >= 0 else text[-400:]
+                    if any(k in window for k in action_kw):
+                        kept.append((name, code))
+                if kept:
+                    plog("INFO", f"[PoolUpdater] 🔁 宽松兜底：从可执行交易信息中提取{kept}")
+                    matches = kept  # 沿用后续严格流程（写入S池）
+                else:
+                    plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但缺乏可执行交易信息，不写入S池")
+            if not matches:
+                return
         elif len(matches) > 0:
             plog("INFO", f"[PoolUpdater] ✅ 成功匹配: {[(n,c) for n,c in matches]}")
 

@@ -201,6 +201,8 @@ class SkepticAgent(BaseAgent):
             temperature=0.3,
             response_format={"type": "json_object"}
         )
+        # 任务②: 抑制思维链外露——剥离元思考残留（JSON结构化输出不受影响）
+        result = self.strip_chain_of_thought(result)
 
         # 截断检测：LLM输出可能被截断导致JSON不完整
         def _is_truncated(text: str) -> bool:

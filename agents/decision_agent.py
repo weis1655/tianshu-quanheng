@@ -722,6 +722,33 @@ class DecisionAgent(BaseAgent):
         _strip_marker = "## 📋 重点观察池最新评估"
         if _strip_marker in _clean_report:
             _clean_report = _clean_report[:_clean_report.index(_strip_marker)].rstrip()
+        # ═══ 任务④：从LLM可见的审查报告中剔除被SkepticGate阻塞的标的 ═══
+        # 防御性兜底：filter_scored_stocks 已过滤 scored_stocks，但 review_report
+        # 是LLM主输入文本，若其中仍含被veto标的段落，LLM可能照其为被拦截标的写方案。
+        # 此处按代码切除每个被阻塞标的的段落（以"## 代码"开头的连续块）。
+        if blocked_codes:
+            import re as _re_gate
+            _blocked = {str(c) for c in blocked_codes if c}
+            def _drop_blocked_block(text):
+                if not _blocked:
+                    return text
+                lines = text.split("\n")
+                out = []
+                skip_until_next = False
+                for ln in lines:
+                    m = _re_gate.match(r"^#{1,3}\s*\[?(\d{6})\]?", ln)
+                    if m:
+                        if m.group(1) in _blocked:
+                            skip_until_next = True
+                            continue
+                        else:
+                            skip_until_next = False
+                    if skip_until_next:
+                        continue
+                    out.append(ln)
+                return "\n".join(out)
+            _clean_report = _drop_blocked_block(_clean_report)
+        # ═══ 任务④：剔除blocked标的结束 ═══
         header_parts.append(USER_PROMPT_TEMPLATE.format(
             review_report=_clean_report,
             market_env=market_env,
@@ -737,6 +764,8 @@ class DecisionAgent(BaseAgent):
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
             max_tokens=3000
         )
+        # 任务②: 抑制思维链外露——剥离LLM输出中的元思考/自我对话残留
+        result = self.strip_chain_of_thought(result)
 
         # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
         if scored_stocks and any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作"]):
@@ -847,6 +876,8 @@ class DecisionAgent(BaseAgent):
                 system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
                 max_tokens=1500
             )
+                    # 任务②: 抑制思维链外露
+                    result = self.strip_chain_of_thought(result)
                     self.logger.info("score_override", stock=best["code"], score=best["score"])
                     # P0-2修复：如果二次LLM仍然拒绝，用模板化方案兜底
                     if any(k in result for k in ["暂无", "空仓", "等待", "观望", "不操作"]):

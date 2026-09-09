@@ -250,6 +250,8 @@ class ReviewAgent(BaseAgent):
             system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx),
             max_tokens=6000
         )
+        # 任务②: 抑制思维链外露——剥离无意的元思考残留（保留结构化输出与"深度思考"设计章节）
+        result = self.strip_chain_of_thought(result)
 
         # 格式化报告
         report = f"""# 【审查报告】{today}

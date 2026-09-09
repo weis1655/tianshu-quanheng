@@ -145,6 +145,49 @@ class BaseAgent(ABC):
         else:
             return self._call_llm_opencode(prompt, system, max_tokens, temperature, max_retries, response_format)
 
+    @staticmethod
+    def strip_chain_of_thought(text: str) -> str:
+        """剥离LLM输出中的思维链/元思考残留，抑制推理过程外露。
+
+        仅做正则清洗，不破坏结构化输出（JSON/Markdown表格/【主推】块）：
+        1. 删除 <thinking>...</thinking> / </think> 等思考标签包裹的内容
+        2. 删除明显的自我对话式元思考行（让我考虑/重新审视/现在开始输出等）
+        3. 合并多余空行
+        """
+        if not text:
+            return text
+        import re as _re
+
+        # 1. 思考标签整块删除（跨行）
+        text = _re.sub(r"<thinking>[\s\S]*?</thinking>", "", text)
+        text = _re.sub(r"</think>", "", text)
+
+        # 2. 自我对话式元思考：仅删除"整行"是元思考的（避免误删正文）
+        meta_line_patterns = [
+            r"^\s*(?:那么|现在)?[，,]?\s*让我(?:来)?(?:思考|考虑|分析|重新审视|检查一下|输出|继续|开始|先)",
+            r"^\s*但是[，,]\s*我还需要",
+            r"^\s*首先[，,]\s*我(?:需要|要|来)?",
+            r"^\s*好的[，,]?\s*我(?:将|会|来|先|需要)",
+            r"^\s*用户要求我",
+            r"^\s*我需要(?:先|基于|理解)",
+            r"^\s*让我基于",
+            r"^\s*接下来[，,]?\s*我(?:将|会|来)",
+        ]
+        lines = []
+        for line in text.split("\n"):
+            stripped = line.strip()
+            if stripped and any(_re.match(p, stripped) for p in meta_line_patterns):
+                # 只丢弃短元思考行（长行可能是正文，保守保留）
+                if len(stripped) <= 60:
+                    continue
+            lines.append(line)
+        text = "\n".join(lines)
+
+        # 3. 合并 3+ 连续空行为单个空行
+        text = _re.sub(r"\n{3,}", "\n\n", text)
+        return text
+
+
     def _log_prompt(self, agent_name: str, prompt_type: str, system: str, user: str, response: str = ""):
         """记录 LLM 提示词到文件，便于盟主排查。"""
         try:
