@@ -1,7 +1,7 @@
 {
-  "version": "v5",
+  "version": "v6",
   "trained_at": "2026-09-09T10:00:00",
-  "model_type": "LightGBM",
+  "model_type": "GradientBoosting",
   "features": [
     "ma5_div",
     "ma10_div",
@@ -21,33 +21,27 @@
     "pb",
     "score",
     "is_cand",
-    "has_dragon_tiger",
-    "dt_net_inflow"
+    "has_dragon_tiger"
   ],
-  "feature_count": 20,
-  "target": "r3",
-  "n_records": 8228,
-  "n_candidates": 236,
-  "cv_auc": 0.5843,
-  "full_r2": 0.2615,
-  "full_auc": 0.7128,
-  "cls_cv_auc": 0.5801,
+  "feature_count": 19,
+  "target": "r10",
+  "n_records": 6955,
+  "n_candidates": 225,
+  "cv_auc": 0.6343,
+  "full_r2": 0.3822,
+  "full_auc": 0.7284,
+  "cls_cv_auc": 0.6355,
   "cls_model": "GradientBoosting",
   "auto_degrade": false,
   "sample_weight": 5.0,
-  "new_features": [
-    "has_dragon_tiger",
-    "dt_net_inflow",
-    "is_cand"
-  ],
-  "removed_features": [
-    "vol_ma5",
-    "turnover"
-  ],
-  "fixes": [
-    "PE clip [1,200]",
-    "dataset_v3 dict structure handled",
-    "is_main + score>50 candidate marking",
-    "Dragon tiger data from RPT_DAILYBILLBOARD_DETAILSNEW"
+  "model_params": {
+    "n_estimators": 100,
+    "max_depth": 3,
+    "learning_rate": 0.05
+  },
+  "changes_from_v5": [
+    "Target r3→r10 (中长期更可预测)",
+    "GB n=100 d=3 (最佳CV AUC=0.6364)",
+    "去掉dt_net_inflow (高噪音)"
   ]
 }

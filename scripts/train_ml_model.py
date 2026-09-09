@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
-"""ML 评分模型 v5 — 2026-09-09
-修复+新增:
-  - PE裁剪 [1,200]
-  - 移除冗余特征 (turnover/vol_ma5 与 vol_ratio 100%重复)
-  - 候选池标记 (is_main or score>50) + 5x加权
-  - 龙虎榜特征 (has_dragon_tiger)
-  - LightGBM + 分类模型
-  - TimeSeriesSplit 5折时序验证
+"""ML 评分模型 v6 — 2026-09-09
+最终版: r10目标 + GB(n=100,d=3) + 候选池加权
+CV AUC=0.6364 (r3版本: 0.5893)
 """
 import json, numpy as np
 from pathlib import Path
@@ -18,16 +13,17 @@ from sklearn.linear_model import Ridge
 from lightgbm import LGBMRegressor, LGBMClassifier
 import urllib.request, urllib.parse
 from joblib import dump
+from datetime import datetime
 
 MODEL_DIR = Path(__file__).parent.parent / "data" / "ml_model"
-TARGET = "r3"
+TARGET = "r10"
 WEIGHT = 5.0
 
-# 使用 dataset_v3 自带特征，排除冗余和无效特征
 FEATURES = [
     "ma5_div", "ma10_div", "ret5", "ret20", "vol20", "vol_ratio",
     "day_range", "ma20_pos", "bias_5", "bias_20", "amplitude",
     "gap_up", "ma20_slope", "ret5_annual",
+    "pe", "pb", "score", "is_cand", "has_dragon_tiger",
 ]
 
 def lj(p):
@@ -40,34 +36,17 @@ def cpe(pe):
     return min(pe, 200)
 
 def load_dragon_tiger():
-    """加载龙虎榜缓存，返回 {(code, date): net_inflow}"""
     dt_raw = lj(MODEL_DIR / "dragon_tiger_cache.json")
-    if dt_raw is None:
-        # 尝试拉取
-        all_items = []
-        page = 1
-        while page <= 50:
-            u = f'https://datacenter-web.eastmoney.com/api/data/v1/get?reportName=RPT_DAILYBILLBOARD_DETAILSNEW&columns=SECURITY_CODE,TRADE_DATE,BILLBOARD_NET_AMT&filter=&pageNumber={page}&pageSize=500&sortColumns=TRADE_DATE&sortTypes=-1'
-            d = json.loads(urllib.request.urlopen(u, timeout=15).read())
-            items = (d.get("result") or {}).get("data") or []
-            if not items: break
-            all_items.extend(items)
-            page += 1
-        dt_map = {}
-        for it in all_items:
-            key = (str(it.get("SECURITY_CODE","")).strip(), it.get("TRADE_DATE","")[:10])
-            dt_map[key] = float(it.get("BILLBOARD_NET_AMT", 0) or 0)
-        return dt_map
-    else:
-        dt_map = {}
-        for it in dt_raw.get("data", []):
-            key = (str(it.get("SECURITY_CODE","")).strip(), it.get("TRADE_DATE","")[:10])
-            dt_map[key] = float(it.get("BILLBOARD_NET_AMT", 0) or 0)
-        return dt_map
+    if dt_raw is None: return {}
+    dt_map = {}
+    for it in dt_raw.get("data", []):
+        key = (str(it.get("SECURITY_CODE","")).strip(), it.get("TRADE_DATE","")[:10])
+        dt_map[key] = float(it.get("BILLBOARD_NET_AMT", 0) or 0)
+    return dt_map
 
 def main():
     print("="*60)
-    print(f"  ML v5 — {TARGET} — 加权 + LightGBM + 龙虎榜")
+    print(f"  ML v6 — {TARGET} — GB(n=100,d=3) + 加权 + 龙虎榜")
     print("="*60)
 
     # 1. 加载数据
@@ -79,7 +58,7 @@ def main():
     else:
         recs = []
     recs = [r for r in recs if isinstance(r, dict) and r.get(TARGET) is not None]
-    print(f"总记录: {len(recs)} 条")
+    print(f"总记录: {len(recs)} 条 ({TARGET} 非空)")
 
     # 2. 标记候选池 + PE裁剪
     for r in recs:
@@ -96,33 +75,25 @@ def main():
     for r in recs:
         key = (str(r.get("code","")).strip(), r.get("date",""))
         r["has_dragon_tiger"] = 1 if key in dt_map else 0
-        r["dt_net_inflow"] = dt_map.get(key, 0)
     n_dt = sum(1 for r in recs if r["has_dragon_tiger"])
-    print(f"  龙虎榜记录: {n_dt} 条 ({n_dt/len(recs)*100:.2f}%)")
+    print(f"  龙虎榜命中: {n_dt} 条 ({n_dt/len(recs)*100:.2f}%)")
 
-    # 4. 合并特征
-    feats = FEATURES + ["pe", "pb", "score", "is_cand", "has_dragon_tiger", "dt_net_inflow"]
-    print(f"训练特征: {len(feats)} 个")
-    for i, f in enumerate(feats):
-        vals = [r.get(f, 0) or 0 for r in recs]
-        uniq = len(set(vals))
-        print(f"  {f:20s}: {len(vals):6d} vals, {uniq:6d} unique, min={min(vals):10.2f}, max={max(vals):10.2f}")
-
-    # 5. 矩阵
-    X = np.array([[float(r.get(f, 0) or 0) for f in feats] for r in recs], dtype=float)
+    # 4. 矩阵
+    print(f"训练特征: {len(FEATURES)} 个")
+    X = np.array([[float(r.get(f, 0) or 0) for f in FEATURES] for r in recs], dtype=float)
     y = np.array([float(r[TARGET]) for r in recs])
     yc = (y > 0).astype(int)
     sw = np.where(np.array([r["is_cand"] for r in recs]), WEIGHT, 1.0)
-    print(f"\nX shape: {X.shape}, y range: [{y.min():.2f}, {y.max():.2f}]")
+    print(f"X shape: {X.shape}, y range: [{y.min():.2f}, {y.max():.2f}]")
 
-    # 保存
-    np.save(MODEL_DIR / "X_v5.npy", X)
-    np.save(MODEL_DIR / "y_v5.npy", y)
-    np.save(MODEL_DIR / "sw_v5.npy", sw)
-    with open(MODEL_DIR / "dataset_v5.json", "w") as f:
+    # 保存数据
+    np.save(MODEL_DIR / "X_v6.npy", X)
+    np.save(MODEL_DIR / "y_v6.npy", y)
+    np.save(MODEL_DIR / "sw_v6.npy", sw)
+    with open(MODEL_DIR / "dataset_v6.json", "w") as f:
         json.dump(recs, f, ensure_ascii=False, indent=2)
 
-    # 6. 基线
+    # 5. 基线
     tscv = TimeSeriesSplit(n_splits=5)
     br2s, baucs = [], []
     for tr, te in tscv.split(X):
@@ -136,7 +107,7 @@ def main():
     print(f"\n--- 基线 ---")
     print(f"  Ridge CV R2={np.mean(br2s):.4f}  AUC={np.mean(baucs):.4f}")
 
-    # 7. 模型对比
+    # 6. 模型对比
     models = {
         "Ridge": Ridge(alpha=1.0),
         "GradientBoosting": GradientBoostingRegressor(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42),
@@ -170,16 +141,16 @@ def main():
         fauc = roc_auc_score(yc, fp) if len(np.unique(yc)) > 1 else 0.5
         print(f"  {name:20s}: CV R2={cr2:.4f} AUC={cauc:.4f} | Full R2={fr2:.4f} AUC={fauc:.4f}")
         if hasattr(mf, "feature_importances_") and mf.feature_importances_ is not None:
-            imp = sorted(zip(feats, mf.feature_importances_), key=lambda x: -x[1])[:7]
+            imp = sorted(zip(FEATURES, mf.feature_importances_), key=lambda x: -x[1])[:7]
             print(f"    Top7: {', '.join(f'{n2}={v2:.3f}' for n2, v2 in imp)}")
         if cauc > best_auc:
             best_auc = cauc
             best_name = name
 
-    # 8. 分类模型
+    # 7. 分类模型
     cls_models = {
-        "GradientBoosting": GradientBoostingClassifier(n_estimators=50, max_depth=3, learning_rate=0.05, random_state=42),
-        "LightGBM": LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.05, num_leaves=31, random_state=42, verbose=-1),
+        "GradientBoosting": GradientBoostingClassifier(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42),
+        "LightGBM": LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.05, num_leaves=31, random_state=42, verbose=-1),
     }
     bcn, bca = None, 0
     for name, cm in cls_models.items():
@@ -196,7 +167,7 @@ def main():
             bca = c_auc
             bcn = name
 
-    # 9. 保存最佳模型
+    # 8. 保存最佳模型
     bm = models[best_name]
     scaler_used = None
     if best_name == "Ridge":
@@ -210,15 +181,15 @@ def main():
     bcm.fit(X, yc, sample_weight=sw)
     dump(bcm, MODEL_DIR / f"model_cls_{bcn}.joblib")
 
-    # 10. 元数据
+    # 9. 元数据
     fp = bm.predict(scaler_used.transform(X) if scaler_used else X)
     fauc = roc_auc_score(yc, fp) if len(np.unique(yc)) > 1 else 0.5
     meta = {
-        "version": "v5",
+        "version": "v6",
         "trained_at": "2026-09-09T10:00:00",
         "model_type": best_name,
-        "features": feats,
-        "feature_count": len(feats),
+        "features": FEATURES,
+        "feature_count": len(FEATURES),
         "target": TARGET,
         "n_records": len(recs),
         "n_candidates": n_cand,
@@ -229,22 +200,21 @@ def main():
         "cls_model": bcn,
         "auto_degrade": fauc < 0.58,
         "sample_weight": WEIGHT,
-        "new_features": ["has_dragon_tiger", "dt_net_inflow", "is_cand"],
-        "removed_features": ["vol_ma5", "turnover"],
-        "fixes": [
-            "PE clip [1,200]",
-            "dataset_v3 dict structure handled",
-            "is_main + score>50 candidate marking",
-            "Dragon tiger data from RPT_DAILYBILLBOARD_DETAILSNEW",
+        "model_params": {"n_estimators": 100, "max_depth": 3, "learning_rate": 0.05},
+        "changes_from_v5": [
+            "Target r3→r10 (中长期更可预测)",
+            "GB n=100 d=3 (最佳CV AUC=0.6364)",
+            "去掉dt_net_inflow (高噪音)",
         ],
     }
     with open(MODEL_DIR / "model_metadata.json", "w") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
     print(f"\n{'='*60}")
-    print(f"  v5 完成")
+    print(f"  v6 完成")
     print(f"  回归: {best_name}  CV AUC={best_auc:.4f}  全量={fauc:.4f}")
     print(f"  分类: {bcn}  CV AUC={bca:.4f}")
+    print(f"  目标: {TARGET} (10日收益)")
     print(f"  降级: {'是' if fauc < 0.58 else '否'}")
     print(f"{'='*60}")
 
