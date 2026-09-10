@@ -32,6 +32,29 @@ class PoolUpdater:
         pool_file = self.root / "五池管理" / "S级操作池.json"
         pool_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # ── 09-10止血①: Skeptic裁决硬前置 ──
+        # S池准入须消费结构化裁决，与 decision_agent L558 Gate 对齐。此前Gate只拦
+        # pools/scored_stocks，S池写入通道对 blocked_codes 零可见性，导致被Skeptic
+        # 标记 high 风险的标的经宽松兜底绕进S池（流程脱节根因）。
+        try:
+            from agents.gate_controller import GateController
+            verdict_file = self.root / "data" / "历史记录" / f"{datetime.now().strftime('%Y-%m-%d')}_质疑审查裁决.json"
+            blocked_codes, gate_passed = GateController.read_verdict(verdict_file)
+        except Exception as e:
+            # 安全降级：裁决读取失败不阻断池更新（Skeptic未运行时不误杀）
+            plog("INFO", f"[PoolUpdater] ⚠️ 裁决读取失败，跳过Gate前置校验: {e}")
+            blocked_codes, gate_passed = set(), True
+        if blocked_codes:
+            plog("INFO", f"[PoolUpdater] 🔴 Skeptic裁决阻塞: {sorted(blocked_codes)}")
+
+        # ── 09-10止血③: LLM自洽交叉校验 ──
+        # 决策报告尾部由LLM声明当日主推数量。声明0只时S池写入应为0，
+        # 硬拦截"报告说0只、池里写3只"的自相矛盾。
+        cap_m = re.search(r"S级操作池\*{0,2}\s*[：:]\s*(\d+)\s*只", decision_result)
+        if cap_m and int(cap_m.group(1)) == 0:
+            plog("INFO", "[PoolUpdater] 🛑 LLM声明S级操作池0只主推，S池写入交叉校验不通过，跳过")
+            return
+
         matches = re.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
         # ── P0: debug日志——验证【主推】正则匹配 ──
         plog("INFO", f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
@@ -41,24 +64,47 @@ class PoolUpdater:
             # LLM若未按【主推】格式输出，不再整批丢弃，而是从「有可执行交易信息」的
             # 标的中宽松提取（需带6位代码 + 仓位/止损/止盈/买入/目标价等行动字段），
             # 避免因格式漂移导致有效决策整批丢失S池记录。
+            # 09-10止血: 兜底须防两类误判——①"操作"是"不操作"的子串、"买入"是
+            # "买入逻辑矛盾"的子串（action_kw 收窄为带数值的行动字段）；②重点观察池
+            # 状态表里的否决标的（不操作/高风险）被误判为决策主推（否定语境守卫）。
             broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
             if "主推" in decision_result:
                 plog("INFO", f"[PoolUpdater] ⚠️ 发现「主推」字样但正则未匹配，可能是格式异常")
             if broad:
-                # 仅保留「确有可执行交易信息」的标的：检查其标题行附近是否含行动字段
-                action_kw = ("仓位", "止损", "止盈", "买入", "买入价", "目标价", "操作", "方案")
+                # 仅保留「确有可执行交易信息」的标的：窗口内须出现带数值的行动字段
+                action_pats = (
+                    r"止损[价]?[:：]\s*\d",
+                    r"止盈[价]?[:：]\s*\d",
+                    r"买入价[:：]\s*\d",
+                    r"目标价[:：]\s*\d",
+                    r"仓位[:：]?\s*\d+\s*%",
+                    r"买入[区价]?\s*\d+(\.\d+)?\s*[-~]\s*\d+(\.\d+)?",
+                )
+                neg_pats = (
+                    "不操作", "观望", "淘汰", "高风险", "未审查", "空仓",
+                    "不满足", "短线无价值", "无法确认", "缺乏", "矛盾",
+                    "拒绝", "不满足执行", "全部淘汰", "低于60",
+                )
                 text = decision_result
                 kept = []
+                rejected = []
                 for name, code in broad:
                     idx = text.find(f"{name}")
                     window = text[idx:idx+400] if idx >= 0 else text[-400:]
-                    if any(k in window for k in action_kw):
-                        kept.append((name, code))
+                    if any(re.search(p, window) for p in action_pats):
+                        neg_hit = [k for k in neg_pats if k in window]
+                        if neg_hit:
+                            # 否决语境优先：Skeptic/决策层已明确否决，禁止兜底晋级
+                            rejected.append((name, code, neg_hit))
+                        else:
+                            kept.append((name, code))
+                for name, code, neg_hit in rejected:
+                    plog("INFO", f"[PoolUpdater] 🚫 宽松兜底否决语境拦截: {name}({code}) 命中{neg_hit}")
                 if kept:
                     plog("INFO", f"[PoolUpdater] 🔁 宽松兜底：从可执行交易信息中提取{kept}")
-                    matches = kept  # 沿用后续严格流程（写入S池）
+                    matches = kept
                 else:
-                    plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但缺乏可执行交易信息，不写入S池")
+                    plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但无可执行交易信息或处否决语境，不写入S池")
             if not matches:
                 return
         elif len(matches) > 0:
@@ -79,6 +125,12 @@ class PoolUpdater:
 
         new_stocks = []
         for name, code in matches[:3]:
+            # 09-10止血①: 逐标的Gate拦截。严格【主推】路径也要消费Skeptic裁决，
+            # 否则Skeptic标记high风险的标的被LLM误推时仍会晋级S池。
+            if str(code) in blocked_codes:
+                plog("INFO", f"[PoolUpdater] 🚫 {name}({code}) 被Skeptic裁决阻塞，拒绝入S级操作池")
+                continue
+
             # 记事本模式：决策agent已跑完全流程审查，S池只做记录+价格检查
             # 不再二次审查已通过的标的（防线一+质检门已下沉到决策agent+SkepticGate）
 
