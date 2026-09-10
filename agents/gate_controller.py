@@ -32,6 +32,24 @@ class GateController:
     """Gate controller - 纯函数，无副作用（写盘由调用方执行）"""
 
     @staticmethod
+    def score_of(stock: Any, default: int = 0) -> int:
+        """安全读取标的评价分：容忍 None/缺失/非数字 → default。
+
+        09-10修复: S池综合评分引入 None 语义（区分"无评分"与"真0分"），
+        此处是所有准入 lambda 的统一读分入口，避免 int(None) 崩溃。
+        """
+        if isinstance(stock, dict):
+            v = stock.get("score", stock.get("综合分", stock.get("综合评分")))
+        else:
+            v = None
+        if isinstance(v, bool) or v is None:
+            return default
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
     def read_verdict(verdict_file: Path) -> Tuple[Set[str], bool]:
         """读取裁决JSON，返回 (blocked_codes, gate_passed)"""
         if not verdict_file.exists():
@@ -238,10 +256,10 @@ class GateController:
             stocks = pool_data.get("stocks", []) if isinstance(pool_data, dict) else []
             if len(stocks) >= max_cap:
                 return {'allowed': False, 'reason': f'{target_pool}已达容量上限{max_cap}只'}
-        # 2. 规则检查
+        # 2. 规则检查（统一走 score_of，容忍综合评分=None 的"无评分"语义）
         rules = {
-            'S级操作池': lambda s: int(s.get('score', s.get('综合评分', 0))) >= S_POOL_MIN_SCORE,
-            '重点观察池': lambda s: int(s.get('score', s.get('综合评分', 0))) >= 50,
+            'S级操作池': lambda s: GateController.score_of(s) >= S_POOL_MIN_SCORE,
+            '重点观察池': lambda s: GateController.score_of(s) >= 50,
             '持仓池': lambda s: True,
         }
         rule_fn = rules.get(target_pool, lambda s: True)

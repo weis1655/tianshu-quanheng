@@ -247,22 +247,30 @@ class DecisionAgent(BaseAgent):
                 elif pnl is not None and pnl < 0:
                     extra_penalty = 10
                     plog("INFO", f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
-            original_score = r.get("综合分", 80)
-            try:
-                decay_score = max(55, int(float(original_score) * 0.85) - extra_penalty) if original_score is not None else max(55, 70 - extra_penalty)
-            except (TypeError, ValueError):
+            # 09-10修复: S池存档字段为「综合评分」，原代码只读「综合分」→ 全部落到幻影默认80分，
+            # 导致无评分标的被当作80分衰减回流重点观察池（实际可能仅40余分）。
+            original_score = r.get("综合分", r.get("综合评分", None))
+            if original_score is None:
+                # 「无评分」语义：无真实评分时不虚构高分，走保守下限
                 decay_score = max(55, 70 - extra_penalty)
+                original_label = "?"
+            else:
+                try:
+                    decay_score = max(55, int(float(original_score) * 0.85) - extra_penalty)
+                except (TypeError, ValueError):
+                    decay_score = max(55, 70 - extra_penalty)
+                original_label = original_score
             if skip_refeed:
                 self.pool_manager.add_stock("边缘池", {
                     "代码": r.get("代码", ""), "名称": r.get("名称", ""),
                     "综合分": decay_score, "降级时间": datetime.now().strftime("%Y-%m-%d"),
-                    "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1f}%），原始评分{r.get('综合分', '?')}分",
+                    "降级原因": f"S级操作池T+1表现差回退（T+1{t1_pnl:+.1%}），原始评分{original_label}分",
                 })
                 continue
             key_stock = {"代码": r.get("代码", ""), "名称": r.get("名称", ""),
                          "综合分": decay_score, "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                          "驱动来源": r.get("driver_source", "S级过期降级"),
-                         "核心逻辑": f"源自S级操作池过期降级（原始{r.get('综合分', '?')}分→衰减{decay_score}分）"}
+                         "核心逻辑": f"源自S级操作池过期降级（原始{original_label}分→衰减{decay_score}分）"}
             r['allow_cross_pool'] = True
             rule = GateController.enforce_writing_rules(r, "重点观察池", pool_manager=self.pool_manager)
             if rule['allowed']:

@@ -352,40 +352,69 @@ class PoolUpdater:
                         plog("INFO", f"[PoolUpdater] ⚠️ {name}({code}) 同时存在于 {pool_name}（非活跃池，仅警告）")
 
     def _extract_logic_snippet(self, name: str, decision_result: str) -> str:
-        """提取该股票决策报告中的核心逻辑"""
-        pattern = rf"【主推】\s*{re.escape(name)}\s*[（(]\d{{6}}[）)].*?(?=\n### |\n---\n|$)"
+        """提取该股票决策报告中的核心逻辑
+
+        09-10修复: 原实现只匹配【主推】前缀段落，07-21 格式漂移后报告不再有
+        【主推】段落 → 核心逻辑全空。改为按"### 标名（code）"标题锚点定位标的段落，
+        兼容有/无【主推】前缀，并扩大驱动关键词。
+        """
+        # 标题锚点：支持 【主推】兴发集团（600141） 与 ### 兴发集团（600141）
+        pattern = rf"(?:^|\n)#+\s*(?:【主推】\s*)?{re.escape(name)}\s*[（(]\d{{6}}[）)].*?(?=\n#+\s|\n---\n|\Z)"
         m = re.search(pattern, decision_result, re.DOTALL)
         if not m:
             return ""
         paragraph = m.group(0)
+        # 驱动关键词按优先级：最具体的优先，避免泛化命中噪声行
+        keywords = ["核心驱动", "驱动级别", "逻辑支撑", "核心逻辑", "催化剂", "驱动", "逻辑"]
+        for kw in keywords:
+            for line in paragraph.split("\n"):
+                if kw in line:
+                    text = line.lstrip("#- •·").strip()
+                    text = text.split("：", 1)[-1].split("——")[0].strip()
+                    # 去掉行首编号/列表符
+                    text = re.sub(r"^[-*•·\d.\s]*", "", text).strip()
+                    if text:
+                        return text[:60]
+        # 兜底：取段落内第一条实质内容行
         for line in paragraph.split("\n"):
-            if any(k in line for k in ["核心驱动", "逻辑支撑", "驱动"]):
-                text = line.split("：", 1)[-1].split("——")[0].strip()
-                if text:
-                    return text[:60]
+            t = re.sub(r"^[-*•·\d.\s#]+", "", line).strip()
+            if len(t) > 6 and not re.match(r"^\|?\s*[-|：:]", t):
+                return t[:60]
         return ""
 
     # ── P0: 从决策报告提取评分 ──
     def _extract_score(self, name, code, decision_result):
-        """从决策报告中提取该股票的综合评分（0次LLM，纯正则）"""
-        import re
-        # 策略1：找该股票附近区域的"综合分N分"或"评分:N分"
-        pattern = rf"(?:{re.escape(name)}|{re.escape(code)})[\s\S]{{0,300}}(?:综合分|综合评分|评分)\s*(?:\*{{0,2}}\s*[：:\s]\s*\*{{0,2}}\s*|[\s：:]*)(\d+)"
-        m = re.search(pattern, decision_result)
-        if m and m.lastindex and m.group(m.lastindex):
-            try:
-                return min(100, max(0, int(m.group(m.lastindex))))
-            except (ValueError, TypeError):
-                pass
-        # 策略2：StockName(Code)附近找评分
-        pattern2 = rf"{re.escape(name)}\s*[（(]{re.escape(code)}[）)][\s\S]{{0,300}}(?:综合分|综合评分|评分)\s*[：:\s]*\*?\s*(\d+)"
-        m2 = re.search(pattern2, decision_result)
-        if m2 and m2.lastindex and m2.group(m2.lastindex):
-            try:
-                return min(100, max(0, int(m2.group(m2.lastindex))))
-            except (ValueError, TypeError):
-                pass
-        return 0
+        """从决策报告中提取该股票的综合评分（0次LLM，纯正则）
+
+        09-10修复:
+        ① 原正则不容忍"评分**仅**42分"这类虚词/markdown加粗 → 误判为0
+        ② 提取范围限定在「标名（代码）」锚定的标的段落内，避免跨标的污染
+           ——旧实现全局正则会把审查汇总表的他人评分误配给当前标的，
+           更严重的是会匹配到表格列名"综合评分"后抓到相邻行别的标的的价格
+           （如兴发集团的"综合评分"实际抓到川发龙蟒的39.45元）
+        ③ 全部失败时返回 None 而非 0，区分"无评分"与"真0分"的语义
+        """
+        # 评分标记后的分隔/加粗/虚词组合：
+        #   综合评分：82 / 综合评分 82 / **综合评分**仅42分 / 综合评分约78分 / 综合评分为76分
+        suffix = r"\*{0,2}(?:\s*[：:]\s*|\s*)\*{0,2}(?:仅|约|为|达|共|已)?\s*(\d{2,3})"
+        score_pat = re.compile(r"(?:综合评分|综合分|评分)" + suffix)
+
+        # 锚点：标名（代码）行。段落边界 = 下一个标名（代码）行 / 分隔线 / 文末
+        seg_pat = re.compile(
+            rf"(?:^|\n)(?:#+\s*)?(?:【主推】\s*)?{re.escape(name)}\s*[（(]{re.escape(code)}[）)]"
+            r"[\s\S]{0,300}?(?=\n(?:#+\s*)?(?:【主推】\s*)?[\u4e00-\u9fa5]{2,6}\s*[（(]\d{6}[）)]"
+            r"|\n---\n|\Z)"
+        )
+        m = seg_pat.search(decision_result)
+        if m:
+            s = score_pat.search(m.group(0))
+            if s:
+                return min(100, max(0, int(s.group(1))))
+            # 段内无评分：不回退全局搜索（会跨标的污染），直接判"无评分"
+            return None
+        # 无锚点：标的无独立段落（如仅在表格/列表中提及）。
+        # 不做全局回退——短窗口同样可能抓到相邻标的的评分或价格
+        return None
 
     def _fetch_current_prices(self) -> dict:
         """获取各池股票当前行情，返回 {代码: 现价} 字典"""
