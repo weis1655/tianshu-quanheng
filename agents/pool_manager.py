@@ -1106,7 +1106,9 @@ class PoolManager:
         to_demote = []
         remaining = []
         for s in stocks:
-            raw_score = s.get("综合分")
+            # 字段名双读兼容：S池写"综合评分"，重点池写"综合分"（同一标的在不同池字段名不同）
+            # 仅读"综合分"会把S池标的误判为0分→误降级（2026-09-10 事故根因）
+            raw_score = s.get("综合分", s.get("综合评分"))
             score = float(raw_score) if raw_score is not None else 0
             level = score_to_level(score)
 
@@ -1135,17 +1137,21 @@ class PoolManager:
 
         if to_demote:
             data["stocks"] = remaining
-            # 写入边缘池
+            # 写入边缘池：保留原对象全部字段（失效标记/核心逻辑/入场价等），仅追加降级信息
+            # 重建dict会丢弃失效标记等元数据（2026-09-10 3只失效标的被静默删除的根因）
             edge_pool = self.load_pool("边缘池")
             edge_stocks = edge_pool.get("stocks", [])
             for item in to_demote:
-                edge_stocks.append({
-                    "代码": item.get("代码", ""),
-                    "名称": item.get("名称", ""),
-                    "综合分": float(item.get("综合分", 0)) if isinstance(item.get("综合分"), (int, float)) else 0,
-                    "降级时间": datetime.now().strftime("%Y-%m-%d"),
-                    "降级原因": f"存量扫描：综合分{item.get('综合分','?')} < 65，自动降级"
-                })
+                demoted = dict(item)  # 浅拷贝，保留全部原始字段
+                # 统一综合分字段名（原对象可能是"综合评分"，边缘池统一用"综合分"）
+                if "综合评分" in demoted and "综合分" not in demoted:
+                    demoted["综合分"] = demoted["综合评分"]
+                demoted["降级时间"] = datetime.now().strftime("%Y-%m-%d")
+                demoted["降级原因"] = f"存量扫描：综合分{item.get('综合分', item.get('综合评分', '?'))} < 65，自动降级"
+                # 失效标记保留：被降级不代表失效证据丢失，后续复盘需要
+                if demoted.get("失效标记"):
+                    plog("INFO", f"  [PoolManager] 📌 保留失效标记：{demoted.get('名称','')}({demoted.get('代码','')}) → 边缘池")
+                edge_stocks.append(demoted)
             edge_pool["stocks"] = edge_stocks
             edge_pool["统计"]["累计进入"] = edge_pool.get("统计", {}).get("累计进入", 0) + len(to_demote)
             edge_pool["统计"]["持仓数"] = len(edge_stocks)

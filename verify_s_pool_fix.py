@@ -11,12 +11,24 @@ sys.path.insert(0, str(BASE / "agents"))
 from agents.pool_updater import PoolUpdater
 from agents.gate_controller import GateController
 
-# ── 隔离环境：临时 root + 拷贝裁决与池文件 ──
+# ── 隔离环境：临时 root + 自包含裁决与池文件 ──
 TMP = Path(tempfile.mkdtemp(prefix="s_pool_test_"))
 (TMP / "data/历史记录").mkdir(parents=True)
 (TMP / "五池管理").mkdir(parents=True)
-shutil.copy2(BASE / "data/历史记录/2026-09-10_质疑审查裁决.json", TMP / "data/历史记录/")
+
+# 自包含裁决文件：不依赖真实数据（14:30运行会覆盖真实裁决，导致测试失效）
+# read_verdict 用 s.get("code") 读 blocked，必须是 dict 列表不是字符串列表
+verdict = {
+    "generated_at": "2026-09-10 07:15:00",
+    "mode": "weak_market_simplified",
+    "gate_status": "blocked",
+    "blocked": [{"code": "600141"}, {"code": "002436"}],
+    "passed_codes": [],
+    "has_high_risk": True
+}
 shutil.copy2(BASE / "五池管理/S级操作池.json", TMP / "五池管理/")
+with open(TMP / "data/历史记录/2026-09-10_质疑审查裁决.json", "w", encoding="utf-8") as f:
+    json.dump(verdict, f, ensure_ascii=False, indent=2)
 
 bc, gp = GateController.read_verdict(TMP / "data/历史记录/2026-09-10_质疑审查裁决.json")
 print(f"[前置] 裁决读取: blocked={sorted(bc)}  gate_passed={gp}")
