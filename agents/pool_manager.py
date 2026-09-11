@@ -431,7 +431,7 @@ class PoolManager:
         stocks = pool.get("stocks", [])
         before = len(stocks)
         cutoff = (datetime.now() - timedelta(days=max_age_days)).strftime("%Y-%m-%d")
-        kept = [s for s in stocks if (s.get("入池日期") or "2000-01-01") >= cutoff]
+        kept = [s for s in stocks if (s.get("入池日期") or s.get("纳入日期") or "2000-01-01") >= cutoff]
         removed = before - len(kept)
         if removed > 0:
             pool["stocks"] = kept
