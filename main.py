@@ -965,7 +965,15 @@ def main():
         # ── 弱市极速模式（P2-1：非完全跳过，改为简化审查）──────────
         _ms = ReviewAgent()._get_market_state()
         ____today = datetime.now().strftime("%Y-%m-%d")
-        if _ms.get("state", "") in ("震荡偏弱", "偏空"):
+        # 2026-09-11 P0-修复(C)：候选池非空时强制走完整 Skeptic+Decision 链路，
+        # 不因弱市判定直接空仓（候选池有标的=市场有信号，值得完整决策）
+        pools = orch.get_pools()  # 刷新：review 可能已更新候选池
+        _screen_pool = pools.get("快筛候选池", [])
+        _force_full_decision = len(_screen_pool) > 0
+        _weak_state = _ms.get("state", "") in ("震荡偏弱", "偏空")
+        if _weak_state and _force_full_decision:
+            print(f"\n  🛡️ 【弱市保底】市场[{_ms.get('state','')}]偏弱，但候选池={len(_screen_pool)}只非空 → 强制走完整 Skeptic+Decision 链路")
+        if _weak_state and not _force_full_decision:
             # 弱市简化审查：扫描重点池+S池，检查明显风险信号
             print(f"\n  📉 市场状态[{_ms.get('state','')}]偏弱，执行简化审查模式")
             simplified_blocked = []  # [(code, name, reason)]

@@ -870,7 +870,8 @@ class ReviewAgent(BaseAgent):
                     sh = next((s for s in data if s.get("代码") == "000001"), None)
                     if sh:
                         sh_chg = float(sh.get("涨跌幅", 0))
-                        return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -1 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
+                        # 2026-09-11 P0-修复：弱市阈值 -1% → -2%，A股日常波动 -1~-2% 不应触发简化模式
+                        return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -2 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
         except Exception:  # 安全降级: 市场状态计算失败→使用默认"震荡"
             pass
         return {"state": "震荡", "s_pool_cap": 2, "sh_chg": 0}
