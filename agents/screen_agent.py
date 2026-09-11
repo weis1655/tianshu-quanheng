@@ -443,6 +443,13 @@ class ScreenAgent(BaseAgent):
         all_found = list(stocks) + [(code, name) for code, name in stocks_b
                                      if (name, code) not in stocks]
 
+        # P1-2: 捕获理由文本（用于S级豁免判断，不匹配时 reason_map 为空字典）
+        reason_map = {}
+        for _n, _c, _r in re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]\s*[-–—]\s*([^\n]{1,80})", screen_result):
+            reason_map.setdefault(_c, _r)
+        for _c, _n, _r in re.findall(r"(\d{6})\s+([\u4e00-\u9fa5]{2,6})\s*[-–—]\s*([^\n]{1,80})", screen_result):
+            reason_map.setdefault(_c, _r)
+
         # 验证股票代码（宽松兜底：验证失败时保留所有，6位数字已足够可靠）
         if all_found and validate_stock_codes is not None:
             codes = [s[1] for s in all_found]
@@ -475,7 +482,19 @@ class ScreenAgent(BaseAgent):
                     tech_score_val = ts.get("技术面评分")
                 except Exception:  # 安全降级: 技术面评分获取失败→跳过该标的
                     pass
-            
+
+            # P1-2: Screen阶段最低技术评分门槛（67分），S级驱动豁免
+            # 理由：PoolManager降级线65分，Screen提前过滤低于67分的弱信号；
+            # S级驱动标的技术评分低也不过滤，保留强信号通道。
+            # S级关键词与 _parse_screen_result.infer_level 对齐（不要求含字母S）
+            reason_text = reason_map.get(code, "")
+            is_s_level = any(
+                k in reason_text for k in ["s级", "S级", "S级驱动", "强烈推荐", "核心龙头", "业绩爆发"]
+            ) or bool(re.search(r'\[\s*S\s*\]\s*$', reason_text.strip()))
+            if tech_score_val is not None and tech_score_val < 67 and not is_s_level:
+                plog("INFO", f"[ScreenAgent] ⏭️ {name}({code}) 技术评分{tech_score_val}<67，跳过入池")
+                continue
+
             new_stocks.append({
                 "代码": code, "名称": name,
                 "纳入日期": datetime.now().strftime("%Y-%m-%d"),
