@@ -537,19 +537,22 @@ class ScreenAgent(BaseAgent):
                     continue  # 48小时内已筛过，跳过
             filtered.append(s)
 
-        # ── 跨池重复防护（防止已降级到其他池的标的被快筛重新灌回候选池）──
+        # ── P0-3: 跨池防护优化 — 仅阻塞活跃池（S级/持仓），边缘池和观察池允许回流 ──
+        # 09-14实测：快筛5只标的全部被跨池防护拦截（中际旭创/兆易创新等在边缘池）
+        # 根因：边缘池是暂存区而非处理管道，S级驱动的新信号不应被永久封死
         cross_pool_blocked = set()
         try:
             from pool_manager import PoolManager
             pm = PoolManager(pool_dir=self.root / "五池管理")
-            for pool_name in ["重点观察池", "边缘池", "持仓池", "S级操作池"]:
+            # 仅阻塞活跃池：S级操作池（今日有效）+ 持仓池（已在操作）
+            for pool_name in ["S级操作池", "持仓池"]:
                 pool_stocks = pm.get_stocks(pool_name)
                 for ps in pool_stocks:
                     code = ps.get("代码", ps.get("股票代码", ""))
                     if code:
                         cross_pool_blocked.add(code)
             if cross_pool_blocked:
-                plog("INFO", f"[ScreenAgent] 跨池防护: 以下标的已在其他池，阻止加入候选池: {cross_pool_blocked}")
+                plog("INFO", f"[ScreenAgent] 活跃池防护: {sorted(cross_pool_blocked)}")
         except Exception:
             pass  # 安全降级: 跨池检查失败不阻断快筛
 

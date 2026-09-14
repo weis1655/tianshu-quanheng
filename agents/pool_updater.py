@@ -47,13 +47,24 @@ class PoolUpdater:
         if blocked_codes:
             plog("INFO", f"[PoolUpdater] 🔴 Skeptic裁决阻塞: {sorted(blocked_codes)}")
 
-        # ── 09-10止血③: LLM自洽交叉校验 ──
-        # 决策报告尾部由LLM声明当日主推数量。声明0只时S池写入应为0，
-        # 硬拦截"报告说0只、池里写3只"的自相矛盾。
+        # ── 09-10止血③: LLM自洽交叉校验（09-14优化：scored_stocks兜底） ──
+        # 决策报告尾部由LLM声明当日主推数量。声明0只时原则上S池写入应为0，
+        # 但09-09实测：LLM思维链耗尽token→报告自洽声明0只，而scored_stocks实际有81分标的。
+        # 修复：当scored_stocks有≥75分且通过审查且未被Skeptic阻塞时，不以LLM声明为准。
         cap_m = re.search(r"S级操作池\*{0,2}\s*[：:]\s*(\d+)\s*只", decision_result)
         if cap_m and int(cap_m.group(1)) == 0:
-            plog("INFO", "[PoolUpdater] 🛑 LLM声明S级操作池0只主推，S池写入交叉校验不通过，跳过")
-            return
+            # P1-1: scored_stocks兜底 — 有可执行标的时不以LLM声明为准
+            actionable = [
+                s for s in (scored_stocks or [])
+                if s.get("score", 0) >= 75 and s.get("passed", False)
+                and str(s.get("code", s.get("代码", ""))) not in blocked_codes
+            ]
+            if actionable:
+                plog("WARNING", f"[PoolUpdater] ⚠️ LLM声明0只但scored_stocks有{len(actionable)}只可执行标的，scored_stocks兜底继续")
+                # 跳过early return，让后续的正则提取逻辑用scored_stocks的数据继续
+            else:
+                plog("INFO", "[PoolUpdater] 🛑 LLM声明S级操作池0只主推且无可执行标的，跳过")
+                return
 
         matches = re.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
         # ── P0: debug日志——验证【主推】正则匹配 ──

@@ -214,7 +214,28 @@ class ReviewAgent(BaseAgent):
         else:
             raw = []
 
-        # P1-1: 行情只拉一次，复用给两个方法
+        # ── P0-2: 审查候选池饥饿修复 — 候选池不足3只时从边缘池回补 ──
+        # 09-14实测：快筛5只被跨池防护/67门槛拦截→候选池仅剩1-2只→审查覆盖率塌到1只
+        # 修复：候选池<3只时，从边缘池按评分降序补入≥60分标的（排除S级操作池已有标的）
+        if len(raw) < 3:
+            try:
+                from pool_manager import PoolManager
+                pm = PoolManager(pool_dir=self.pool_dir)
+                edge_stocks = pm.get_stocks("边缘池")
+                existing_codes = {str(s.get("代码", s.get("股票代码", ""))) for s in raw}
+                for es in edge_stocks:
+                    es_code = str(es.get("代码", es.get("股票代码", "")))
+                    es_score = es.get("综合分", es.get("综合评分", es.get("score", 0)))
+                    if es_code and es_score >= 60 and es_code not in existing_codes:
+                        raw.append(es)
+                        existing_codes.add(es_code)
+                        plog("INFO", f"[ReviewAgent] 🔁 边缘池回补: {es.get('名称','?')}({es_code}) 评分{es_score}→候选池")
+                    if len(raw) >= 5:
+                        break
+            except Exception as e:
+                plog("INFO", f"[ReviewAgent] ⚠️ 边缘池回补失败(不影响主流程): {e}")
+
+        # 行情只拉一次，复用给两个方法
         qmap = {}
         if raw:
             qmap = self._fetch_quotes_for_stocks(raw)

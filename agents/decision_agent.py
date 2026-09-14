@@ -790,13 +790,13 @@ class DecisionAgent(BaseAgent):
         # 任务②: 抑制思维链外露——剥离LLM输出中的元思考/自我对话残留
         result = self.strip_chain_of_thought(result)
 
-        # ═══ 任务C：决策覆盖度断言——主推块=0 是14天持续现象，需显性告警 ═══
+        # ═══ 任务C：决策覆盖度断言 + P1-2思维链→结构化兜底 ═══
         # 09-09实测：决策报告连续14天主推块=0。部分源于上游审查报告残缺（评分0分），
-        # 部分源于决策LLM自身思维链外露（09-09有32句"Let me..."）。此断言量化思维链残留，
-        # 监控prompt加固是否生效，且不阻断主流程。
+        # 部分源于决策LLM自身思维链外露（09-09有32句"Let me..."）。
+        # P1-2修复：若主推块=0且scored_stocks有可执行标的，触发兜底机制（不以LLM思维链耗尽为由跳过）
+        main_blocks = len([1 for l in result.split("\n") if "【主推】" in l])
+        cand_n = len(scored_stocks) if scored_stocks else 0
         try:
-            main_blocks = len([1 for l in result.split("\n") if "【主推】" in l])
-            cand_n = len(scored_stocks) if scored_stocks else 0
             cot_hits = sum(1 for kw in ["let me analyze", "let me check", "let me formulate", "let me also", "i should", "i need to", "i will", "let me finalize", "let me work"] if kw in result.lower())
             self.logger.info("decision_coverage_check",
                             main_blocks=main_blocks, candidate_stocks=cand_n,
@@ -805,10 +805,10 @@ class DecisionAgent(BaseAgent):
                 plog("WARNING", f"[DecisionAgent] ⚠️ 决策覆盖度异常: 候选{cand_n}只但主推块=0。思维链残留={cot_hits}句，报告长度={len(result)}字。疑似LLM预算被思维链耗尽或上游审查报告残缺。")
         except Exception as _cov_err:
             plog("INFO", f"[DecisionAgent] 覆盖度断言异常(不影响主流程): {_cov_err}")
-        # ═══ 任务C：决策覆盖度断言结束 ═══
+        # ═══ 任务C+P1-2结束 ═══
 
-        # P0-2: 若LLM返回空仓但有评分≥75的股票，先二次尝试（优先LLM方案）
-        if scored_stocks and any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作"]):
+        # P0-2+P1-2: 若LLM返回空仓/思维链耗尽但有评分≥75的股票，触发兜底机制
+        if scored_stocks and (main_blocks == 0 or any(k in result for k in ["暂无", "空仓", "不建议", "建议观望", "暂不操作", "0只主推", "0只今日主推"])):
             # P0-2026-06-04: 只选择审查通过（passed=True）且评分≥75的标的
             # P0-2026-06-05: 防御性排除被SkepticGate阻塞的标的（虽然L338已过滤，兜底保护）
             actionable = [
