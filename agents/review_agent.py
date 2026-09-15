@@ -210,7 +210,10 @@ class ReviewAgent(BaseAgent):
                     str(s.get("代码") or s.get("股票代码", ""))
                 ) == today]
                 if len(raw) < _before:
-                    plog("INFO", f"[ReviewAgent] ⏭ 过滤 {_before - len(raw)} 只快筛未覆盖滞留股（近次快筛非今日）")
+                    # P1修复(09-15)：过滤后同步从候选池JSON移除滞留股，防止4天滞留
+                    _stale_codes = [str(s.get("代码") or s.get("股票代码", "")) for s in data["stocks"] if fs_hist.get(str(s.get("代码") or s.get("股票代码", ""))) != today]
+                    self._remove_from_pool("快筛候选池", _stale_codes)
+                    plog("INFO", f"[ReviewAgent] ⏭ 过滤并移除 {_before - len(raw)} 只快筛未覆盖滞留股（近次快筛非今日）")
         else:
             raw = []
 
@@ -335,6 +338,19 @@ class ReviewAgent(BaseAgent):
                             cot_hits=cot_hits)
             if input_count > 0 and cov_ratio < 0.5:
                 plog("WARNING", f"[ReviewAgent] ⚠️ 覆盖度异常: 输入{input_count}只仅解析出{parsed_count}只({cov_ratio:.0%})，{len(zero_score)}只0分。疑似思维链污染(cot_hits={cot_hits})导致LLM无结构化输出。")
+                # P0修复：覆盖度异常时重试一次LLM调用（09-15实测：早间run LLM格式漂移导致1/4解析，午间run恢复）
+                plog("INFO", f"[ReviewAgent] 🔄 覆盖度异常，重试LLM调用...")
+                _retry_prompt = user_prompt + "\n\n【重要】请严格按照四维审查表格格式输出每只股票的评分，不要输出任何思维链或元思考内容。"
+                result = self.call_llm(_retry_prompt, system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx), max_tokens=9000)
+                result = self.strip_chain_of_thought(result)
+                parsed_result = self._parse_review_result_v2(result)
+                parsed_count2 = len(parsed_result.stocks) if parsed_result else 0
+                cov_ratio2 = parsed_count2 / input_count if input_count else 1.0
+                plog("INFO", f"[ReviewAgent] 重试后覆盖度: {cov_ratio2:.0%} ({parsed_count2}/{input_count})")
+                if cov_ratio2 >= 0.5:
+                    plog("INFO", f"[ReviewAgent] ✅ 重试成功，覆盖度恢复正常")
+                else:
+                    plog("WARNING", f"[ReviewAgent] ⚠️ 重试后覆盖度仍异常({cov_ratio2:.0%})，使用首次结果")
             if len(zero_score) > 0 and len(zero_score) == parsed_count and parsed_count < input_count:
                 plog("WARNING", f"[ReviewAgent] 🔴 全部评分0分且覆盖不全: {parsed_count}/{input_count}，LLM输出未含结构化评分块，候选未实际评级。")
         except Exception as _cov_err:
@@ -477,6 +493,7 @@ class ReviewAgent(BaseAgent):
         # 仅当ML实际可用且评分成功时，才判背离；避免"未打分"被当作真实低分
         if ml_scores_available:
             # 低信心标记（非阻塞红旗，ML<45且LLM≥75时标注背离）
+            _ml_demoted = []
             for sr in review_result.stocks:
                 if sr.ml_score is not None and sr.ml_win_prob is not None and sr.ml_score < ML_LOW_CONFIDENCE and sr.composite_score >= DECISION_MIN_SCORE:
                     sr.core_logic += f" | ⚠️ ML{sr.ml_score}分偏低(胜{sr.ml_win_prob*100:.0f}%)，与LLM{sr.composite_score}分背离"
@@ -486,6 +503,14 @@ class ReviewAgent(BaseAgent):
                         sr.target_pool = "边缘池"
                         sr.core_logic += f" | 📉 ML{sr.ml_score}分<45，LLM高分背离，降级"
                         plog("INFO", f"[ReviewAgent] 📉 ML降级: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分背离，降入边缘池")
+                        _ml_demoted.append(sr)
+            # 从升级列表移除已被ML降级的标的，避免重复写入重点观察池
+            if _ml_demoted:
+                _ml_demoted_codes = {sr.code for sr in _ml_demoted}
+                parsed_result.upgrades = [s for s in parsed_result.upgrades if s.code not in _ml_demoted_codes]
+                parsed_result.demotions.extend(_ml_demoted)
+                self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
+                plog("INFO", f"[ReviewAgent] 🧹 ML低信心降级: {len(_ml_demoted)} 只标已从升级列表移除并降级至边缘池")
 
         # ═══ ML评分前置拦截：升级重点池前先过ML阈值 ═══════════════
         if ml_scores_available:
@@ -499,6 +524,8 @@ class ReviewAgent(BaseAgent):
                     plog("INFO", f"[ReviewAgent] 🚫 ML前置拦截: {sr.name}({sr.code}) LLM{sr.composite_score}分→ML{sr.ml_score}分，禁止升级入池")
             if _ml_blocked:
                 parsed_result.demotions.extend(_ml_blocked)
+                _blocked_codes = {sr.code for sr in _ml_blocked}
+                parsed_result.upgrades = [s for s in parsed_result.upgrades if s.code not in _blocked_codes]
                 self._apply_pool_updates(result, parsed_result.upgrades if parsed_result else [], parsed_result.demotions if parsed_result else [])
                 plog("INFO", f"[ReviewAgent] 🧹 ML前置拦截: {len(_ml_blocked)} 只低ML分标被阻止升级")
         # ════════════════════════════════════════════════════════════════════════
@@ -533,6 +560,26 @@ class ReviewAgent(BaseAgent):
             parsed_result.demotions.extend(_pool_cleanup)
             self._apply_pool_updates(result, parsed_result.upgrades, parsed_result.demotions)
             plog("INFO", f"[ReviewAgent] 🧹 候选池清理: {len(_pool_cleanup)} 只低分股已降级")
+
+        # ═══ P1修复(09-15)：将审查评分回写到候选池JSON ═══
+        # 问题：Screen阶段写入初始综合分，Review重评后不回写→PoolManager降级判定用旧分
+        try:
+            _pool = self.pool_manager.load_pool("快筛候选池")
+            _updated = 0
+            for stock in _pool.get("stocks", []):
+                _code = str(stock.get("代码", ""))
+                for sr in review_result.stocks:
+                    if str(sr.code) == _code:
+                        stock["综合分"] = sr.composite_score
+                        stock["审查日期"] = datetime.now().strftime("%Y-%m-%d")
+                        _updated += 1
+                        break
+            if _updated > 0:
+                self.pool_manager.save_pool("快筛候选池", _pool)
+                plog("INFO", f"[ReviewAgent] 📝 候选池综合分已回写: {_updated}只标的")
+        except Exception as _sw_err:
+            plog("WARNING", f"[ReviewAgent] 候选池评分回写异常: {_sw_err}")
+        # ════════════════════════════════════════════════════════════════════════
 
         # ML评分附录 — 追加到审查报告（2026-06-11）
         try:
