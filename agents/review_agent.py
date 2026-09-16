@@ -950,6 +950,47 @@ class ReviewAgent(BaseAgent):
     # （不再依赖6种regex兜底，LLM应输出规范格式）
     # ─────────────────────────────────────────
     @staticmethod
+    def _extract_confidence(block: str, fallback_score=None) -> str:
+        """从审查文本块提取信心度描述（修复 2026-09-16「高」字丢失）。
+
+        根因：`| **综合评分** | **84** | **高信心度，逻辑通顺** |`
+        旧正则 `信心度[：:]\s*([^*|\n]+)` 从「信心度」开始捕获，
+        前面的 `**高` 被吞掉 → 入池后变成 `，逻辑通顺，强烈建议关注`。
+
+        修复：向前回溯捕获「高/中高/中/中低/低」前缀，再清洗 `*` 与标点开头。
+        """
+        from score_source import clean_confidence
+        # 级别词命名组：中高/中低 必须先于 中/高 参与交替，否则「中高」被截成「中」
+        lvl = "(?P<lv>中高|中低|高|中|低)"
+        # 模式1：`信心度：中高，逻辑通顺` → 取冒号后的 级别+主体
+        m = re.search(r"信心度\s*[：:]\s*" + lvl + r"\s*(?P<body>[^*|\n]*)", block)
+        if m:
+            conf = m.group("body").strip().replace("*", "").strip()
+            conf = re.sub(r"^[，,、;；\s]+", "", conf)
+            return clean_confidence(
+                f"{m.group('lv')}，{conf}" if conf else m.group("lv"),
+                fallback_score)[0]
+        # 模式2：`**高信心度，逻辑通顺**` → 级别词紧邻「信心度」之前
+        # 锚定「信心度」后向前取级别词，避免回溯抓到表格中的分数/邻近字段
+        # 模式2a：`中信心度`（级别词紧贴「心度」，无分隔符）
+        m = re.search(lvl + r"心度", block)
+        if m:
+            return clean_confidence(m.group("lv"), fallback_score)[0]
+        m = re.search(lvl + r"\s*信心度\s*(?P<body>[^*|\n]*)", block)
+        if m:
+            tail = m.group("body").strip().replace("*", "").strip()
+            tail = re.sub(r"^[，,、;；\s]+", "", tail)
+            return clean_confidence(
+                f"{m.group('lv')}，{tail}" if tail else m.group("lv"),
+                fallback_score)[0]
+        # 模式3：`信心度：高`（级别词在冒号前）与裸 `信心度` 兜底
+        m = re.search(lvl + r"\s*信心度\s*[：:]\s*([^*|\n]*)", block)
+        if m:
+            return clean_confidence(m.group(0).strip(), fallback_score)[0]
+        # 无可用值 → 用分数推导默认（宁可保守，不可脏数据入池）
+        return clean_confidence("", fallback_score)[0]
+
+    @staticmethod
     def _extract_stock_from_block(block: str):
         """
         从单个股票块中提取 (代码, 名称)。
@@ -1089,11 +1130,8 @@ class ReviewAgent(BaseAgent):
                 # 所有正则模式均未匹配，记录警告（不阻塞流程）
                 plog("WARNING",
                      f"[ReviewAgent] ⚠️ 评分提取失败: {name}({code}) 所有正则模式均未命中，默认score=0")
-            # 信心度
-            confidence = ""
-            cm = re.search(r'信心度[：:]?\s*([^*|\n]+)', block)
-            if cm:
-                confidence = cm.group(1).strip()
+            # 信心度（统一走 _extract_confidence，修复「高」字丢失）
+            confidence = _extract_confidence(block)
             # 核心逻辑
             logic_parts = []
             for dim, pat in [
@@ -1266,11 +1304,8 @@ class ReviewAgent(BaseAgent):
                         else:
                             plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
 
-            # 信心度
-            confidence = ""
-            cm = re.search(r'信心度[：:]\s*([^*|\n]+)', block)
-            if cm:
-                confidence = cm.group(1).strip()
+            # 信心度（统一走 _extract_confidence，修复「高」字丢失）
+            confidence = _extract_confidence(block, score)
 
             # 流转方向
             flow_dir, target_pool = _extract_flow(block)

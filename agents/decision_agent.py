@@ -130,7 +130,13 @@ USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票
 
 请只对评分≥75分的股票制定执行方案。
      如果无≥75分的股票，请输出"今日暂无通过审查的股票"，并列出{YELLOW_ALERT_MIN}-{YELLOW_ALERT_MAX}分（黄色预警）的备选观察标的及其关注要点。
-     低于60分的不输出。"""
+     低于60分的不输出。
+
+评分引用规则（硬性，2026-09-16 评分串味事故）：
+- 每只股票的评分**只允许**引用上方「评分溯源拦截」和评分列表里给出的数值，
+  **禁止**自述历史评分（禁止出现"前次X分"、"上次X分淘汰"、"此前评分X分"）。
+- 被标记为「池内缓存（非当日审查）」的标的，**不得**为其制定执行方案，
+  如需提及只能在风险提示中说明"分数来源不可核验，待次日审查"。"""
 
 
 class DecisionAgent(BaseAgent):
@@ -462,6 +468,14 @@ class DecisionAgent(BaseAgent):
         # 提前提取评分（二审制Gate需要）
         scored_stocks = self._extract_scores(review_report)
 
+        # ── P0: 权威评分溯源 + stale 拦截（2026-09-16 评分串味事故）──
+        # 历史评分只允许从结构化来源注入；池内缓存分不参与「评分≥75可执行」判定
+        authoritative_scores = self._load_authoritative_scores(review_report, today)
+        scored_stocks, stale_warning = self._enrich_and_gate_stale(
+            scored_stocks, authoritative_scores, market_env, today)
+        self._authoritative_scores = authoritative_scores
+        self._stale_warning = stale_warning
+
         # ── F01: 从审查报告中提取ML评分，关联到scored_stocks ──
         ml_map = self._extract_ml_scores(review_report)
         for s in scored_stocks:
@@ -590,7 +604,9 @@ class DecisionAgent(BaseAgent):
 
         # P0-2: 从审查报告中提取结构化评分（行255已过滤Gate拦截标的，此处复用）
         # P0-8: 仅向LLM展示评分≥75的标的（与决策准入阈值对齐，防止低分标的被执行）
-        llm_visible = [s for s in scored_stocks if s.get("score", 0) >= DECISION_MIN_SCORE]
+        # P0(2026-09-16): stale 标的（非当日审查的池内缓存分）同样排除
+        llm_visible = [s for s in scored_stocks
+                       if s.get("score", 0) >= DECISION_MIN_SCORE and not s.get("stale")]
         scored_summary = self._format_scored_stocks(llm_visible)
 
         # ── 记忆闭环：注入历史决策参考 ────────────────────────────
@@ -720,6 +736,9 @@ class DecisionAgent(BaseAgent):
             header_parts.append(coverage_warning)
         if _stale_warning:
             header_parts.append(_stale_warning)
+        # P0(2026-09-16): 评分溯源拦截警告——池内缓存分不参与「≥75可执行」判定
+        if getattr(self, '_stale_warning', ''):
+            header_parts.append(self._stale_warning)
         # ── P0-3：S级操作池优先注入（LLM可见）───────────────
         if s_pool_section:
             header_parts.append(s_pool_section)
@@ -1052,6 +1071,12 @@ class DecisionAgent(BaseAgent):
 ---
 决策执行时间：{datetime.now().strftime('%H:%M')}
 """
+
+        # ── P0(2026-09-16): 保存前分数溯源核对 ──
+        # 报告里写出的每个分数必须能在权威来源找到对应标的的行，
+        # 找不到即跨标的套用，追加溯源核对段留痕（不阻断生成）
+        if getattr(self, '_authoritative_scores', None) is not None:
+            report = self._append_score_trace_report(report, self._authoritative_scores)
 
         # 保存
         out_file = self.history_dir / f"{today}_决策报告.md"
@@ -1735,6 +1760,102 @@ class DecisionAgent(BaseAgent):
             except Exception:  # 安全降级: 弱市建议计算失败→使用默认值，不影响决策
                 pass
         return result
+
+    def _load_authoritative_scores(self, review_report: str, today: str) -> dict:
+        """构建权威评分快照（结构化来源，禁止 LLM 自述历史评分）。
+
+        2026-09-16 兆易创新 84/45 评分串味事故修复：
+        审查层当日只审了工商银行(601398)=45分，兆易(603986)未被审查（84分是 9-15 池内缓存）。
+        LLM 读到 45 分后在决策报告里给兆易写了 45 分，且引用"前次45分淘汰"作为 4 条 high 质疑的支点。
+        """
+        from score_source import build_authoritative_scores
+        return build_authoritative_scores(review_report, self.pool_dir, today)
+
+    def _enrich_and_gate_stale(self, scored_stocks: list, authoritative: dict,
+                              market_env: str, today: str) -> tuple:
+        """用权威分覆盖/校验评分，并对 stale 标的做阈值拦截。
+
+        规则：
+        1. 权威分（当日审查分）> 报告提取分 → 以权威分为准（防解析漂移）
+        2. stale 标的（当日未审查、仅池内缓存）不参与「评分≥75 可执行」判定
+        3. 分数来源不明的标的不输出执行方案
+
+        Returns: (scored_stocks, stale_warning_text)
+        """
+        stale_blocked = []
+        for s in scored_stocks:
+            code = str(s.get("code", s.get("代码", "")))
+            auth = authoritative.get(code)
+            if not auth:
+                # 权威来源完全没有该标的 → 分数来源不明，保守视为 stale
+                s["stale"] = True
+                s["review_date"] = "unknown"
+                s["score_source"] = "none"
+                continue
+            # 权威来源优先：review_date / stale / score_source 全由权威来源决定
+            # （注意：不能与 mark_stale_scores 的 OR 合并——审查报告提取的条目
+            #   初始无 review_date，会被误标 stale，掩盖真正的当日审查分）
+            s["review_date"] = auth.get("review_date") or "unknown"
+            s["stale"] = bool(auth.get("stale"))
+            s["score_source"] = auth.get("source", "none")
+            a_score = auth.get("score")
+            # 权威分优先于报告解析分
+            if a_score is not None and (not s.get("score") or s.get("score") != a_score):
+                if s.get("score") and s.get("score") != a_score:
+                    plog("WARNING",
+                         f"[评分溯源] ⚠️ {s.get('name','?')}({code}) 报告分{s.get('score')}"
+                         f"≠权威分{a_score}，以权威分为准")
+                s["score"] = a_score
+            if s["stale"] and s.get("score", 0) >= DECISION_MIN_SCORE:
+                stale_blocked.append(f"{s.get('name','?')}({code}) {s['score']}分")
+        stale_warning = ""
+        if stale_blocked:
+            stale_warning = (
+                f"\n\n## 🚫 评分溯源拦截\n"
+                f"以下标的的评分来自**池内缓存（非当日审查）**，来源不可核验，"
+                f"**不参与「评分≥{DECISION_MIN_SCORE}分可执行」判定**：\n"
+                + "\n".join(f"- {x}" for x in stale_blocked[:10])
+                + f"\n说明：这些标的今日未被审查 Agent 重新评分，沿用旧分存在跨日数据污染风险。"
+                f"请**不要**为它们制定执行方案，等待次日审查更新分数后再评估。\n"
+            )
+            plog("WARNING",
+                 f"[评分溯源] 🚫 {len(stale_blocked)} 只 stale 标的被拦截（非当日审查）: "
+                 f"{', '.join(stale_blocked[:5])}")
+        return scored_stocks, stale_warning
+
+    def _append_score_trace_report(self, report: str, authoritative: dict) -> str:
+        """保存前溯源：报告里每个分数声明必须能对上权威来源。
+
+        有异常时在报告末尾追加溯源核对段（不阻断生成，仅留痕），
+        便于事后审计 LLM 是否发生了跨标的分数套用。
+        """
+        from score_source import trace_decision_scores
+        issues = trace_decision_scores(report, authoritative)
+        bad = [i for i in issues if not i["valid"]]
+        if not bad:
+            return report
+        lines = [
+            "", "---", "",
+            f"## ⚠️ 评分溯源核对（{len(bad)}/{len(issues)} 条不一致）",
+            "",
+            "| 标的 | 报告声明 | 权威分 | 权威来源 | 问题 |",
+            "|------|---------|--------|---------|------|",
+        ]
+        for i in bad:
+            src = i["source"]
+            tail = "（缓存分，非当日审查）" if src == "pool_cache" else ""
+            lines.append(
+                f"| {i['name']}({i['code']}) | {i['declared']}分 | "
+                f"{i['authoritative'] if i['authoritative'] is not None else '—'}分 | "
+                f"{src}{tail} | {i['issue']} |")
+        lines += [
+            "",
+            "🔍 溯源说明：权威分来自当日审查报告的结构化评分；标为「缓存分」表示"
+            "当日未被审查、沿用池内旧分。声明分≠权威分时，该执行方案不可采信。",
+        ]
+        plog("WARNING",
+             f"[评分溯源] ⚠️ 决策报告分数溯源发现 {len(bad)} 条不一致，已追加溯源核对段")
+        return report + "\n".join(lines) + "\n"
 
     def _extract_scores(self, review_report: str) -> list[dict]:
         """从审查报告中提取结构化评分（委托 decision_utils.extract_scores）"""

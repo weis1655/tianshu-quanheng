@@ -122,6 +122,13 @@ SYSTEM_PROMPT = """你是一个冷静的股票质疑专家，负责对每只候�
 5. overall_verdict: pass=通过, challenge_required=需解决
 6. 每只股票分析不超过100字
 
+### 历史评分引用禁令（P0，2026-09-16 评分串味事故）
+评分数据**只允许**引用本 prompt「权威评分」表中程序化注入的值，**禁止**凭记忆或推断自述
+历史评分（禁止出现"前次评分X分"、"上次X分淘汰"、"此前评分X分"等表述）。
+若「权威评分」表中该标为「无」或「池内缓存(非当日审查)」，说明当日未被审查，
+**不得虚构历史分数**；此时应在维度「方案矛盾」中以 severity=medium 标记
+「分数来源不可核验，当日未审查」，交由决策层处理。
+
 ### 系统自动风险标记（优先级最高）- P0-1
 自动标记是基于客观数据（PE/报告关键词等）直接生成的，优先级高于LLM对风险的判断：
 - severity=veto 的自动标记 → LLM**不得**降级，保持veto
@@ -133,6 +140,9 @@ USER_PROMPT_TEMPLATE = """请对以下重点观察池股票进行五维质疑审
 
 重点观察池股票：
 {candidate_stocks}
+
+权威评分（程序化注入，唯一可信评分来源；禁止自述历史评分）：
+{authoritative_scores}
 
 市场宏观背景：
 {market_context}
@@ -183,8 +193,13 @@ class SkepticAgent(BaseAgent):
         market_state = self._get_market_state_from_index()
 
         # 构建提示词
+        # P0: 权威评分由程序化溯源注入，LLM 无权自述历史评分（防评分串味）
+        self._last_review_report = review_report or ""
+        self.pool_dir = self.root / "五池管理"
+        authoritative_scores = self._format_authoritative_scores(stock_list)
         user_prompt = USER_PROMPT_TEMPLATE.format(
             candidate_stocks=candidate_stocks,
+            authoritative_scores=authoritative_scores,
             market_context=market_text,
             market_state=market_state,
             realtime_section=realtime_section,
@@ -305,6 +320,39 @@ class SkepticAgent(BaseAgent):
             f"- {s.get('代码', s.get('code', '?'))} {s.get('名称', s.get('name', '?'))}"
             for s in stock_list
         ])
+
+    def _format_authoritative_scores(self, stock_list: list, today: str = "") -> str:
+        """注入权威评分（结构化来源，禁止 LLM 自述历史评分）。
+
+        背景：2026-09-16 兆易创新(603986) 与工商银行(601398) 评分串味——
+        审查层当日只审了工商银行=45分，兆易未被审查（池内缓存84分为 9-15 旧分）。
+        LLM 读到工商银行 45 分后，在质疑中自述"兆易前次评分45分"，污染了 4 条 high 质疑的前提。
+        修复：历史评分只允许从 build_authoritative_scores 程序化注入，LLM 无权自述。
+        """
+        from score_source import build_authoritative_scores
+        # 必须传完整审查报告：_extract_review 只取局部摘要（"流转方向"附近 17 行），
+        # 会把当日已审查的标的误判成「池内缓存(非当日审查)」
+        auth = build_authoritative_scores(
+            self._last_review_report or "", self.pool_dir, today)
+        lines = ["| 代码 | 名称 | 综合分 | 分数来源 | 评分日期 |", "|------|------|--------|----------|----------|"]
+        for s in stock_list:
+            code = str(s.get("代码", s.get("code", ""))).strip()
+            if not code:
+                continue
+            a = auth.get(code, {})
+            score = a.get("score")
+            if a.get("stale"):
+                src = "池内缓存(非当日审查)"
+            elif score is None:
+                src = "无(当日未审查)"
+            else:
+                src = a.get("source", "review_today")
+            lines.append(
+                f"| {code} | {a.get('name') or s.get('名称', s.get('name', '?'))} | "
+                f"{score if score is not None else '—'} | {src} | {a.get('review_date', '—')} |")
+        if len(lines) == 2:
+            return "（无权威评分数据）"
+        return "\n".join(lines)
 
     def _format_context(self, ctx: dict) -> str:
         if not ctx:
