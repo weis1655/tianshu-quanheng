@@ -49,6 +49,68 @@ class PoolManager:
         "S级操作池": 3,
     }
 
+    @staticmethod
+    def apply_score_decay(stock):
+        """
+        评分时间衰减 —— 从「入池原始分」基线起算，而非当前综合分。
+
+        修复累加 bug：原实现直接读 stock['综合分'] 再写回，导致每次运行都从
+        已衰减分再次衰减（速率翻倍）。80分标 days 9→76, 10→71, 11→65, 12→64
+        （≈1分/天）；修复后每轮都从基线起算（0.5分/天），与阈值语义一致。
+
+        懒初始化「入池原始分」：不改动入池路径，天然兼容历史池 JSON。
+        「衰减后分」作水位标记，用于区分「综合分是我们的衰减写入」还是
+        「综合分被审查重新评分覆盖」：
+          - 综合分 == 衰减后分 → 水位匹配，从上轮基线继续衰减
+          - 综合分 != 衰减后分 → 外部写入（重新审查），基线重置为本轮综合分，
+            本轮不衰减（避免「审查给的90分被旧基线80减15分覆盖成65」）
+
+        入池天数由本函数从「纳入日期」内部计算（解析失败按999天，沿用旧行为），
+        调用点无需重复日期解析逻辑。
+
+        Returns: True 表示本轮发生了衰减
+        """
+        entry_date = stock.get("纳入日期", "")
+        orig_score = stock.get("综合分", 0)
+        if not entry_date or not isinstance(orig_score, (int, float)) or orig_score <= 0:
+            return False
+
+        try:
+            days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
+        except (ValueError, TypeError):
+            days_in_pool = 999
+        if days_in_pool <= SCORE_DECAY_DAYS:
+            return False
+
+        baseline = stock.get("入池原始分")
+        water = stock.get("衰减后分")
+        if baseline is None:
+            # 首次衰减：以当前综合分为基线
+            baseline = orig_score
+            stock["入池原始分"] = baseline
+        elif water is not None and orig_score == water:
+            # 水位匹配：上轮我们衰减后未被外部改动，继续从基线起算
+            pass
+        else:
+            # 综合分被外部写入（审查重新评分/评分修正）：基线重置，本轮不衰减
+            stock["入池原始分"] = orig_score
+            stock["衰减后分"] = orig_score
+            return False
+
+        decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
+        chg_str = stock.get("今日涨跌", "")
+        if chg_str and "+" in str(chg_str):
+            decay *= 0.5
+        new_score = max(round(baseline - decay), SCORE_DECAY_FLOOR)
+        if new_score != orig_score:
+            stock["综合分"] = new_score
+            stock["衰减后分"] = new_score
+            stock["评分最后更新"] = f"{int(baseline)}→{new_score}(入池{days_in_pool}天)"
+            plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({stock.get('代码','')}) "
+                         f"{int(baseline)}→{new_score} (入池{days_in_pool}天)")
+            return True
+        return False
+
     @classmethod
     def _init_capacity_limits(cls):
         """从 config.yaml 加载池容量（热加载），失败时回退硬编码值"""
@@ -1231,23 +1293,7 @@ class PoolManager:
         # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
         for stock in stocks:
             code = stock.get("代码", stock.get("股票代码", ""))
-            entry_date = stock.get("纳入日期", "")
-            orig_score = stock.get("综合分", 0)
-            if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
-                try:
-                    days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
-                except ValueError:
-                    days_in_pool = 999
-                if days_in_pool > 7:
-                    decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
-                    chg_str = stock.get("今日涨跌", "")
-                    if chg_str and "+" in str(chg_str):
-                        decay *= 0.5
-                    new_score = max(round(orig_score - decay), 40)
-                    if new_score != orig_score:
-                        stock["综合分"] = new_score
-                        stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                        plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+            PoolManager.apply_score_decay(stock)
 
         # ── 盘中过热标记（基于今日涨跌幅+评分，无需PE/历史数据）──
         for stock in stocks:
@@ -1553,23 +1599,7 @@ class PoolManager:
             # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
             for stock in stocks:
                 code = stock.get("代码", "")
-                entry_date = stock.get("纳入日期", "")
-                orig_score = stock.get("综合分", 0)
-                if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
-                    try:
-                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
-                    except ValueError:
-                        days_in_pool = 999
-                    if days_in_pool > 7:
-                        decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
-                        chg_str = stock.get("今日涨跌", "")
-                        if chg_str and "+" in str(chg_str):
-                            decay *= 0.5
-                        new_score = max(round(orig_score - decay), 40)
-                        if new_score != orig_score:
-                            stock["综合分"] = new_score
-                            stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                            plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                PoolManager.apply_score_decay(stock)
 
             plog("INFO", f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
             if stop_loss_warnings:
@@ -1645,23 +1675,7 @@ class PoolManager:
         # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
         for stock in stocks:
             code = stock.get("代码", stock.get("股票代码", ""))
-            entry_date = stock.get("纳入日期", "")
-            orig_score = stock.get("综合分", 0)
-            if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
-                try:
-                    days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
-                except ValueError:
-                    days_in_pool = 999
-                if days_in_pool > 7:
-                    decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
-                    chg_str = stock.get("今日涨跌", "")
-                    if chg_str and "+" in str(chg_str):
-                        decay *= 0.5
-                    new_score = max(round(orig_score - decay), 40)
-                    if new_score != orig_score:
-                        stock["综合分"] = new_score
-                        stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                        plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+            PoolManager.apply_score_decay(stock)
         # 扫描评分<65的存量股，自动降级
         self._scan_and_downgrade(data)
 
@@ -1744,23 +1758,7 @@ class PoolManager:
             # ── 评分时间衰减（无条件执行，不依赖行情）──
             for stock in stocks:
                 code = stock.get("代码", stock.get("股票代码", ""))
-                entry_date = stock.get("纳入日期", "")
-                orig_score = stock.get("综合分", 0)
-                if entry_date and isinstance(orig_score, (int, float)) and orig_score > 0:
-                    try:
-                        days_in_pool = (datetime.now() - datetime.strptime(entry_date, "%Y-%m-%d")).days
-                    except ValueError:
-                        days_in_pool = 999
-                    if days_in_pool > 7:
-                        decay = min(days_in_pool * SCORE_DECAY_PER_DAY, SCORE_DECAY_MAX)
-                        chg_str = stock.get("今日涨跌", "")
-                        if chg_str and "+" in str(chg_str):
-                            decay *= 0.5
-                        new_score = max(round(orig_score - decay), 40)
-                        if new_score != orig_score:
-                            stock["综合分"] = new_score
-                            stock["评分最后更新"] = f"{orig_score}→{new_score}(入池{days_in_pool}天)"
-                            plog("INFO", f"  [评分衰减] {stock.get('名称','?')}({code}) {orig_score}→{new_score} (入池{days_in_pool}天)")
+                PoolManager.apply_score_decay(stock)
         # 扫描评分<65的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
         self._scan_and_downgrade(data)
         self.save_pool("S级操作池", data)
