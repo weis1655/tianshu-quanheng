@@ -503,6 +503,14 @@ class ReviewAgent(BaseAgent):
                         "vol_ratio": detail.get("factor_turn", 1),
                         "day_range": detail.get("day_range", 0),
                         "ma20_pos": detail.get("ma20_pos", 0),
+                        # P0-1(2026-09-16): 补 pb/pe —— calculate_qlib_factors 已算出但
+                        # 原映射漏挑，导致这2个特征在推理时恒为0。而 pb 是模型第1重要
+                        # 特征(imp=0.144)，pb=0 在训练集仅占4.2%属罕见值，模型对高估值
+                        # 股票全部误判看跌。回测(6955样本,ground truth=实际r10)：
+                        # 拒绝率 48.7%→16.4%，区分度 +4.68→+7.12pct；高PB子集预测
+                        # 从-2.84%校正到+8.63%(实际+8.84%)。
+                        "pb": detail.get("pb", 0),
+                        "pe": detail.get("pe_ttm", 0),
                     }
                     ml_result = predict_ml_score(ml_factors, llm_score=sr.composite_score)
                     sr.ml_score = ml_result["ml_score"]
