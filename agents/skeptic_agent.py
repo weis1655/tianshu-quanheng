@@ -304,7 +304,7 @@ class SkepticAgent(BaseAgent):
         self._save_verdict(challenges, high_risk)
 
         return {
-            "success": True,
+            "success": len(challenges) > 0,
             "challenges": challenges,
             "high_risk_stocks": high_risk,
             "report": report,
