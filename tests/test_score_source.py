@@ -375,10 +375,149 @@ def test_full_report_required():
 
 
 # ══════════════════════════════════════════════════════════════
+# 8. 重点观察池回补 — 审查候选覆盖缺口（遗留项3）
+# ══════════════════════════════════════════════════════════════
+def test_key_watch_supplement():
+    """兆易(603986) 升入重点观察池后不在任何审查来源内 → 永久滞留。
+
+    审查候选原来源：快筛候选池 ∪ 边缘池回补(<3只时)。
+    兆易 ∉ 快筛候选池（fs_hist≠今日被清空），兆易 ∉ 边缘池
+    → 永远进不了审查候选 → 84分(9-15)永久沿用。
+    """
+    from review_agent import ReviewAgent
+    from thresholds import KEY_POOL_EXPIRE_DAYS
+    f = ReviewAgent._supplement_from_key_watch
+    TODAY = "2026-09-16"
+
+    def mk(code, name, score=84, entry="2026-09-01"):
+        return {"代码": code, "名称": name, "综合分": score, "纳入日期": entry}
+
+    kw = [
+        mk("603986", "兆易创新", 84, "2026-09-01"),   # 滞留15天 → 应回补
+        mk("600001", "当日升入", 78, "2026-09-16"),    # 滞留0天 → 不回补
+        mk("600002", "昨日", 70, "2026-09-15"),        # 滞留1天 =1 → 应回补（边界）
+        mk("600003", "7天", 66, "2026-09-09"),         # 滞留7天 → 应回补
+        mk("600004", "无日期", 90, ""),                # 日期缺失 → 不回补
+    ]
+
+    out = f([], set(), TODAY, kw)
+    codes = [s["代码"] for s in out]
+    check("KW-01", "回补兆易（滞留15天≥1，T+1）", "603986" in codes, f"got {codes}")
+    check("KW-02", "不回补当日升入（滞留0天）", "600001" not in codes, f"got {codes}")
+    check("KW-03", "边界：滞留恰1天应回补（T+1）", "600002" in codes, f"got {codes}")
+    check("KW-04", "滞留7天应回补", "600003" in codes, f"got {codes}")
+    check("KW-05", "不回补纳入日期缺失的标的", "600004" not in codes, f"got {codes}")
+    check("KW-06", "阈值 KEY_POOL_EXPIRE_DAYS=1（T+1，对齐S池纪律）",
+          KEY_POOL_EXPIRE_DAYS == 1)
+
+    # 已存在 code 不重复回补
+    out2 = f([], {"603986"}, TODAY, kw)
+    check("KW-07", "已在审查候选中的不重复回补",
+          "603986" not in [s["代码"] for s in out2])
+
+    # max_add 上限
+    many = [mk(f"6{i:05d}", f"股{i}", 80, "2026-09-01") for i in range(8)]
+    out3 = f([], set(), TODAY, many, max_add=5)
+    check("KW-08", "回补总数不超过 max_add=5", len(out3) == 5, f"got {len(out3)}")
+
+    # 独立预算（本次修复的关键决策）：回补数量只由 max_add 决定，与 raw 现有数量无关。
+    # 边缘池回补（09-14 P0-2）会先把 raw 补到 5 只；若两者共享 max_total，
+    # 重点观察池就永远拿不到配额 —— 而重点观察池正是分数新鲜度最关键的池。
+    # raw_full 用 600000-600003（与 many 前4只重叠），应被去重跳过 → 回补剩4只
+    raw_full = [mk(f"6{i:05d}", f"快筛{i}", 80, TODAY) for i in range(4)]
+    out4 = f(raw_full, {s["代码"] for s in raw_full}, TODAY, many, max_add=20)
+    check("KW-09", "独立预算：raw已4只仍回补未重叠的4只",
+          len(out4) == 4, f"got {len(out4)}")
+    # raw 用不重叠代码 → 全部8只都能回补
+    raw_other = [mk(f"6{i:05d}", f"他{i}", 80, TODAY) for i in range(8, 12)]
+    out4b = f(raw_other, {s["代码"] for s in raw_other}, TODAY, many, max_add=20)
+    check("KW-09b", "独立预算：raw代码不重叠时8只全回补",
+          len(out4b) == 8, f"got {len(out4b)}")
+
+    # max_add=0 → 不回补
+    out5 = f([mk("699999", "满", 80, TODAY)] * 5, set(), TODAY, many, max_add=0)
+    check("KW-10", "max_add=0 不回补", out5 == [])
+
+    # 已在审查候选中的标的必须跳过（去重）
+    dup = [mk("600001", "已入候选", 80, "2026-09-01"),
+           mk("600002", "未入候选", 80, "2026-09-01")]
+    out6 = f([mk("600001", "x", 80, TODAY)], {"600001"}, TODAY, dup, max_add=5)
+    check("KW-18", "max_add 去重生效：已入候选的跳过",
+          [s["代码"] for s in out6] == ["600002"], f"got {[s['代码'] for s in out6]}")
+
+    # 空重点观察池
+    check("KW-11", "重点观察池为空返回空列表", f([], set(), TODAY, []) == [])
+
+    # 日期非法字符串不崩溃
+    bad = [mk("600005", "坏日期", 80, "not-a-date")]
+    check("KW-12", "非法日期不崩溃且不回补", f([], set(), TODAY, bad) == [])
+
+    # today 非法 → 不崩溃
+    check("KW-13", "today非法不崩溃", isinstance(f([], set(), "bad", kw), list))
+
+    # 代码字段兼容「股票代码」
+    alt = [{"股票代码": "600006", "名称": "别名", "综合分": 80, "纳入日期": "2026-09-01"}]
+    out7 = f([], set(), TODAY, alt)
+    check("KW-14", "兼容「股票代码」字段",
+          out7 and (out7[0].get("股票代码") == "600006"))
+    check("KW-15", "无代码字段跳过", f([], set(), TODAY, [{"名称": "无代码"}]) == [])
+
+    # 自定义 max_age_days
+    out8 = f([], set(), TODAY, kw, max_age_days=1)
+    check("KW-16", "max_age_days=1 时兆易(15天)回补",
+          "603986" in [s["代码"] for s in out8])
+    out9 = f([], set(), TODAY, kw, max_age_days=30)
+    check("KW-17", "max_age_days=30 时兆易(15天)不回补",
+          "603986" not in [s["代码"] for s in out9])
+
+
+# ══════════════════════════════════════════════════════════════
+# 9. 回补集成的变量作用域隐患（existing_codes 未定义）
+# ══════════════════════════════════════════════════════════════
+def test_supplement_integration_scope():
+    """existing_codes 只在「候选池<3 的边缘池回补」块内赋值。
+
+    候选池已满 3 只时该分支不执行，变量未定义 → NameError 被外层 except
+    吞掉，导致重点观察池回补静默失效。此处复现真实代码路径验证不崩溃。
+    """
+    from review_agent import ReviewAgent
+    f = ReviewAgent._supplement_from_key_watch
+    TODAY = "2026-09-16"
+    kw = [{"代码": "603986", "名称": "兆易创新", "综合分": 84,
+           "纳入日期": "2026-09-01"}]
+
+    # 复现 _run_impl 的两条分支
+    for pool_size in (0, 2, 5, 20):   # 0/2 < 3 走边缘回补；5/20 ≥ 3 不赋值 existing_codes
+        raw = [{"代码": f"6{i:05d}", "名称": f"快筛{i}"} for i in range(pool_size)]
+        existing_codes = set() if pool_size < 3 else "UNDEFINED"
+        try:
+            _existing = {str(s.get("代码", s.get("股票代码", ""))) for s in raw}
+            out = f(raw, _existing, TODAY, kw)
+            ok = isinstance(out, list)
+        except NameError:
+            ok = False
+        check(f"KP-{pool_size}", f"候选池{pool_size}只时回补不 NameError", ok,
+              f"existing_codes={existing_codes!r}")
+
+    # 独立预算：即使 raw 已有 3 只（边缘池回补留下的），兆易仍能回补
+    raw5 = [{"代码": f"6{i:05d}", "名称": f"快筛{i}"} for i in range(3)]
+    _existing = {str(s.get("代码")) for s in raw5}
+    out = f(raw5, _existing, TODAY, kw, max_add=20)
+    check("KP-full3", "候选池满3只时兆易仍可回补（独立预算）",
+          any(s["代码"] == "603986" for s in out), f"got {[s['代码'] for s in out]}")
+
+    raw5b = [{"代码": f"6{i:05d}"} for i in range(5)]
+    out2 = f(raw5b, {s["代码"] for s in raw5b}, TODAY, kw, max_add=20)
+    check("KP-full5", "候选池满5只时兆易仍可回补（独立预算）",
+          any(s["代码"] == "603986" for s in out2), f"got {[s['代码'] for s in out2]}")
+
+
+# ══════════════════════════════════════════════════════════════
 def main():
     tests = [test_authoritative, test_trace, test_clean_confidence,
              test_extract_confidence, test_no_cross_entity, test_parse_alignment,
-             test_full_report_required]
+             test_full_report_required, test_key_watch_supplement,
+             test_supplement_integration_scope]
     for t in tests:
         try:
             t()

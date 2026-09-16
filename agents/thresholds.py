@@ -131,6 +131,9 @@ SCORE_DECAY_MAX = 15               # 衰减上限15分
 SCORE_DECAY_FLOOR = 40             # 衰减下限40分
 
 CANDIDATE_EXPIRE_DAYS = 14         # 候选池14天淘汰
+KEY_POOL_EXPIRE_DAYS = 1           # 重点观察池T+1未被审查→回补进审查候选（2026-09-16）
+                                  # 对齐 S 池 T+1 纪律：分数超过1天即为过期数据，
+                                  # 宁可重复审查也不让旧分沿用（14天会让兆易84分空转13天）
 S_POOL_EXPIRE_DAYS = 1             # S级T+1过期
 
 
