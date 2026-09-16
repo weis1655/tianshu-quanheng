@@ -240,6 +240,7 @@ def test_agents_inheritance():
 
 def test_call_llm_mock():
     """测试模拟LLM调用"""
+    import os
     from base_agent import BaseAgent
 
     class TestAgent(BaseAgent):
@@ -251,16 +252,30 @@ def test_call_llm_mock():
     # 使用mock模拟LLM响应
     mock_response = "这是一条测试响应"
 
-    with patch("requests.post") as mock_post:
-        mock_post.return_value.json.return_value = {
-            "choices": [{"message": {"content": mock_response}}]
-        }
-        mock_post.return_value.raise_for_status = MagicMock()
+    # 必须提供 API Key：sensenova 后端在 requests.post 之前会因缺 key
+    # 提前 return "[SenseNova: API Key 未配置]"，导致 requests.post 的 mock
+    # 永远不被触发（2026-09-16 实测 mock.called=False，断言恒假）。
+    old_key = os.environ.get("SENSENOVA_API_KEY")
+    os.environ["SENSENOVA_API_KEY"] = "test-key-for-mock"
+    try:
+        with patch("requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {
+                "choices": [{"message": {"content": mock_response}}]
+            }
+            mock_post.return_value.raise_for_status = MagicMock()
 
-        result = agent.call_llm("测试提示", max_tokens=100)
+            result = agent.call_llm("测试提示", max_tokens=100)
 
-        assert result == mock_response
-        assert agent.stats["llm_calls"] == 1
+            # 断言 mock 确实被调用：若后端切换或缺 key，mock.called 会变 False，
+            # 此时 result 是 fallback 文本而非 mock_response，测试应失败而非静默通过
+            assert mock_post.called, "requests.post 未被调用：后端切换或缺 API Key"
+            assert result == mock_response
+            assert agent.stats["llm_calls"] == 1
+    finally:
+        if old_key is None:
+            os.environ.pop("SENSENOVA_API_KEY", None)
+        else:
+            os.environ["SENSENOVA_API_KEY"] = old_key
 
     print("✅ test_call_llm_mock")
 
