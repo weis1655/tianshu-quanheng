@@ -28,7 +28,9 @@ from logger import StructuredLogger
 from pool_manager import PoolManager
 from review_scorer import OverheatDetector
 from schemas import ReviewOutput, ReviewResult, StockReview, DimensionScore
-from thresholds import AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE, ML_LOW_CONFIDENCE, score_to_level
+from thresholds import (AUTO_DOWNGRADE_SCORE, SCORE_C_LEVEL, YELLOW_ALERT_MIN,
+                        DECISION_MIN_SCORE, SCORE_A_LEVEL, INTRADAY_OVERHEAT_MIN_SCORE,
+                        ML_LOW_CONFIDENCE, KEY_POOL_EXPIRE_DAYS, score_to_level)
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -237,6 +239,27 @@ class ReviewAgent(BaseAgent):
                         break
             except Exception as e:
                 plog("INFO", f"[ReviewAgent] ⚠️ 边缘池回补失败(不影响主流程): {e}")
+
+        # ── P0(2026-09-16): 重点观察池滞留标的回补 — 审查候选覆盖缺口 ──
+        # 兆易创新(603986) 升入重点观察池后不在任何审查来源内（∉快筛池 ∉边缘池），
+        # 84分(9-15)永久沿用 → 下游误判为「池内缓存分」→ 评分串味事故。
+        # 只回补滞留超期的标的，当日已被快筛覆盖的不重复进。
+        try:
+            _kw = self.pool_manager.load_pool("重点观察池")
+            _kw_stocks = _kw.get("stocks", []) if isinstance(_kw, dict) else []
+            # existing_codes 只在上方「候选池<3 的边缘池回补」块内赋值；
+            # 当候选池已满 3 只时该分支不执行，变量未定义 → NameError
+            # 会被外层 except 吞掉，导致回补静默失效。此处本地初始化兜底。
+            _existing = {str(s.get("代码", s.get("股票代码", ""))) for s in raw}
+            _supp = self._supplement_from_key_watch(
+                raw, _existing, today, _kw_stocks)
+            if _supp:
+                raw.extend(_supp)
+                plog("WARNING",
+                     f"[ReviewAgent] ⚠️ 重点观察池回补 {len(_supp)} 只滞留标的（此前不在审查来源内）: "
+                     + ", ".join(f"{s.get('名称','?')}({s.get('代码','')})" for s in _supp[:5]))
+        except Exception as e:
+            plog("INFO", f"[ReviewAgent] ⚠️ 重点观察池回补失败(不影响主流程): {e}")
 
         # 行情只拉一次，复用给两个方法
         qmap = {}
@@ -564,19 +587,27 @@ class ReviewAgent(BaseAgent):
         # ═══ P1修复(09-15)：将审查评分回写到候选池JSON ═══
         # 问题：Screen阶段写入初始综合分，Review重评后不回写→PoolManager降级判定用旧分
         try:
-            _pool = self.pool_manager.load_pool("快筛候选池")
             _updated = 0
-            for stock in _pool.get("stocks", []):
-                _code = str(stock.get("代码", ""))
-                for sr in review_result.stocks:
-                    if str(sr.code) == _code:
-                        stock["综合分"] = sr.composite_score
-                        stock["审查日期"] = datetime.now().strftime("%Y-%m-%d")
-                        _updated += 1
-                        break
+            _dirty = []
+            # P0(2026-09-16): 重点观察池同样回写 — 回补的滞留标的若只进候选池不回写，
+            # 次日仍会以旧分滞留，回补形同虚设
+            for _pool_name in ("快筛候选池", "重点观察池"):
+                _pool = self.pool_manager.load_pool(_pool_name)
+                _pool_updated = 0
+                for stock in _pool.get("stocks", []):
+                    _code = str(stock.get("代码", ""))
+                    for sr in review_result.stocks:
+                        if str(sr.code) == _code:
+                            stock["综合分"] = sr.composite_score
+                            stock["审查日期"] = datetime.now().strftime("%Y-%m-%d")
+                            _pool_updated += 1
+                            break
+                if _pool_updated > 0:
+                    self.pool_manager.save_pool(_pool_name, _pool)
+                    _updated += _pool_updated
+                    _dirty.append(f"{_pool_name}{_pool_updated}只")
             if _updated > 0:
-                self.pool_manager.save_pool("快筛候选池", _pool)
-                plog("INFO", f"[ReviewAgent] 📝 候选池综合分已回写: {_updated}只标的")
+                plog("INFO", f"[ReviewAgent] 📝 审查分已回写: {', '.join(_dirty)}，共{_updated}只标的")
         except Exception as _sw_err:
             plog("WARNING", f"[ReviewAgent] 候选池评分回写异常: {_sw_err}")
         # ════════════════════════════════════════════════════════════════════════
@@ -950,6 +981,58 @@ class ReviewAgent(BaseAgent):
     # （不再依赖6种regex兜底，LLM应输出规范格式）
     # ─────────────────────────────────────────
     @staticmethod
+    def _supplement_from_key_watch(raw: list, existing_codes: set, today: str,
+                                   key_watch_stocks: list, max_add: int = 20,
+                                   max_age_days: int = KEY_POOL_EXPIRE_DAYS) -> list:
+        """把滞留的重点观察池标的回补进审查候选（P0，2026-09-16）。
+
+        根因：审查候选只来自 快筛候选池 ∪ 边缘池回补，重点观察池完全不在来源内。
+        兆易创新(603986) 9-15 升入重点观察池后，快筛池因 fs_hist≠今日清空、
+        兆易∉边缘池 → 永远进不了审查候选 → 84 分(9-15)只能永久沿用，
+        且下游决策层把它当成「池内缓存分」误判，触发评分串味事故。
+
+        规则：
+        - 仅回补滞留 > max_age_days 天的重点观察池标的（默认 T+1）
+        - 当日已被快筛池覆盖的标的跳过（避免与快筛主路径冲突）
+        - 已存在的 code 跳过
+        - 回补数量上限 max_add，**独立于边缘池回补配额**
+
+        为什么独立预算：边缘池回补（09-14 P0-2）会先把 raw 补到 5 只，
+        若两者共享 max_total，重点观察池就永远拿不到配额 —— 而重点观察池
+        恰恰是分数新鲜度最关键的池（兆易事故正是发生在这里）。
+        上限取 20 = 重点观察池容量上限，等于「全量覆盖」，实际不设限。
+
+        本函数为纯函数，便于单测。
+        """
+        # 注意：不用 `if not raw` 判断 —— 回补的常见前提就是 raw 为空
+        # （9-16 快筛池因 fs_hist≠今日被清空至 0 只，兆易正是此时应被回补）
+        if max_add <= 0:
+            return []
+        today_d = None
+        try:
+            today_d = datetime.strptime(today, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            today_d = datetime.now()
+        out = []
+        for s in key_watch_stocks:
+            if len(out) >= max_add:
+                break
+            code = str(s.get("代码") or s.get("股票代码") or "").strip()
+            if not code or code in existing_codes:
+                continue
+            entry = str(s.get("纳入日期") or "")
+            try:
+                age = (today_d - datetime.strptime(entry, "%Y-%m-%d")).days
+            except (ValueError, TypeError):
+                age = -1
+            if age < max_age_days:
+                continue
+            out.append(s)
+            plog("INFO", f"[ReviewAgent] 🔁 重点观察池回补: "
+                         f"{s.get('名称','?')}({code}) 分{s.get('综合分','?')} 滞留{age}天→审查候选")
+        return out
+
+    @staticmethod
     def _extract_confidence(block: str, fallback_score=None) -> str:
         """从审查文本块提取信心度描述（修复 2026-09-16「高」字丢失）。
 
@@ -1178,6 +1261,8 @@ class ReviewAgent(BaseAgent):
                     note = note_m.group(1).strip() if note_m else ""
                     dims.append(DimensionScore(dimension=dim_name, score=s, note=note))
             return dims
+
+        _extract_confidence = self._extract_confidence  # P0-20260916: 绑定类静态方法到局部名
 
         def _extract_flow(block: str) -> tuple[str, str]:
             """提取流转方向和目标池"""
