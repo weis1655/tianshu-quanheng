@@ -513,11 +513,76 @@ def test_supplement_integration_scope():
 
 
 # ══════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
+# 12. 裸名调用守门 — _parse_review_result / _parse_review_result_v2
+#     锁定 P0-20260916 事故：静态方法 _extract_confidence 在调用处用裸名，
+#     作用域内不存在 → NameError；且 _apply_pool_updates 外层无 try，
+#     NameError 直接炸穿 review 阶段（此前回归测试未覆盖该路径）。
+# ══════════════════════════════════════════════════════════════
+def test_no_bare_name_call():
+    """两个解析方法必须都能走到 _extract_confidence 并正确解出「高」字。
+
+    事故经过：b8109c7 统一改调用点时写成裸名 `_extract_confidence(block)`，
+    而 `_extract_confidence` 是 @staticmethod、绑定语句只加在 v2 方法内，
+    v1 的 `_parse_review_result` 里该名字根本不存在 → NameError。
+    并行进程（2e2222d）只修了 v2，v1 一直裸奔。
+
+    本用例是守门：若未来任何地方再引入同类裸名调用，解析会抛 NameError，
+    此处直接 FAIL（而不是像之前那样测试全绿却生产崩溃）。
+    """
+    sample = (
+        "## 603986 兆易创新\n"
+        "- 综合评分: 84\n"
+        "- 信心度: 高信心度，逻辑通顺，强烈建议关注\n"
+        "- 驱动验证: 85分 | 半导体国产替代+AI算力需求\n"
+        "- 位置分析: 75分 | 368.59元高位\n"
+        "- 量能验证: 72分 | 量比1.09\n"
+        "- 风险控制: 85分 | 风险可控\n"
+        "- 流转方向: → 升级 操作池\n"
+    )
+    # 两个解析方法均为纯函数式（不写池）；此处以哈希校验防御未来改动引入池写入
+    pool_f = Path("五池管理/重点观察池.json")
+    import hashlib
+    before = hashlib.md5(pool_f.read_bytes()).hexdigest()
+
+    ra = ReviewAgent()
+
+    # v1 路径：事故点。修复前此处 NameError（且 _apply_pool_updates 外层无 try → 炸穿 review）
+    try:
+        r1 = ra._parse_review_result(sample)
+        conf1 = (r1 or {}).get("603986", {}).get("信心度") if isinstance(r1, dict) else None
+        check("NS-01", "_parse_review_result 不抛 NameError", True)
+        check("NS-02", "v1 信心度解出「高」字",
+              conf1 is not None and "高" in conf1, f"got {conf1!r}")
+    except NameError as e:
+        check("NS-01", "_parse_review_result 不抛 NameError", False, f"NameError: {e}")
+    except Exception as e:
+        check("NS-01", "_parse_review_result 不抛 NameError", False,
+              f"{type(e).__name__}: {e}")
+
+    # v2 路径：并行进程已修，此处验证未被回归
+    try:
+        r2 = ra._parse_review_result_v2(sample)
+        conf2 = r2.stocks[0].confidence if (r2 and r2.stocks) else None
+        check("NS-03", "_parse_review_result_v2 不抛 NameError", True)
+        check("NS-04", "v2 信心度解出「高」字",
+              conf2 is not None and "高" in conf2, f"got {conf2!r}")
+    except NameError as e:
+        check("NS-03", "_parse_review_result_v2 不抛 NameError", False, f"NameError: {e}")
+    except Exception as e:
+        check("NS-03", "_parse_review_result_v2 不抛 NameError", False,
+              f"{type(e).__name__}: {e}")
+
+    # 池未被动过
+    after = hashlib.md5(pool_f.read_bytes()).hexdigest()
+    check("NS-05", "解析不写池（哈希不变）", before == after)
+
+
 def main():
     tests = [test_authoritative, test_trace, test_clean_confidence,
              test_extract_confidence, test_no_cross_entity, test_parse_alignment,
              test_full_report_required, test_key_watch_supplement,
-             test_supplement_integration_scope]
+             test_supplement_integration_scope, test_no_bare_name_call]
     for t in tests:
         try:
             t()

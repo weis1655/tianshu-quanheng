@@ -1214,7 +1214,9 @@ class ReviewAgent(BaseAgent):
                 plog("WARNING",
                      f"[ReviewAgent] ⚠️ 评分提取失败: {name}({code}) 所有正则模式均未命中，默认score=0")
             # 信心度（统一走 _extract_confidence，修复「高」字丢失）
-            confidence = _extract_confidence(block)
+            # P0-20260916：裸名 _extract_confidence 在 _parse_review_result 作用域内不存在
+            # （静态方法未绑定到局部名）→ NameError，且调用链外层无 try → review 阶段崩溃
+            confidence = self._extract_confidence(block)
             # 核心逻辑
             logic_parts = []
             for dim, pat in [
@@ -1261,8 +1263,6 @@ class ReviewAgent(BaseAgent):
                     note = note_m.group(1).strip() if note_m else ""
                     dims.append(DimensionScore(dimension=dim_name, score=s, note=note))
             return dims
-
-        _extract_confidence = self._extract_confidence  # P0-20260916: 绑定类静态方法到局部名
 
         def _extract_flow(block: str) -> tuple[str, str]:
             """提取流转方向和目标池"""
@@ -1390,7 +1390,7 @@ class ReviewAgent(BaseAgent):
                             plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
 
             # 信心度（统一走 _extract_confidence，修复「高」字丢失）
-            confidence = _extract_confidence(block, score)
+            confidence = self._extract_confidence(block, score)
 
             # 流转方向
             flow_dir, target_pool = _extract_flow(block)
