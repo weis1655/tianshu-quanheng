@@ -486,6 +486,11 @@ def print_pool_status(pools: dict):
 def main():
     global LLM_CALL_COUNT
 
+    # C: 全流程看门狗（09-18）— 记录启动时刻，后续各阶段判断累计耗时
+    _run_started_at = time.time()
+    _run_start_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[Cron看门狗] ⏱️ full_cycle 启动 @ {_run_start_str}")
+
     # 解析命令行参数
     phase_arg = sys.argv[1] if len(sys.argv) > 1 else None
 
@@ -1230,13 +1235,21 @@ def main():
                 record_failure("decision")
             else:
                 # RPM 限流节流：skeptic→decision 间隔
+                print(f"[Decision调度] ⏳ Skeptic完成，等待{LLM_THROTTLE_SECONDS}s后进入Decision阶段（09-18 B项日志）")
                 time.sleep(LLM_THROTTLE_SECONDS)
                 pools = orch.get_pools()
                 if not check_circuit_breaker("decision"):
                     print(f"[熔断器] ⛔ decision 熔断，跳过")
                     r_decision = {}
                 else:
-                    r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
+                    print(f"[Decision调度] ▶️ 进入Decision阶段（LLM调用即将发起）")
+                    # D: 异常兜底（09-18）— Decision 阶段任何异常都不影响主流程返回
+                    try:
+                        r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
+                        print(f"[Decision调度] ✅ Decision阶段返回，success={r_decision.get('success') if isinstance(r_decision,dict) else 'N/A'}")
+                    except Exception as _d_exc:
+                        print(f"[Decision调度] ❌ Decision阶段异常: {type(_d_exc).__name__}: {_d_exc}")
+                        r_decision = {"success": False, "error": f"决策阶段异常: {_d_exc}"}
                 if _graceful_shutdown:
                     print("[守护] 已中断")
                     return results
@@ -1345,6 +1358,10 @@ def main():
     # 打印结果摘要
     print(f"\n{'='*50}")
     print(f"✅ 执行完成 | 本次LLM调用: {LLM_CALL_COUNT}次")
+    if phase == "full_cycle":
+        _elapsed = time.time() - _run_started_at
+        _end_str = datetime.now().strftime('%H:%M:%S')
+        print(f"[Cron看门狗] 🏁 full_cycle 完成 @ {_end_str} | 累计耗时 {_elapsed:.1f}s (启动 {_run_start_str})")
     print(f"{'='*50}")
 
     # ── 五池健康审计 ──────────────────────────────────────

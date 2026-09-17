@@ -1071,8 +1071,25 @@ class DecisionAgent(BaseAgent):
 - **重点观察池**: {kw_count}只持续跟踪中
 - **报告说明**: 本报告标的均来自S级操作池和重点观察池，池外推荐不展示
 ---
-决策执行时间：{datetime.now().strftime('%H:%M')}
+决策执行时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
+
+        # ── A: 阶段完成时刻表（09-18 加）─────────────────────────
+        # 报告生成时刻+上游四阶段完成时刻，便于跨cron排查时间戳异常
+        try:
+            from pathlib import Path as _P
+            phase_files = ["宏观前置分析", "技术面分析", "快筛报告", "审查报告", "质疑审查报告"]
+            phase_lines = []
+            for fn in phase_files:
+                pf = self.history_dir / f"{today}_{fn}.md"
+                if pf.exists():
+                    mt = _P(pf).stat().st_mtime
+                    ts = datetime.fromtimestamp(mt).strftime('%H:%M:%S')
+                    phase_lines.append(f"  - {fn}: {ts}")
+            if phase_lines:
+                report += "\n---\n📊 本次上游阶段完成时刻（用于cron 排查）:\n" + "\n".join(phase_lines) + "\n"
+        except Exception:
+            pass  # 时刻表加载失败不影响主流程
 
         # ── P0(2026-09-16): 保存前分数溯源核对 ──
         # 报告里写出的每个分数必须能在权威来源找到对应标的的行，
@@ -1136,7 +1153,7 @@ class DecisionAgent(BaseAgent):
                 f"- **S级操作池**: {s_pool_today}只今日主推标的\n"
                 f"- **重点观察池**: {kw_count}只持续跟踪中\n"
                 f"---\n"
-                f"决策执行时间：{datetime.now().strftime('%H:%M')}\n"
+                f"决策执行时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             )
             self.safe_write_text(out_file, fallback_report)
             plog("INFO", f"[DecisionAgent] ✅ 已替换为空仓报告：{out_file}")
