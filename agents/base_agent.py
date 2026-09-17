@@ -163,6 +163,7 @@ class BaseAgent(ABC):
         text = _re.sub(r"</think>", "", text)
 
         # 2. 自我对话式元思考：仅删除"整行"是元思考的（避免误删正文）
+        # 注：09-17 后英文清洗集中在下方 en_pats，中文沿用原有 meta_line_patterns
         meta_line_patterns = [
             r"^\s*(?:那么|现在)?[，,]?\s*让我(?:来)?(?:思考|考虑|分析|重新审视|检查一下|输出|继续|开始|先)",
             r"^\s*但是[，,]\s*我还需要",
@@ -172,15 +173,6 @@ class BaseAgent(ABC):
             r"^\s*我需要(?:先|基于|理解)",
             r"^\s*让我基于",
             r"^\s*接下来[，,]?\s*我(?:将|会|来)",
-            # 英文元思考句式（09-09实测32句全是英文，原中文模式完全拦不住）
-            r"^\s*let\s+me\b",
-            r"^\s*i\s+(?:will|should|need\s+to|am\s+gonna|i\s+(?:realize|decide|plan|think|believe))",
-            r"^\s*i\s+i(?:realize|think|decide|plan)",
-            r"^\s*(?:wait|actually|so)[,\.]?\s+(?:i\s+|we\s+|let\s)",
-            r"^\s*(?:ok|okay)[,\.]?\s+(?:i\s+|let\s+me|so)",
-            r"^\s*(?:now|next|then)\s+let\s+me\b",
-            r"^\s*i'\s?ll\s+",
-            r"^\s*let's\b",
         ]
         lines = []
         for line in text.split("\n"):
@@ -188,21 +180,45 @@ class BaseAgent(ABC):
             if not stripped:
                 lines.append(line)
                 continue
-            # 英文元思考句式（IGNORECASE，且限于09-09实测的思维链动词，避免误伤正文）
+            # 09-17 补充：LLM 输出中 CoT 常被 markdown 列表前缀包裹（"- Wait..."、"  - Actually..."、"1. Let me..."），
+            # 剥掉前缀再匹配，让元思考识别不被列表结构打断。
+            probe = _re.sub(r"^(?:[-*+•]\s+|\d+[\.、)]\s*)", "", stripped)
+            # 英文元思考句式（09-17升级）：
+            #  - 原模式是"整行删除+长度守卫"，对"英文CoT开头+业务后续"的混合行漏拦
+            #  - 新增：hmm/actually/wait/oh 开头；"let me <任意动词>"通配；宣告式短语
+            #  - 阈值：en 180 / zh 80（放宽以覆盖混合长行，同时保守避免误删）
             en_pats = [
-                r"^\s*let\s+me\s+(?:analyze|check|formulate|reconsider|calculate|finalize|go\s+through|also\s+consider|re[_-]?read|also\s+check|be\s+careful|work\s+with|also\s+look|look\s+at|determine|plan|review|score)",
-                r"^\s*i\s+(?:will|should|need\s+to|am\s+gonna|i\s+(?:realize|decide|plan|think|believe))",
-                r"^\s*(?:wait|actually|so)[,\.]?\s+(?:i\s+|we\s+|let\s)",
-                r"^\s*(?:ok|okay)[,\.]?\s+(?:i\s+|let\s+me|so)",
-                r"^\s*(?:now|next|then)\s+let\s+me\b",
+                # let me <任意动词短语>（覆盖 think/re-read/reconsider/calculate 等原清单外词）
+                r"^\s*let\s+me\b",
+                # hmm / wait / actually / oh 开头
+                r"^\s*hmm[,\.\s]",
+                r"^\s*wait[,\.\s]",
+                r"^\s*actually[,\.\s]",
+                r"^\s*oh[,\.\s]",
+                # 常见宣告式短语（09-17 报告实测）
+                r"^\s*so\s+the\s+final\s+output",
+                r"^\s*so\s+the\s+only\s+stock",
+                r"^\s*this\s+suggests",
+                r"^\s*i\s+realize",
+                r"^\s*i\s+decide",
+                r"^\s*i\s+plan",
+                r"^\s*i\s+believe",
+                r"^\s*i\s+think",
+                r"^\s*i\s+(?:will|should|need\s+to|am\s+gonna)",
+                r"^\s*(?:ok|okay)[,\.\s]",
+                # now/next/then 后接标点或空格再接 let me（修 09-17 遗留：'Now, let me' 之前漏拦）
+                r"^\s*(?:now|next|then)[,\.\s]+let\s+me\b",
+                r"^\s*(?:now|next|then):",
                 r"^\s*i'\s?ll\s+",
                 r"^\s*let's\b",
+                # 英文冒号式宣告兜底："So the..." / "So only..."
+                r"^\s*(?:so|so,)\s+(?:the|only|final|this|for)\b",
             ]
-            if any(_re.match(p, stripped, _re.IGNORECASE) for p in en_pats):
-                if len(stripped) <= 120:
+            if any(_re.match(p, probe, _re.IGNORECASE) for p in en_pats):
+                if len(stripped) <= 180:
                     continue
-            # 中文元思考：维持原模式 + 60字符保守守卫
-            if any(_re.match(p, stripped) for p in meta_line_patterns) and len(stripped) <= 60:
+            # 中文元思考：维持原模式 + 80字符保守守卫（放宽以覆盖混合长行）
+            if any(_re.match(p, probe) for p in meta_line_patterns) and len(stripped) <= 80:
                 continue
             lines.append(line)
         text = "\n".join(lines)

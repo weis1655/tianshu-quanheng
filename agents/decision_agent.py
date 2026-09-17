@@ -115,7 +115,9 @@ ROLE_PROMPT = """你是一个短线交易决策专家，专门为盟主制定完
 1. ⛔ **禁止输出推理过程**：不要出现"让我考虑""但是，我还需要考虑""让我重新审视""现在，让我输出"等元思考/自我对话式内容。直接输出交易方案。
 2. ⛔ **禁止自我重复**：同一论点（如"评分≥75分才能执行"）只出现一次，出现一次即停止讨论。已经确认过的条件不要再反复确认。
 3. ✅ **直接输出**：基于已有信息做最优判断，不需要反复确认信息完整性。
-4. ✅ **格式约束**：每只股票的方案严格遵循下方```格式，精确填写每个字段。"""
+4. ✅ **格式约束**：每只股票的方案严格遵循下方```格式，精确填写每个字段。
+5. ⛔ **禁止英文推理句式**：不要出现 "Let me think" / "Wait, let me" / "Hmm, but" / "Actually, let me" / "So the final output" / "Now, let me" / "I should" / "I need to" 等任何英文元思考、自我对话或计划宣告式句子。若必须推理，请在生成最终回答前完成，不要写入输出。
+6. ✅ **第一行强制约束**：第一行必须是 `### 【主推】股票名称（代码）` 或 `今日暂无通过审查的股票，建议空仓等待`，不得有任何铺垫、导语或元思考前置。"""
 
 
 USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票制定完整执行方案：
@@ -804,7 +806,7 @@ class DecisionAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-            max_tokens=4500
+            max_tokens=9000
         )
         # 任务②: 抑制思维链外露——剥离LLM输出中的元思考/自我对话残留
         result = self.strip_chain_of_thought(result)
@@ -816,7 +818,7 @@ class DecisionAgent(BaseAgent):
         main_blocks = len([1 for l in result.split("\n") if "【主推】" in l])
         cand_n = len(scored_stocks) if scored_stocks else 0
         try:
-            cot_hits = sum(1 for kw in ["let me analyze", "let me check", "let me formulate", "let me also", "i should", "i need to", "i will", "let me finalize", "let me work"] if kw in result.lower())
+            cot_hits = sum(1 for kw in ["let me analyze", "let me check", "let me formulate", "let me also", "i should", "i need to", "i will", "let me finalize", "let me work", "let me think", "let me reconsider", "let me re-read", "let me calculate", "wait, let me", "hmm, but", "actually, let me", "now, let me", "so the final output", "let me also think", "let me also check", "let me also look", "i realize", "i decide", "i plan", "i believe"] if kw in result.lower())
             self.logger.info("decision_coverage_check",
                             main_blocks=main_blocks, candidate_stocks=cand_n,
                             cot_hits=cot_hits, result_len=len(result))
