@@ -229,6 +229,14 @@ def test_trace():
         dup = ss.trace_decision_scores(
             "兆易创新（603986）45分\n兆易创新（603986）45分", auth_a)
         check("TS-13", "同一 code 只上报一次", len(dup) == 1, f"got {len(dup)}")
+
+        # P4-3: 仅名称无代码，应从权威源按 name 反查 code 后比对
+        # 场景：LLM 决策报告可能只写「兆易创新综合评分 45分」不带括号代码
+        r5 = ss.trace_decision_scores("兆易创新综合评分 45分", auth_a)
+        check("TS-14", "仅名称声明 → 权威源 name 反查 code 后比对",
+              r5 and r5[0]["code"] == "603986" and r5[0]["declared"] == 45
+              and r5[0]["authoritative"] == 84 and r5[0]["valid"] is False,
+              f"got {r5}")
     finally:
         shutil.rmtree(tmp)
 

@@ -201,6 +201,15 @@ def trace_decision_scores(decision_text: str, authoritative: dict) -> list:
     #           （2026-09-16 真实漏报形态：括号里是分数而非6位代码）
     pat_a = re.compile(r"([\u4e00-\u9fa5]{2,10})\s*[（(]\s*(\d{6})\s*[）)]\s*[^\n]{0,60}?(\d{2,3})\s*分")
     pat_b = re.compile(r"([\u4e00-\u9fa5]{2,10})\s*[（(]\s*(\d{2,3})\s*分\s*[）)]")
+    # P4-3: 形式C「兆易创新综合评分 45分」——无括号代码
+    # 用白名单驱动的正则避免贪婪匹配把「兆易创新综合评分」整块当 name
+    # 每个 authoritative.name 构造一个专属 pattern，精确匹配「名称+中间文字+分数」
+    _auth_names_to_code = {v.get("name", ""): c for c, v in authoritative.items()
+                           if isinstance(v, dict) and v.get("name")}
+    pat_c_list = [
+        re.compile(r"(" + re.escape(n) + r")[^\n]{0,30}?(\d{2,3})\s*分")
+        for n in _auth_names_to_code if len(n) >= 2
+    ]
 
     # P1-评分溯源: 排除「系统提示」「本报告提示」「提示」等元叙述前缀，
     # 防止 LLM 幻觉「系统提示浪潮信息(000977)审查评分≥75分」被误识别为标的声明。
@@ -240,6 +249,34 @@ def trace_decision_scores(decision_text: str, authoritative: dict) -> list:
                 issue = "" if valid else f"声明{declared}分≠权威{auth_score}分{tail}"
             issues.append({
                 "code": code, "name": name or (auth or {}).get("name", "?"),
+                "declared": declared, "authoritative": auth_score,
+                "source": src, "valid": valid, "issue": issue,
+            })
+
+    # P4-3: pat_c 处理纯名称无代码的形式，白名单驱动的正则构建，防误报
+    for pat_c in pat_c_list:
+        for m in pat_c.finditer(decision_text):
+            name = m.group(1)
+            code = _auth_names_to_code.get(name)
+            if code is None or code in seen:
+                continue
+            seen.add(code)
+            declared = _clip(m.group(2))
+            if declared is None:
+                continue
+            auth = authoritative.get(code)
+            auth_score = auth.get("score") if auth else None
+            src = auth.get("source", "none") if auth else "none"
+            if auth is None:
+                valid, issue = False, "当日审查报告无此标的，分数来源不明（疑似跨标的套用）"
+            elif auth_score is None:
+                valid, issue = False, "权威分缺失（解析失败），无法核对"
+            else:
+                valid = declared == auth_score
+                tail = "（池内缓存分，非当日审查）" if auth.get("stale") else ""
+                issue = "" if valid else f"声明{declared}分≠权威{auth_score}分{tail}"
+            issues.append({
+                "code": code, "name": name,
                 "declared": declared, "authoritative": auth_score,
                 "source": src, "valid": valid, "issue": issue,
             })

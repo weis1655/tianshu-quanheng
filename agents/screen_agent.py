@@ -17,7 +17,8 @@ Screen Agent - 快筛 Agent（重构版）
 import json
 import re
 import sys
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timedelta
 from logger import plog
 
 # P1: 实时行情数据导入（使涨幅数据可提取）
@@ -38,6 +39,108 @@ sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 from path_config import ensure_agent_paths; ensure_agent_paths()
 
 from market_agent import fetch_quotes, calculate_technical_score, to_api
+
+# ── 板块归类规则 ─────────────────────────────────────────────
+# 顺序即优先级：先匹配先返回。地产规则放最前，避免"招商蛇口"被"招商"误归为银行。
+# 覆盖 trigger.py 与 sector_rotation 已识别的核心板块 + 09-18 快筛候选池真实股票。
+SECTOR_RULES = [
+    ("地产", (
+        "保利", "招商蛇口", "招商地产", "滨江集团", "华发", "万科", "金地",
+        "华润置地", "中海", "绿城", "新城控股", "雅居乐", "碧桂园",
+    )),
+    ("光模块", (
+        "光模块", "光通信", "光器件", "中际旭创", "天孚", "新易盛", "光迅", "长芯",
+    )),
+    ("半导体", (
+        "半导体", "芯片", "晶圆", "中芯", "联电", "台积电", "封测", "DRAM",
+        "NAND", "中微", "沪电", "北方华创", "拓荆", "芯原", "芯海", "芯源",
+        "兆易创新", "韦尔", "卓胜", "澜起", "海光", "紫光", "晶盛", "沪硅",
+        "士兰微", "时代电气", "长鑫", "华虹", "立昂微", "三环", "中环",
+    )),
+    ("黄金", (
+        "黄金", "金矿", "紫金", "中金黄金", "山东黄金",
+    )),
+    ("新能源", (
+        "新能源", "动力电池", "锂", "电池", "宁德", "国轩", "比亚迪", "特斯拉",
+        "新能", "亿纬", "天赐", "天齐", "赣锋", "璞泰来", "恩捷",
+    )),
+    ("AI", (
+        "AI", "人工智能", "算力", "服务器", "数据中心", "浪潮", "润泽", "曙光", "中科",
+    )),
+    ("银行", (
+        "银行", "交行", "建行", "招行", "工商", "农业", "中行", "民生", "兴业", "浦发",
+    )),
+    ("医药", (
+        "医药", "生物", "药", "制药", "创新药", "恒瑞", "药明", "迈瑞", "复宏",
+    )),
+]
+
+
+def classify_sector(name: str) -> str:
+    """按名称归类板块（顺序即优先级；未匹配返回 '其他'）。"""
+    if not name:
+        return "其他"
+    for sector, keywords in SECTOR_RULES:
+        for kw in keywords:
+            if kw in name:
+                return sector
+    return "其他"
+
+
+def _load_max_per_sector() -> int:
+    """从 config.yaml 读取 quick.max_per_sector（默认 3）。"""
+    try:
+        import yaml
+        cfg = yaml.safe_load(open(PROJECT_ROOT / "config.yaml", encoding="utf-8"))
+        val = (cfg or {}).get("screening", {}).get("quick", {}).get("max_per_sector", 3)
+        return int(val)
+    except Exception:
+        return 3
+
+
+def enforce_sector_quota(stocks: list, max_per_sector: int) -> list:
+    """板块配额硬校验：超过 max_per_sector 的板块按 (S级优先, 综合分降序) 保留 top-k。
+
+    - 补齐 "板块" 字段（若缺失）
+    - S 级驱动排在同板块综合分之上，确保强制保留
+    - 被丢弃的标的用 plog 记录
+    """
+    if max_per_sector <= 0 or not stocks:
+        return stocks
+
+    # 补齐板块字段（保持向后兼容：新字典直接带，旧字典走 classify）
+    for s in stocks:
+        s.setdefault("板块", classify_sector(s.get("名称", "")))
+
+    by_sector: dict = {}
+    for s in stocks:
+        by_sector.setdefault(s["板块"], []).append(s)
+
+    kept = []
+    dropped = []
+    for sec, items in by_sector.items():
+        if len(items) <= max_per_sector:
+            kept.extend(items)
+            continue
+
+        def _key(s):
+            is_s = 1 if (s.get("驱动级别") or "").upper() == "S" else 0
+            score = s.get("综合分") or 0
+            return (is_s, score)
+
+        items_sorted = sorted(items, key=_key, reverse=True)
+        kept.extend(items_sorted[:max_per_sector])
+        dropped.extend(items_sorted[max_per_sector:])
+
+    if dropped:
+        dropped_desc = [
+            f"{s.get('名称','?')}({s.get('板块','?')},综合分={s.get('综合分')})"
+            for s in dropped
+        ]
+        plog("INFO",
+             f"[ScreenAgent] 🚫 板块配额硬校验: 每板块≤{max_per_sector}，"
+             f"丢弃 {len(dropped)} 只 - {dropped_desc}")
+    return kept
 
 ROLE_PROMPT = """你是一个短线选股专家，根据新闻驱动筛选股票。
 
@@ -534,6 +637,10 @@ class ScreenAgent(BaseAgent):
                 "更新时间": q.get("更新时间", datetime.now().strftime("%H:%M")),
                 # P1: 技术面评分
                 "综合分": tech_score_val,
+                # 驱动级别（供板块配额 S 级优先保留判定使用）
+                "驱动级别": driver_level,
+                # 板块归类（供板块配额硬校验使用）
+                "板块": classify_sector(name),
             })
 
         # 读取现有数据
@@ -546,7 +653,9 @@ class ScreenAgent(BaseAgent):
             "统计": {"创建日期": datetime.now().strftime("%Y-%m-%d"), "累计进入": 0}
         })
 
-        # ── P1-1：48小时重复筛选防护 ──────────────────────────
+        # ── P1-1：48小时重复筛选防护（P4-1 分级豁免）──────────────────
+        # 原逻辑无条件 continue，即使本次驱动级别从 B 升到 S 也会被拦。
+        # 修复：S 级驱动强制放行，A 级驱动仅当历史分数较低时放行，B 级及以下维持 48h 硬拦截。
         today = datetime.now()
         all_existing = data.get("stocks", [])
         existing_codes = {s.get("代码", s.get("股票代码", "")) for s in all_existing}
@@ -558,9 +667,38 @@ class ScreenAgent(BaseAgent):
             fast_history = data.get("_fast_screen_history", {})
             last_seen = fast_history.get(s["代码"])
             if last_seen:
-                last_date = datetime.strptime(last_seen, "%Y-%m-%d")
-                if (today - last_date).days < 2:
-                    continue  # 48小时内已筛过，跳过
+                # history 值可能是纯日期(str) 或 dict({"date":..., "score":...})，兼容旧格式
+                if isinstance(last_seen, dict):
+                    last_date_str = last_seen.get("date", "")
+                    hist_score = last_seen.get("score") or 0
+                else:
+                    last_date_str = str(last_seen)
+                    hist_score = 0
+                if last_date_str:
+                    try:
+                        last_date = datetime.strptime(last_date_str[:10], "%Y-%m-%d")
+                    except ValueError:
+                        last_date = today - timedelta(days=999)
+                    if (today - last_date).days < 2:
+                        # P4-1: 分级豁免判断（driver_level 从 reason_map 取，因为 new_stocks 本身不带驱动级别字段）
+                        reason_text = reason_map.get(s["代码"], "")
+                        driver_match = re.search(r'\[\s*驱动级别\s*[：:]\s*([SsAa])', reason_text)
+                        tail_match = re.search(r'\[\s*([SsAa])\s*\]\s*$', reason_text.strip())
+                        driver_level = (driver_match.group(1).upper() if driver_match
+                                         else (tail_match.group(1).upper() if tail_match else ""))
+                        current_score = s.get("综合分", 0) or 0
+                        if driver_level == "S":
+                            # S 级驱动强制豁免：即便刚被筛过，S 级信号不放过
+                            plog("INFO", f"[ScreenAgent] ⚡ {s['代码']}({s['名称']}) 48h 内 S 级驱动豁免")
+                            filtered.append(s)
+                            continue
+                        elif driver_level == "A" and hist_score and current_score >= hist_score + 3:
+                            # A 级驱动豁免：仅当历史有分数且本次分数比历史高 ≥3 分时放行
+                            plog("INFO", f"[ScreenAgent] ⚡ {s['代码']}({s['名称']}) 48h 内 A 级+分差{int(current_score - hist_score)}豁免")
+                            filtered.append(s)
+                            continue
+                        # B 级及以下维持 48h 硬拦截
+                        continue
             filtered.append(s)
 
         # ── P0-3: 跨池防护优化 — 仅阻塞活跃池（S级/持仓），边缘池和观察池允许回流 ──
@@ -588,6 +726,12 @@ class ScreenAgent(BaseAgent):
                 plog("INFO", f"[ScreenAgent] ⚠️ {s['代码']}({s['名称']}) 已存在于其他池，跳过重复添加")
                 continue
             final_stocks.append(s)
+
+        # ── 板块配额硬校验（max_per_sector）──────────────────────
+        # config.yaml:screening.quick.max_per_sector = 3
+        # 09-18 快筛候选池 9 只中地产 4 只（保利/招商蛇口/滨江/华发）超 3 上限
+        # 此处按 (S级优先, 综合分降序) 保留 top-k，其余丢弃并 plog
+        final_stocks = enforce_sector_quota(final_stocks, _load_max_per_sector())
 
         # 记录这次筛选历史（即使未入池也记录，用于48h防护）
         data.setdefault("_fast_screen_history", {})
