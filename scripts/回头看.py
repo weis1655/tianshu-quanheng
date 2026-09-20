@@ -319,7 +319,8 @@ def extract_fast_screen_stocks(filepath):
     format_version = 'unknown'
     
     # 主模式：`- 名称（代码）- 描述`（2026-05+ 格式）
-    pattern = r'[-•]\s*([^（\n]+)（(\d{6})）\s*[-:：]?\s*([^\n]+)'
+    # P3-快筛萎缩: 兼容全/半角括号（09-16/09-18 报告大量半角 `()`，原正则只认全角是 P1-快筛漏检假阳性主因）
+    pattern = r'[-•]\s*([^\s（）()\n]+)\s*[（(](\d{6})[）)]\s*[-:：]?\s*([^\n]+)'
     matches = list(re.finditer(pattern, content))
 
     if matches:

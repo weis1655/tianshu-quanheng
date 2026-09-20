@@ -138,7 +138,10 @@ USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票
 - 每只股票的评分**只允许**引用上方「评分溯源拦截」和评分列表里给出的数值，
   **禁止**自述历史评分（禁止出现"前次X分"、"上次X分淘汰"、"此前评分X分"）。
 - 被标记为「池内缓存（非当日审查）」的标的，**不得**为其制定执行方案，
-  如需提及只能在风险提示中说明"分数来源不可核验，待次日审查"。"""
+  如需提及只能在风险提示中说明"分数来源不可核验，待次日审查"。
+- **禁止在报告正文中输出「系统提示X分」「本报告提示X分」「系统声明X分」等元叙述**：
+  分数只从「评分溯源拦截」和评分列表里直接读取，不得在风险提示或备注里自述
+  系统给的分数标签。这种自述会被评分溯源函数误识别为标的声明，导致分数串味。"""
 
 
 class DecisionAgent(BaseAgent):
@@ -650,7 +653,11 @@ class DecisionAgent(BaseAgent):
         coverage_warning = ""
         if not skeptic_empty and skeptic_content and len(skeptic_content.strip()) >= 50 and scored_stocks:
             skeptic_codes = self._extract_skeptic_covered_codes(skeptic_content)
-            uncovered = [s for s in scored_stocks if s["code"] not in skeptic_codes]
+            # P1-评分溯源: 只对审查分≥DECISION_MIN_SCORE 的标的贴「审查评分≥75分」标签，
+            # 避免把58分等低分标的误注入「≥75」标签后触发LLM幻觉「系统提示X分」。
+            uncovered = [s for s in scored_stocks
+                         if s["code"] not in skeptic_codes
+                         and s.get("score", 0) >= DECISION_MIN_SCORE]
             if uncovered:
                 names = "、".join(f"{s['name']}({s['code']})" for s in uncovered)
                 coverage_warning = (

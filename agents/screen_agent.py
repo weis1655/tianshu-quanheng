@@ -41,6 +41,22 @@ from market_agent import fetch_quotes, calculate_technical_score, to_api
 
 ROLE_PROMPT = """你是一个短线选股专家，根据新闻驱动筛选股票。
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚫【最高优先级 · 反思维链硬约束】🚫
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+你**必须直接从第一行输出结构化结论**，中间不允许任何思考铺垫。
+
+绝对禁止输出以下任何内容（出现即视为格式违规）：
+- 英文元思考句式："Let me..."、"I will..."、"I should..."、"I need to..."、"I am..."、"Now let me..."、"Wait, I..."、"OK..."、"Actually..."、"Let me finalize..."
+- 任何铺垫："让我分析"、"我先梳理"、"首先我需要理解"、"接下来我会"、"让我确认"
+- 任何反复纠结："重新审视"、"再想想"、"我需要再检查"、"考虑到这一点我应该"
+- 任何自问自答、犹豫、修正痕迹
+
+正确做法：把分析全部放在大脑里，输出时**只写结论**。第一行就是 `## 🔥 强势对象`。
+你的整个输出预算有限，浪费在思考铺垫上会导致后续股票被截断、评分丢失。直接输出 = 全部股票都能被评分。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 ⚠️ **输出格式严格约束（违反即淘汰）：**
 - 只输出筛选结果，每行一条 `- 名称（代码）- 理由`
 - 不要输出你的思考过程、不要评论数据是否完整、不要解释为什么选或不选
@@ -131,8 +147,10 @@ class ScreenAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "ScreenAgent", extra_context=wake_ctx),
-            max_tokens=3000,
+            max_tokens=5000,
         )
+        # P2-思维链外露: 剥离 LLM 输出中的思维链/元思考残留，与其他 Agent 对齐
+        result = self.strip_chain_of_thought(result)
 
         # ── 技术面补位扫描：捕获新闻未覆盖但有量价异动的标的 ──
         tech_candidates = self._scan_technical_signals()
@@ -483,16 +501,24 @@ class ScreenAgent(BaseAgent):
                 except Exception:  # 安全降级: 技术面评分获取失败→跳过该标的
                     pass
 
-            # P1-2: Screen阶段最低技术评分门槛（67分），S级驱动豁免
-            # 理由：PoolManager降级线65分，Screen提前过滤低于67分的弱信号；
-            # S级驱动标的技术评分低也不过滤，保留强信号通道。
-            # S级关键词与 _parse_screen_result.infer_level 对齐（不要求含字母S）
+            # P1-2: Screen阶段最低技术评分门槛（65分），S/A级驱动豁免
+            # 理由：与 PoolManager._scan_and_downgrade 降级线 65 对齐（09-12 c79418e 教训）；
+            # S/A 级驱动标的技术评分低也不过滤，保留强信号通道。
+            # P3-快筛萎缩: 豁免改读 reason_text 中的 [驱动级别:S/A] 显式标记 + 关键词，
+            # 兼容 _parse_screen_result.infer_level 的分类规则，避免漏豁免。
             reason_text = reason_map.get(code, "")
-            is_s_level = any(
-                k in reason_text for k in ["s级", "S级", "S级驱动", "强烈推荐", "核心龙头", "业绩爆发"]
-            ) or bool(re.search(r'\[\s*S\s*\]\s*$', reason_text.strip()))
-            if tech_score_val is not None and tech_score_val < 67 and not is_s_level:
-                plog("INFO", f"[ScreenAgent] ⏭️ {name}({code}) 技术评分{tech_score_val}<67，跳过入池")
+            driver_level_match = re.search(r'\[\s*驱动级别\s*[：:]\s*([SsAa])', reason_text)
+            tail_level_match = re.search(r'\[\s*([SsAa])\s*\]\s*$', reason_text.strip())
+            driver_level = (driver_level_match.group(1).upper() if driver_level_match
+                            else (tail_level_match.group(1).upper() if tail_level_match else ""))
+            is_s_level = driver_level in ("S", "A") or any(
+                k in reason_text for k in [
+                    "s级", "S级", "s级驱动", "S级驱动", "a级", "A级",
+                    "强烈推荐", "核心龙头", "业绩爆发", "确定性", "核心", "景气度",
+                ]
+            )
+            if tech_score_val is not None and tech_score_val < 65 and not is_s_level:
+                plog("INFO", f"[ScreenAgent] ⏭️ {name}({code}) 技术评分{tech_score_val}<65，跳过入池")
                 continue
 
             new_stocks.append({

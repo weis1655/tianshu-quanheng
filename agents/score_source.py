@@ -202,10 +202,25 @@ def trace_decision_scores(decision_text: str, authoritative: dict) -> list:
     pat_a = re.compile(r"([\u4e00-\u9fa5]{2,10})\s*[（(]\s*(\d{6})\s*[）)]\s*[^\n]{0,60}?(\d{2,3})\s*分")
     pat_b = re.compile(r"([\u4e00-\u9fa5]{2,10})\s*[（(]\s*(\d{2,3})\s*分\s*[）)]")
 
+    # P1-评分溯源: 排除「系统提示」「本报告提示」「提示」等元叙述前缀，
+    # 防止 LLM 幻觉「系统提示浪潮信息(000977)审查评分≥75分」被误识别为标的声明。
+    _META_NAME_PREFIXES = ("系统提示", "本报告提示", "本报告", "提示", "系统声明", "声明")
+    _META_NAME_EXACT = set(_META_NAME_PREFIXES)
+
     for pat, is_b in ((pat_a, False), (pat_b, True)):
         for m in re.finditer(pat, decision_text):
             name = m.group(1)
-            code = m.group(2) if not is_b else name2code.get(m.group(1))
+            # 剥掉元叙述前缀（如「系统提示浪潮信息」→「浪潮信息」），
+            # 若剥离后名称仍不在 authoritative 白名单，直接跳过，避免把幻觉注入溯源。
+            stripped_name = name
+            if stripped_name in _META_NAME_EXACT:
+                continue
+            for _pre in _META_NAME_PREFIXES:
+                if stripped_name.startswith(_pre) and len(stripped_name) > len(_pre):
+                    stripped_name = stripped_name[len(_pre):]
+                    break
+            name = stripped_name
+            code = m.group(2) if not is_b else name2code.get(m.group(1)) or name2code.get(name)
             if code is None or code in seen:
                 continue
             seen.add(code)
