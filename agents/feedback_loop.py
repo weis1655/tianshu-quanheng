@@ -279,11 +279,30 @@ class FeedbackLoopAgent(BaseAgent):
         return {"windows": windows, "primary": windows[1]}  # primary = 近30天
     
     def auto_adjust_weights(self, win_rate: float, by_type: Dict) -> None:
-        """根据胜率自动调整权重"""
+        """根据胜率自动调整权重
+
+        09-22 D 修复（方案 A，盟主批准）：
+        胜率<50% 时技术面权重 -5（下限 15），让 AI 审查决策亏损后自动降权。
+        未执行推荐不计入（由 $is_executed=False 过滤），只对真实执行亏损衰减。
+        阈值已加入 CLAUDE.md 阈值参数保护区。
+        """
         if win_rate < 50:
-            # 胜率低于50%：执行调权（当前为空壳，预留调权接口）
-            self.logger.info(f"胜率 {win_rate:.1f}% 低于基准，预留调权逻辑")
-            # TODO: 接入权重计算算法
+            try:
+                from path_config import get_review_evo
+                ReviewEvo = get_review_evo()
+                evo = ReviewEvo(root=self.root)
+                weights = json.loads(evo.weight_file.read_text()) if evo.weight_file.exists() else {}
+                old = weights.get("技术面权重", 30)
+                new = max(15, old - 5)
+                if new != old:
+                    weights["技术面权重"] = new
+                    weights["更新时间"] = datetime.now().isoformat()
+                    evo.weight_file.write_text(json.dumps(weights, ensure_ascii=False, indent=2))
+                    self.logger.info(f"📉 胜率 {win_rate:.1f}% 低于基准，技术面权重 {old} → {new}")
+                else:
+                    self.logger.info(f"胜率 {win_rate:.1f}% 低于基准，技术面权重已至下限 {old}")
+            except Exception as e:
+                self.logger.warning(f"技术面权重衰减失败（不阻塞）: {e}")
         else:
             self.logger.info(f"胜率 {win_rate:.1f}% 正常，无需调整")
 

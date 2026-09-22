@@ -19,6 +19,7 @@
 - **S级准入阈值**：综合分≥75 → 可入S级操作池（`gate_controller.py`，与 `thresholds.S_POOL_MIN_SCORE` 对齐）
 - **WARNING-1过热阈值**：日涨>8% + 综合分>75 → 扣10分（`review_agent.py` L1050，v5.94校准）
 - **CRITICAL过热阈值**：月涨>25% + 综合分>=70 → 强制降级（`review_scorer.py` L91，2026-06-05修复>=边界）
+- **AI审查胜率衰减阈值**：近30天胜率<50% 时技术面权重 -5（下限 15）（`feedback_loop.py`，09-22 盟主批准）
 - **黄色预警区间**：60-74分（`decision_agent.py` 多处，v6.0校准）
 - **入池超14天淘汰**：候选池标的超过14天未升级则自动移除（`screen_agent.py`）
 
