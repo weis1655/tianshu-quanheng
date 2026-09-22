@@ -99,7 +99,9 @@ class TrackRecorder:
                     confidence=s.get("confidence", "中"),
                     hypothesis=hypothesis,
                     expected_logic=expected_logic,
-                    is_executed='此方案由兜底引擎自动生成' not in decision_result,
+                    is_executed=False,  # 09-22 语义修正：决策完成 ≠ 实际执行，默认 False；
+                                        # 只有实际成交（如手动回填或未来券商 API）才改 True。
+                                        # 旧语义 True 导致近 30 天 100% 标记污染。
                 )
             plog("INFO", f"[TrackRecorder] ✅ 已记录 {len(actionable)} 只标的决策到复盘系统")
         except Exception as e:

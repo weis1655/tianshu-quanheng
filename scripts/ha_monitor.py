@@ -294,6 +294,33 @@ def check_data_integrity(report):
                         value={"zero_pnl": zero_pnl, "total": total},
                         severity="warning",
                     )
+
+                # 09-22 P0 空窗告警：最后一笔有实际盈亏的决策距今 N 天以上视为空窗
+                # 6-03 后 111 天零盈亏回填说明决策-执行断链（P-H04），必须让日报看到
+                if total > 0:
+                    last_pnl_date = None
+                    for entry in dl_data:
+                        pnl = entry.get("actual_pnl")
+                        if pnl not in (0, "0", None, "", 0.0):
+                            d = entry.get("date", "")[:10]
+                            if d and (last_pnl_date is None or d > last_pnl_date):
+                                last_pnl_date = d
+                    if last_pnl_date:
+                        try:
+                            from datetime import datetime
+                            gap = (datetime.now() - datetime.strptime(last_pnl_date, "%Y-%m-%d")).days
+                            # 14 天无盈亏 → warning；21 天无盈亏 → critical（P-H04 决策-执行断链）
+                            if gap >= 14:
+                                level = "critical" if gap >= 21 else "warning"
+                                report.add_check(
+                                    "data.decision_log.pnl_gap_days",
+                                    level,
+                                    f"🚨 决策-执行断链告警：最后一笔实盘盈亏 {last_pnl_date} 距今 {gap} 天，无盈亏回填",
+                                    value={"last_pnl_date": last_pnl_date, "gap_days": gap},
+                                    severity=level,
+                                )
+                        except Exception:
+                            pass
             else:
                 report.add_check(
                     dl_check_name, "warning",
