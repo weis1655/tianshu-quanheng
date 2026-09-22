@@ -271,6 +271,15 @@ def plog(level: str, message: str, module: str = "天枢") -> None:
     # 确保根日志器已初始化
     setup_root_logger()
 
+    # 09-22 P3 修复：Windows stdout 默认非 UTF-8，中文字符 print 会抛 UnicodeEncodeError
+    # 触发"[行情数据] 获取失败: 'ascii' codec can't encode..."连锁崩溃。
+    # errors='replace' 兜底，防中文日志因 stdout 编码失败丢整段。
+    try:
+        if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+            sys.stdout.reconfigure(errors="replace")  # Python 3.7+
+    except Exception:
+        pass
+
     level_upper = level.upper()
     log_level = _LOG_LEVEL_MAP.get(level_upper, logging.INFO)
     prefix = {"ERROR": "❌", "WARNING": "⚠️", "INFO": "•", "DEBUG": "🔍"}.get(level_upper, "•")

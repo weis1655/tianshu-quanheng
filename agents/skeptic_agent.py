@@ -121,6 +121,8 @@ SYSTEM_PROMPT = """你是一个冷静的股票质疑专家，负责对每只候�
 4. 弱市下位置分析-趋势性质、风险低估默认提一级
 5. overall_verdict: pass=通过, challenge_required=需解决
 6. 每只股票分析不超过100字
+7. ⛔ **禁止英文元思考/思维链外露**：不要出现 "Let me think" / "Let me analyze" / "Wait, let me" / "Hmm, but" / "Actually, let me" / "Now, let me" / "I should" / "I need to" / "So the final output" 等任何英文自我对话或推理宣告。所有分析必须在生成最终 JSON 前完成，不要写入输出。
+8. **首字符必须是 `{`**（列表则为 `[`），禁止任何开场白/前言/总结句。
 
 ### 历史评分引用禁令（P0，2026-09-16 评分串味事故）
 评分数据**只允许**引用本 prompt「权威评分」表中程序化注入的值，**禁止**凭记忆或推断自述
@@ -212,7 +214,7 @@ class SkepticAgent(BaseAgent):
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(SYSTEM_PROMPT, "SkepticAgent"),
-            max_tokens=3000,
+            max_tokens=5000,
             temperature=0.3,
             response_format={"type": "json_object"}
         )
@@ -232,14 +234,31 @@ class SkepticAgent(BaseAgent):
 
         # 解析与生成（含截断重试）
         challenges = self._parse_challenges(result)
+
+        # P0-CoT (2026-09-22): 09-22 全天 4 次解析失败（4909-10437 chars），
+        # 疑似 LLM 英文思维链耗尽 max_tokens 预算（同 09-17 决策报告 CoT 问题）。
+        # 若首次解析失败且 result 含英文 CoT 关键词，先 strip_chain_of_thought 再重试解析。
+        if not challenges:
+            _cot_kws = ["let me", "i should", "i need to", "i will", "i think",
+                        "wait, let me", "hmm", "actually", "so the final"]
+            cot_hits = sum(1 for kw in _cot_kws if kw in result.lower())
+            if cot_hits > 0:
+                plog("WARNING", f"[SkepticAgent] ⚠️ CoT外露疑似({cot_hits}次), 剥离后重试解析")
+                stripped = self.strip_chain_of_thought(result)
+                # 若剥离后以 { 或 [ 开头，尝试提取 JSON 段
+                stripped_stripped = stripped.lstrip()
+                if stripped_stripped.startswith('{') or stripped_stripped.startswith('['):
+                    challenges = self._parse_challenges(stripped)
         if not challenges and _is_truncated(result):
-            plog("WARNING", f"[SkepticAgent] ⚠️ 输出疑似截断({len(result)}chars)，重试(max_tokens=2000)")
+            plog("WARNING", f"[SkepticAgent] ⚠️ 输出疑似截断({len(result)}chars)，重试(max_tokens=3000)")
             result = self.call_llm(
                 user_prompt,
                 system=build_agent_system_prompt(SYSTEM_PROMPT, "SkepticAgent"),
-                max_tokens=2000,
+                max_tokens=3000,
                 temperature=0.2,
+                response_format={"type": "json_object"}
             )
+            result = self.strip_chain_of_thought(result)
             challenges = self._parse_challenges(result)
         if not challenges:
             plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为规则化挑战")
@@ -617,25 +636,39 @@ class SkepticAgent(BaseAgent):
         return challenges
 
     def _parse_text_fallback(self, text: str) -> list:
-        """文本解析降级"""
-        challenges = []
-        # 找 ## 标题或代码块
-        blocks = re.split(r'##?\s*\[?(\d{6})\]?\s*', text)
-        i = 1
-        while i < len(blocks) - 1:
-            code, block = blocks[i], blocks[i + 1][:300]
-            name = "?"
-            challenge = {"code": code, "name": name, "challenges": [], "overall_verdict": "challenge_required", "summary": block[:50]}
-            severity = "high" if any(k in block for k in ["高风险", "重大", "关键"]) else "medium"
-            for dim in ["驱动逻辑", "位置分析", "量能判断", "风险低估", "方案矛盾"]:
-                challenge["challenges"].append({
-                    "dimension": dim,
-                    "question": f"需关注{dim}风险",
-                    "severity": severity if dim in block else "low"
-                })
-            challenges.append(challenge)
-            i += 2
-        return challenges
+        """文本解析降级：识别 markdown 报告结构
+        标题：### ⚠️ 名称（代码）/### ✅ 名称（代码）/### 1. 名称（代码）
+        字段：**判定**：xxx / **摘要**：xxx
+        表格：| 维度 | 质疑内容 | 严重性 |
+        同代码若出现多次（高风险区 vs 详情区），仅保留带 **判定** 字段者。
+        """
+        header_pat = re.compile(
+            r'^#{2,4}\s*(?:⚠️|✅)?\s*(?:\d+\.\s*)?(.+?)（(\d{6})）', re.MULTILINE)
+        matches = list(header_pat.finditer(text))
+        by_code: dict = {}
+        for idx, m in enumerate(matches):
+            name, code = m.group(1).strip(), m.group(2)
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            block = text[m.end():end]
+            verdict = re.search(r'\*\*判定\*\*\s*[:：]\s*(\S+)', block)
+            summary = re.search(r'\*\*摘要\*\*\s*[:：]\s*(.+)', block)
+            table_rows = re.findall(r'^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|', block, re.MULTILINE)
+            dim_challenges = []
+            for col_dim, col_q, col_sev in table_rows:
+                if col_dim.strip() in ("维度", "") or "-----" in col_dim:
+                    continue
+                s = col_sev.lower()
+                sev = "veto" if "veto" in s or "⛔" in col_sev else \
+                      "high" if "high" in s or "🔴" in col_sev else \
+                      "medium" if "medium" in s or "🟡" in col_sev else "low"
+                dim_challenges.append({"dimension": col_dim.strip(), "question": col_q.strip(), "severity": sev})
+            entry = {"code": code, "name": name, "challenges": dim_challenges,
+                     "overall_verdict": verdict.group(1) if verdict else "challenge_required",
+                     "summary": (summary.group(1).strip() if summary else "")[:80]}
+            existing = by_code.get(code)
+            if existing is None or (not existing["challenges"] and dim_challenges):
+                by_code[code] = entry
+        return list(by_code.values())
 
     def _extract_high_risk(self, challenges: list) -> list:
         return [{

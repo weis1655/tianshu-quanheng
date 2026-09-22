@@ -1395,10 +1395,32 @@ class DecisionAgent(BaseAgent):
             except (TypeError, ValueError):
                 pass
             # R4: 评分 < 55（C级以下不执行）
+            # 2026-09-22 P1修复：比亚迪(002594) ML降级43→边缘池后被Skeptic从scored_stocks移除，
+            # next()返回{}导致评分读0误杀。增加多源回退：边缘池→S池；缺失时plog WARNING而非移除。
             score = s.get("composite_score", s.get("score", 0))
+            score_missing = (s == {} or score in (0, None))
+            if score_missing:
+                _code = plan.code
+                for _pname in ("边缘池", "S级操作池"):
+                    try:
+                        for _pk in self.pool_manager.load_pool(_pname).get("stocks", []):
+                            if str(_pk.get("代码", _pk.get("股票代码", _pk.get("code", "")))) == str(_code):
+                                _v = _pk.get("综合分", _pk.get("综合评分", _pk.get("score", _pk.get("composite_score"))))
+                                if _v is not None:
+                                    try:
+                                        if float(_v) > 0:
+                                            score = _v
+                                    except (TypeError, ValueError):
+                                        pass
+                                break
+                    except Exception:
+                        pass
             try:
                 if float(score) < SCORE_C_LEVEL:
-                    violations.append(f"评分{score}分<{SCORE_C_LEVEL} 禁入")
+                    if score_missing:
+                        plog("WARNING", f"[硬规则校验] ⚠️ {plan.name}({plan.code}) 评分源缺失，保守放行")
+                    else:
+                        violations.append(f"评分{score}分<{SCORE_C_LEVEL} 禁入")
             except (TypeError, ValueError):
                 pass
             if violations:

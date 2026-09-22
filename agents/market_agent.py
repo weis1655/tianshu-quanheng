@@ -13,10 +13,11 @@ import sys
 import subprocess
 import json
 import functools
+from pathlib import Path
+from urllib.parse import quote
 from path_config import ensure_agent_paths; ensure_agent_paths()
 import urllib.request
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Optional
 from logger import plog
 from thresholds import SCORE_BASE_HIGH, SCORE_BASE_MED
@@ -357,7 +358,7 @@ def validate_stock_codes(codes: list[str]) -> list[str]:
         return []
     
     query = ",".join(tx_codes)
-    url = f"https://qt.gtimg.cn/q={query}"
+    url = f"https://qt.gtimg.cn/q={quote(query, safe=',')}"
     try:
         req = urllib.request.Request(url, headers={"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -391,6 +392,24 @@ def to_api(code: str) -> str:
     return code
 
 
+def _sanitize_code_list(codes: list[str]) -> list[str]:
+    """[FIX-0922-01] 过滤非法代码（非6位数字、含中文/非ASCII），返回纯ASCII股票代码列表。
+    原因：将中文（如'比亚迪'）直接拼进腾讯API URL 会触发 urllib 底层 socket 的
+    'ascii' codec can't encode 错误。合法格式仅 sh/sz 前缀 + 6 位数字。"""
+    clean = []
+    for c in codes or []:
+        s = str(c).strip()
+        if not s:
+            continue
+        # 剥离常见前后缀后判断是否为 6 位数字
+        bare = s.upper().replace(".SH", "").replace(".SZ", "").replace("SH", "").replace("SZ", "")
+        if len(bare) != 6 or not bare.isdigit():
+            continue
+        prefix = "sh" if bare.startswith(("6", "5", "9")) else "sz"
+        clean.append(f"{prefix}{bare}")
+    return list(dict.fromkeys(clean))  # 去重保序
+
+
 def fetch_quotes(codes: list[str]) -> list[dict]:
     """
     批量获取股票行情（腾讯API）
@@ -409,8 +428,14 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
     if not codes:
         return []
 
+    # [FIX-0922-01] ASCII 安全闸门：过滤非法字符（中文/非ASCII），避免 URL 触发 socket ascii 编码错误
+    codes = _sanitize_code_list(codes)
+    if not codes:
+        return []
+
     query = ",".join(codes)
-    url = f"https://qt.gtimg.cn/q={query}"
+    # URL-encode 保险：即便有遗漏的非ASCII也不会触发 urllib ascii codec
+    url = f"https://qt.gtimg.cn/q={quote(query, safe=',')}"
     try:
         req = urllib.request.Request(url, headers={"Referer": "https://finance.qq.com", "User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
