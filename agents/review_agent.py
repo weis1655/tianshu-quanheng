@@ -314,33 +314,6 @@ class ReviewAgent(BaseAgent):
         # 任务②: 抑制思维链外露——剥离无意的元思考残留（保留结构化输出与"深度思考"设计章节）
         result = self.strip_chain_of_thought(result)
 
-        # 格式化报告
-        report = f"""# 【审查报告】{today}
-
-━━━━━━━━━━━━━━━━
-
-## 候选池审查结果
-
-### 候选池现有：{self._count_stocks(candidate_stocks)} 只
-
-## 深度审查结果
-
-{self._format_review_result(result)}
-
----
-
-{self._generate_pool_updates(result)}
-
----
-审查执行时间：{datetime.now().strftime('%H:%M')}
-
-{self._generate_pool_summary()}
-"""
-
-        # 保存
-        out_file = self.history_dir / f"{today}_审查报告.md"
-        self.safe_write_text(out_file, report)
-
         # 解析后处理结果（用于池更新，不走LLM原始文本）
         parsed_result = self._parse_review_result_v2(result)
 
@@ -379,6 +352,36 @@ class ReviewAgent(BaseAgent):
         except Exception as _cov_err:
             plog("INFO", f"[ReviewAgent] 覆盖度断言异常(不影响主流程): {_cov_err}")
         # ═══ 任务C：覆盖度断言结束 ═══
+
+        # ── 09-22 盟主修复③：报告构建+保存到覆盖度重试之后 ──
+        # 此前 report 在重试块之前构建并保存，导致重试后 result 更新但磁盘报告仍为
+        # 首次解析结果（覆盖度显示 0/11=0%）。现移动到重试块之后，若重试成功，
+        # 报告将使用重试后的最终 result，正确反映最终覆盖度。
+        report = f"""# 【审查报告】{today}
+
+━━━━━━━━━━━━━━━━
+
+## 候选池审查结果
+
+### 候选池现有：{self._count_stocks(candidate_stocks)} 只
+
+## 深度审查结果
+
+{self._format_review_result(result)}
+
+---
+
+{self._generate_pool_updates(result)}
+
+---
+审查执行时间：{datetime.now().strftime('%H:%M')}
+
+{self._generate_pool_summary()}
+"""
+
+        # 保存
+        out_file = self.history_dir / f"{today}_审查报告.md"
+        self.safe_write_text(out_file, report)
 
         # 更新池（使用后处理的upgrades/demotions，非LLM原始文本）
         self._apply_pool_updates(result, parsed_result.upgrades if parsed_result else [], parsed_result.demotions if parsed_result else [])

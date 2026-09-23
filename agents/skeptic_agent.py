@@ -261,21 +261,27 @@ class SkepticAgent(BaseAgent):
             result = self.strip_chain_of_thought(result)
             challenges = self._parse_challenges(result)
         if not challenges:
-            plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为规则化挑战")
-            # 降级为规则化挑战：对每只标的生成基于基本数据的默认质疑
+            # P0-20260922: 降级路径修复 — 之前对所有标的统一写 overall_verdict='challenge_required'，
+            # Decision 层看到全 medium challenge 就把它们视为有效阻塞（阻塞计数不减，或反复 reset），
+            # 掩盖真正的 LLM 解析失败信号。修复策略：
+            # 1) 不再伪造 challenge_required，而是标记 overall_verdict='unknown' + degraded=True；
+            # 2) challenges 为空（不塞占位 medium 质疑），让 _save_verdict 走 passed 分支；
+            # 3) _apply_auto_risk_overrides 仍会扫描真实财务暴雷风险，命中后仍能追加真实 challenge_required。
+            # 下游（Decision/GateController）看到 unknown → 不算 veto、不算阻塞，阻塞计数正常 reset。
+            plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为 unknown 状态（不伪造 challenge_required）")
             for s in stock_list:
                 code = s.get("code", s.get("代码", ""))
                 name = s.get("name", s.get("名称", "?"))
                 challenges.append({
                     "code": str(code),
                     "name": str(name),
-                    "challenges": [
-                        {"dimension": "风险低估", "question": "LLM质疑审查不可用，规则模式：需人工复核该标的风险", "severity": "medium"},
-                    ],
-                    "overall_verdict": "challenge_required",
+                    "challenges": [],          # 不再塞占位 medium 质疑
+                    "overall_verdict": "unknown",
                     "veto_count": 0,
                     "high_count": 0,
                     "weighted_count": 0,
+                    "degraded": True,          # 供 _save_verdict 区分降级 vs 真实通过
+                    "degrade_reason": "llm_parse_failed",
                 })
         # ── P0-1: 客观财务因子自动裁决覆盖 ──
         auto_flags = self._apply_auto_risk_overrides(stock_list, review_report, market_state)
@@ -784,7 +790,9 @@ class SkepticAgent(BaseAgent):
                 verdict = "challenge_required"
                 block_reason = "veto"
             # P0-2: 维度加权阻塞阈值
-            elif weighted_count >= auto_block_threshold and verdict == "pass":
+            # P0-20260922: 允许 'unknown' 也能被真实加权风险升级（auto_risk_overrides 追加的
+            # high/veto 挑战在 verdict='unknown' 时也必须触发阻塞，避免降级路径吞掉真实财务风险）。
+            elif weighted_count >= auto_block_threshold and verdict in ("pass", "unknown"):
                 verdict = "challenge_required"
                 block_reason = "high_threshold"
             else:

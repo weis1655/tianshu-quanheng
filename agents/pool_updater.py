@@ -66,7 +66,18 @@ class PoolUpdater:
                 plog("INFO", "[PoolUpdater] 🛑 LLM声明S级操作池0只主推且无可执行标的，跳过")
                 return
 
+        # 构建 scored_stocks 查询字典（code → score）—— 上移供宽松兜底「待核」分支复用
+        scored_map = {}
+        if scored_stocks:
+            for ss in scored_stocks:
+                sc = str(ss.get("code", ss.get("代码", "")))
+                sv = ss.get("score", ss.get("综合评分", 0))
+                if sc:
+                    scored_map[sc] = sv
+
         matches = re.findall(r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
+        # 记录"待核"匹配（宽松兜底无行动字段但分数存在），供下方写入S池时打标记
+        pending_set = set()
         # ── P0: debug日志——验证【主推】正则匹配 ──
         plog("INFO", f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
         if not matches:
@@ -98,24 +109,51 @@ class PoolUpdater:
                 )
                 text = decision_result
                 kept = []
+                kept_pending = []
                 rejected = []
+                seen_broad = set()
                 for name, code in broad:
+                    if (name, code) in seen_broad:
+                        continue
+                    seen_broad.add((name, code))
                     idx = text.find(f"{name}")
                     window = text[idx:idx+400] if idx >= 0 else text[-400:]
-                    if any(re.search(p, window) for p in action_pats):
-                        neg_hit = [k for k in neg_pats if k in window]
-                        if neg_hit:
-                            # 否决语境优先：Skeptic/决策层已明确否决，禁止兜底晋级
-                            rejected.append((name, code, neg_hit))
-                        else:
-                            kept.append((name, code))
+                    neg_hit = [k for k in neg_pats if k in window]
+                    if neg_hit:
+                        # 否决语境优先：Skeptic/决策层已明确否决，禁止兜底晋级
+                        rejected.append((name, code, neg_hit))
+                    elif any(re.search(p, window) for p in action_pats):
+                        kept.append((name, code))
+                    else:
+                        # 09-22 盟主修复①：放宽宽松匹配条件
+                        # LLM报告中提及的标的若无明确行动字段（无买入价/止损/止盈等），
+                        # 但分数存在（scored_stocks或报告文本提取），则写入S池并标记
+                        # 为「待核」状态——下游可据「状态:待核」决定是否二次执行确认。
+                        # 否决语境（neg_hit）仍优先拦截，防止被Skeptic否决的标的漏网。
+                        score = scored_map.get(code)
+                        if score is None:
+                            score = self._extract_score(name, code, decision_result)
+                        if score and score > 0:
+                            kept_pending.append((name, code, score))
                 for name, code, neg_hit in rejected:
                     plog("INFO", f"[PoolUpdater] 🚫 宽松兜底否决语境拦截: {name}({code}) 命中{neg_hit}")
+                if kept_pending:
+                    plog("INFO",
+                         f"[PoolUpdater] 📋 宽松兜底(待核)：{len(kept_pending)}只"
+                         f"（{[n for n, _, _ in kept_pending[:5]]}）写入S池待核（有标的+分数，无行动字段）")
                 if kept:
-                    plog("INFO", f"[PoolUpdater] 🔁 宽松兜底：从可执行交易信息中提取{kept}")
-                    matches = kept
-                else:
+                    plog("INFO", f"[PoolUpdater] 🔁 宽松兜底(可执行)：{len(kept)}只写入S池")
+                if not kept and not kept_pending:
                     plog("INFO", f"[PoolUpdater] 💡 宽松匹配到{broad}，但无可执行交易信息或处否决语境，不写入S池")
+                # 合并：kept优先，kept_pending追加（保持「可执行」在前）
+                if kept or kept_pending:
+                    kept_set = set(kept)
+                    for n, c, _s in kept_pending:
+                        if (n, c) not in kept_set:
+                            kept.append((n, c))
+                            kept_set.add((n, c))
+                    pending_set = {(n, c) for n, c, _s in kept_pending}
+                    matches = kept
             if not matches:
                 return
         elif len(matches) > 0:
@@ -125,15 +163,6 @@ class PoolUpdater:
         # 获取当前行情作为入场参考价
         current_prices = self._fetch_current_prices()
 
-        # 构建 scored_stocks 查询字典（code → score）
-        scored_map = {}
-        if scored_stocks:
-            for ss in scored_stocks:
-                sc = str(ss.get("code", ss.get("代码", "")))
-                sv = ss.get("score", ss.get("综合评分", 0))
-                if sc:
-                    scored_map[sc] = sv
-
         new_stocks = []
         for name, code in matches[:3]:
             # 09-10止血①: 逐标的Gate拦截。严格【主推】路径也要消费Skeptic裁决，
@@ -141,6 +170,9 @@ class PoolUpdater:
             if str(code) in blocked_codes:
                 plog("INFO", f"[PoolUpdater] 🚫 {name}({code}) 被Skeptic裁决阻塞，拒绝入S级操作池")
                 continue
+
+            # 09-22 盟主修复①：宽松兜底「待核」标记
+            is_pending = (name, code) in pending_set
 
             # 记事本模式：决策agent已跑完全流程审查，S池只做记录+价格检查
             # 不再二次审查已通过的标的（防线一+质检门已下沉到决策agent+SkepticGate）
@@ -185,7 +217,8 @@ class PoolUpdater:
                 "名称": name,
                 "综合评分": score,  # 从决策报告提取（P0修复：不再硬编码0）
                 "纳入日期": today,
-                "驱动来源": "决策主推",
+                "驱动来源": "决策报告提及-待核" if is_pending else "决策主推",
+                "状态": "待核" if is_pending else "可执行",  # 09-22盟主修复①：宽松兜底无行动字段标记
                 "核心逻辑": self._extract_logic_snippet(name, decision_result),
                 "入场价": entry_price,
                 "t1_验证": None,
@@ -193,7 +226,7 @@ class PoolUpdater:
                 "评价": None,
             }
             new_stocks.append(s)
-            plog("INFO", f"[PoolUpdater] ✅ {name}({code}) → S级操作池 (记事本模式)")
+            plog("INFO", f"[PoolUpdater] ✅ {name}({code}) → S级操作池 ({'待核' if is_pending else '记事本模式'})")
 
         self._check_s_pool_overlap(new_stocks)
 
