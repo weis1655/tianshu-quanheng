@@ -300,17 +300,18 @@ class ReviewAgent(BaseAgent):
         self.logger.llm_call("review_stocks", tokens=len(candidate_stocks))
         market_state = self._get_market_state()
         market_state_label = f"{market_state.get('state','震荡')}（上证{market_state.get('sh_chg',0):+.2f}%）"
-        user_prompt = USER_PROMPT_TEMPLATE.format(
-            candidate_stocks=candidate_stocks,
-            realtime_section=realtime_section,
-            market_context=macro_context[:500],
-            market_state=market_state_label,
+
+        # ── P1-修复(09-23): 候选数>6时分3批独立调用LLM，避免单次输出截断 ──
+        # 09-23盟主实测：17只候选一次调用仅完成2只的4维审查，其余15只被截断→今日无池流转。
+        # 根因：17只 × ~200字 ≈ 6800中文字符 ≈ 3500 tokens，逼近 max_tokens=9000 上限；
+        # 加上系统提示词和实时行情表格后，单次输出预算被严重压缩。
+        # 修复：候选数 > REVIEW_BATCH_SIZE(=6) 时分批(6/6/5)独立调用LLM，
+        # 每批 max_tokens=6000 留足余量；单批覆盖度<50%自动重试一次。
+        result, _batch_meta = self._call_llm_review_batched(
+            raw=raw, qmap=qmap, macro_context=macro_context,
+            market_state_label=market_state_label, wake_ctx=wake_ctx,
         )
-        result = self.call_llm(
-            user_prompt,
-            system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx),
-            max_tokens=9000
-        )
+
         # 任务②: 抑制思维链外露——剥离无意的元思考残留（保留结构化输出与"深度思考"设计章节）
         result = self.strip_chain_of_thought(result)
 
@@ -321,6 +322,8 @@ class ReviewAgent(BaseAgent):
         # 09-09实测：思维链外露导致LLM无结构化输出，6只候选全判0分后被静默强制降级边缘池。
         # 根因是"没评到"被当作"低分"。此断言不阻断流程，但让异常覆盖度在日志中显性可见，
         # 便于定位是LLM未输出（思维链污染）还是真低分。
+        # 注：单批重试已移入 _call_llm_review_batched（分批后重试粒度更精准）；
+        # 此处仅保留全局覆盖度告警，不再重试。
         try:
             input_count = self._count_stocks(candidate_stocks)
             parsed_count = len(parsed_result.stocks) if parsed_result else 0
@@ -331,22 +334,10 @@ class ReviewAgent(BaseAgent):
             self.logger.info("review_coverage_check",
                             input_count=input_count, parsed_count=parsed_count,
                             zero_score_count=len(zero_score), coverage_ratio=round(cov_ratio, 2),
-                            cot_hits=cot_hits)
+                            cot_hits=cot_hits, batch_count=len(_batch_meta))
             if input_count > 0 and cov_ratio < 0.5:
                 plog("WARNING", f"[ReviewAgent] ⚠️ 覆盖度异常: 输入{input_count}只仅解析出{parsed_count}只({cov_ratio:.0%})，{len(zero_score)}只0分。疑似思维链污染(cot_hits={cot_hits})导致LLM无结构化输出。")
-                # P0修复：覆盖度异常时重试一次LLM调用（09-15实测：早间run LLM格式漂移导致1/4解析，午间run恢复）
-                plog("INFO", f"[ReviewAgent] 🔄 覆盖度异常，重试LLM调用...")
-                _retry_prompt = user_prompt + "\n\n【重要】请严格按照四维审查表格格式输出每只股票的评分，不要输出任何思维链或元思考内容。"
-                result = self.call_llm(_retry_prompt, system=build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx), max_tokens=9000)
-                result = self.strip_chain_of_thought(result)
-                parsed_result = self._parse_review_result_v2(result)
-                parsed_count2 = len(parsed_result.stocks) if parsed_result else 0
-                cov_ratio2 = parsed_count2 / input_count if input_count else 1.0
-                plog("INFO", f"[ReviewAgent] 重试后覆盖度: {cov_ratio2:.0%} ({parsed_count2}/{input_count})")
-                if cov_ratio2 >= 0.5:
-                    plog("INFO", f"[ReviewAgent] ✅ 重试成功，覆盖度恢复正常")
-                else:
-                    plog("WARNING", f"[ReviewAgent] ⚠️ 重试后覆盖度仍异常({cov_ratio2:.0%})，使用首次结果")
+                plog("INFO", f"[ReviewAgent] 📦 分批统计: {_batch_meta}")
             if len(zero_score) > 0 and len(zero_score) == parsed_count and parsed_count < input_count:
                 plog("WARNING", f"[ReviewAgent] 🔴 全部评分0分且覆盖不全: {parsed_count}/{input_count}，LLM输出未含结构化评分块，候选未实际评级。")
         except Exception as _cov_err:
@@ -873,6 +864,107 @@ class ReviewAgent(BaseAgent):
 
         return result
 
+    # ── P1-修复(09-23): 候选数>6时分批审查，避免单次LLM输出截断 ──
+    # 09-23盟主实测：17只候选单次调用仅完成2只的4维审查，其余15只截断→今日无池流转。
+    # 根因：17只×~200字≈3500 tokens输出 + 系统提示词 + 实时行情表格 ≈ 逼近9000上限。
+    # 方案B（批量拆分）：候选数 > 6 时分批（6/6/5...）独立调用LLM，
+    # 每批 max_tokens=6000 留足余量；单批覆盖度<50%自动重试一次。
+    # 每批独立prompt（只含该批行情），减少单次输出压力，保持四维审查深度不变。
+    REVIEW_BATCH_SIZE = 6
+    REVIEW_BATCH_MAX_TOKENS = 6000
+
+    def _call_llm_review_batched(self, raw: list, qmap: dict, macro_context: str,
+                                  market_state_label: str, wake_ctx: str) -> tuple:
+        """分批审查候选股票，返回 (合并后的LLM文本, 分批统计list)。
+
+        - 候选数 <= REVIEW_BATCH_SIZE(6)：走单次调用（兼容原有小规模场景）
+        - 候选数 > 6：按 6 只一批拆分，独立构造prompt独立调用LLM
+        - 每批独立解析验证覆盖度，单批 < 50% 时该批重试一次（不重试其他批）
+        - 返回的合并文本按批拼接，供 _parse_review_result_v2 统一解析
+
+        返回: (result_text: str, batch_meta: list[dict])
+            batch_meta[i] = {"batch": i+1, "input": n, "parsed": m, "retry": bool}
+        """
+        total = len(raw)
+        system_prompt = build_agent_system_prompt(ROLE_PROMPT, "ReviewAgent", extra_context=wake_ctx)
+
+        # 候选数 <= REVIEW_BATCH_SIZE(6) 时 chunks 只有 1 个，走同一循环以保留重试守卫
+        # （P0-20260923：此前小规模分支早退直返，LLM 返回纯思维链时覆盖度 0% 且无重试）
+        chunks = [raw[i:i + self.REVIEW_BATCH_SIZE] for i in range(0, total, self.REVIEW_BATCH_SIZE)]
+        num_batches = len(chunks)
+        if num_batches > 1:
+            plog("INFO", f"[ReviewAgent] 📦 候选{total}只 → 分{num_batches}批审查，每批≤{self.REVIEW_BATCH_SIZE}只")
+
+        merged_results = []
+        batch_meta = []
+        for idx, chunk in enumerate(chunks):
+            batch_no = idx + 1
+            # 每批独立构造prompt（只含该批行情，减少单次输出压力）
+            batch_candidates = self._format_stocks_with_quote(chunk, qmap)
+            batch_realtime = self._build_realtime_section(chunk, qmap)
+            user_prompt = USER_PROMPT_TEMPLATE.format(
+                candidate_stocks=batch_candidates,
+                realtime_section=batch_realtime,
+                market_context=macro_context[:500],
+                market_state=market_state_label,
+            )
+            # 单批保留原 9000 上限；多批时每批 max_tokens=6000 留足余量（17只原单次9000仍不够）
+            batch_tokens = 9000 if num_batches == 1 else self.REVIEW_BATCH_MAX_TOKENS
+            batch_result = self.call_llm(
+                user_prompt, system=system_prompt,
+                max_tokens=batch_tokens
+            )
+            batch_result = self.strip_chain_of_thought(batch_result)
+
+            # 单批覆盖度验证：按"真正解析出的股票数"判定，而非 6 位代码出现次数
+            # （LLM 在思维链里复述代码会让 _count_stocks 虚高，掩盖 CoT 污染导致的 0% 解析）
+            input_count = self._count_stocks(batch_candidates)
+            parsed_count = self._parsed_stock_count(batch_result)
+            cov_ratio = parsed_count / input_count if input_count else 1.0
+            did_retry = False
+
+            # 覆盖度不足时该批重试一次（其他批不受影响）
+            if input_count > 0 and cov_ratio < 0.5:
+                plog("WARNING", f"[ReviewAgent] ⚠️ 第{batch_no}批覆盖度异常: {parsed_count}/{input_count}({cov_ratio:.0%})，重试...")
+                retry_prompt = user_prompt + "\n\n【重要】请严格按照四维审查表格格式输出每只股票的评分，不要输出任何思维链或元思考内容。"
+                batch_result = self.call_llm(
+                    retry_prompt, system=system_prompt,
+                    max_tokens=batch_tokens
+                )
+                batch_result = self.strip_chain_of_thought(batch_result)
+                parsed_count = self._parsed_stock_count(batch_result)
+                cov_ratio = parsed_count / input_count if input_count else 1.0
+                did_retry = True
+                if cov_ratio >= 0.5:
+                    plog("INFO", f"[ReviewAgent] ✅ 第{batch_no}批重试成功: {parsed_count}/{input_count}({cov_ratio:.0%})")
+                else:
+                    plog("WARNING", f"[ReviewAgent] ⚠️ 第{batch_no}批重试后仍异常: {parsed_count}/{input_count}({cov_ratio:.0%})")
+
+            batch_meta.append({
+                "batch": batch_no, "input": input_count,
+                "parsed": parsed_count, "retry": did_retry,
+            })
+            merged_results.append(batch_result)
+            plog("INFO", f"[ReviewAgent] 📦 第{batch_no}/{num_batches}批完成: 输入{input_count}只，解析{parsed_count}只")
+
+        # 合并所有批次结果（按顺序拼接，中间加分隔符便于解析器识别）
+        merged = "\n\n".join(merged_results)
+        total_parsed = sum(m["parsed"] for m in batch_meta)
+        plog("INFO", f"[ReviewAgent] ✅ 审查完成: {total}/{total}只审查，解析出{total_parsed}只")
+        return merged, batch_meta
+
+    def _parsed_stock_count(self, text: str) -> int:
+        """真实可解析股票数（覆盖度判定的唯一可信口径）。
+
+        P0-20260923：_count_stocks 只数 6 位代码，思维链里复述代码即虚高，
+        导致"输入20只仅解析出0只"被误判为正常覆盖度而不触发重试。
+        """
+        try:
+            r = self._parse_review_result_v2(text)
+            return len(r.stocks) if r else 0
+        except Exception:
+            return 0
+
     @staticmethod
     def _fetch_quotes_for_stocks(stocks: list) -> dict:
         """统一拉取一批股票的行情，返回 {代码: 行情dict}（P1-1：一次拉取复用）"""
@@ -1258,19 +1350,22 @@ class ReviewAgent(BaseAgent):
 
 
         def _extract_dimensions(block: str) -> List[DimensionScore]:
-            """提取四维评分"""
+            """提取四维评分（支持表格行+bullet/纯文本双格式）"""
             dims = []
             dim_map = {
-                "驱动验证": r'驱动验证[^\\d]*?(\\d+)',
-                "位置分析": r'位置分析[^\\d]*?(\\d+)',
-                "量能判断": r'量能判断[^\\d]*?(\\d+)',
-                "风险扫描": r'风险扫描[^\\d]*?(\\d+)',
+                "驱动验证": r'驱动验证[^\d]*?(\d+)',
+                "位置分析": r'位置分析[^\d]*?(\d+)',
+                "量能判断": r'量能判断[^\d]*?(\d+)',
+                "风险扫描": r'风险扫描[^\d]*?(\d+)',
             }
             for dim_name, pat in dim_map.items():
                 m = re.search(pat, block)
                 if m:
                     s = int(m.group(1))
-                    note_m = re.search(rf'{dim_name}[^\\n|]*\\|[^\\n|]*\\|\\s*([^\\n|]+)', block)
+                    # 表格行：| dim | score | note | → 用 note 单元格；否则回退到管道字段
+                    note_m = re.search(rf'{dim_name}\s*\|\s*\d+\s*\|\s*([^\n|]+)', block)
+                    if not note_m:
+                        note_m = re.search(rf'{dim_name}[^\n|]*\|[^\n|]*\|[^\n|]*\|\s*([^\n|]+)', block)
                     note = note_m.group(1).strip() if note_m else ""
                     dims.append(DimensionScore(dimension=dim_name, score=s, note=note))
             return dims
@@ -1347,7 +1442,9 @@ class ReviewAgent(BaseAgent):
             score = _global_scores.get(code, 0)
             if score == 0:
                 for score_pat in [
-                    r'综合评分[：:\s]*\[?\*?\s*(\d+)',
+                    # 中文表格行：| 综合评分 | 71 | note | 或 | **综合评分** | **71** |
+                    r'\|\s*\*{0,2}(?:综合|最终)?评分\*{0,2}\s*\|\s*\*{0,2}\s*(\d+(?:\.\d+)?)\*{0,2}',
+                    r'综合评分[：:\s]*\[\*?\s*(\d+)',
                     r'综合(?:分|评分)\s*[：:\s]*\*?\s*(\d+)',
                     r'(?:评分|得分)[：:\s]*\*?\s*(\d+)\s*分',
                     r'[（(]\s*(\d+)\s*分\s*[)）]',
@@ -1360,6 +1457,8 @@ class ReviewAgent(BaseAgent):
                     r'[≈=]\s*(\d+\.?\d*)\s*分',
                     # 弱市调整格式：弱市调整-5分：49.75 或 弱市调整：54.75-5=49.75≈50分（LLM 2026-07-31格式漂移）
                     r'弱市调整[^：:]*[：:]\s*(\d+\.?\d*)',
+                    # 英文表格行：| Weighted Composite | 45.5 |
+                    r'\|\s*Weighted\s*Composite\s*\|\s*(\d+(?:\.\d+)?)',
                     # 叙事版格式：综合[^\n]*?\d+分（LLM 2026-07-31叙事版输出，取最后出现的综合评分）
                     r'综合[^\n]*?(\d+)\s*分',
                 ]:
@@ -1370,35 +1469,35 @@ class ReviewAgent(BaseAgent):
                         score = min(int(float(last_score)), 100)
                         break
             if score == 0:
-                # 兜底1：从 **四维打分**：段落提取各维度评分，用权重计算综合分
+                # 兜底1：从四维维度评分加权/平均计算综合分
+                # 支持表格行「| 驱动验证 | 85 |」与「驱动验证: 85」两种分隔（LLM 2026-09-23 格式漂移）
+                dim_row_pat = r'(?:驱动验证|位置分析|量能判断|风险扫描)\s*[|：:]\s*(\d+)'
                 dim_scores = re.findall(r'[^\d]*(\d+)\s*分', block.split('四维打分')[-1].split('\n')[0]) if '四维打分' in block else []
+                if len(dim_scores) < 4:
+                    dim_scores = re.findall(dim_row_pat, block)
                 if len(dim_scores) >= 4:
                     weights = [0.25, 0.35, 0.20, 0.20]  # 驱动/位置/量能/风险
                     weighted = sum(int(s) * w for s, w in zip(dim_scores[:4], weights))
                     score = min(int(weighted), 100)
                     plog("INFO", f"[ReviewAgent] 📐 四维打分兜底: {name}({code}) 维度={dim_scores[:4]} 综合={score}分")
+                elif len(dim_scores) >= 2:
+                    # 部分维度（LLM 表格被截断，如只有 3 维/2 维）：用可用维度均值兜底
+                    weights_partial = [0.25, 0.35, 0.20, 0.20][:len(dim_scores)]
+                    denom = sum(weights_partial) or 1
+                    weighted = sum(int(s) * w for s, w in zip(dim_scores, weights_partial)) / denom
+                    score = min(int(round(weighted)), 100)
+                    plog("INFO", f"[ReviewAgent] 📐 部分维度兜底: {name}({code}) 维度={dim_scores} 综合={score}分")
                 else:
-                    # 兜底2：从英文风格维度评分提取（如"驱动验证: 82"或"位置分析: 72"）
-                    dim_scores_eng = re.findall(
-                        r'(?:驱动验证|位置分析|量能判断|风险扫描)\s*[:：]\s*(\d+)',
+                    # 兜底2：从加权计算式提取（如"Weighted: ... = 70.7"或"加权 = 70.7"）
+                    w_match = re.search(
+                        r'(?:Weighted|加权|综合|最终)[^=\n]*=\s*(\d+\.?\d*)',
                         block
                     )
-                    if len(dim_scores_eng) >= 4:
-                        weights = [0.25, 0.35, 0.20, 0.20]
-                        weighted = sum(int(s) * w for s, w in zip(dim_scores_eng[:4], weights))
-                        score = min(int(weighted), 100)
-                        plog("INFO", f"[ReviewAgent] 📐 英文维度兜底: {name}({code}) 维度={dim_scores_eng[:4]} 综合={score}分")
+                    if w_match:
+                        score = min(int(float(w_match.group(1))), 100)
+                        plog("INFO", f"[ReviewAgent] 📐 加权计算兜底: {name}({code}) = {score}分")
                     else:
-                        # 兜底3：从加权计算式提取（如"Weighted: ... = 70.7"或"加权 = 70.7"）
-                        w_match = re.search(
-                            r'(?:Weighted|加权|综合|最终)[^=\n]*=\s*(\d+\.?\d*)',
-                            block
-                        )
-                        if w_match:
-                            score = min(int(float(w_match.group(1))), 100)
-                            plog("INFO", f"[ReviewAgent] 📐 加权计算兜底: {name}({code}) = {score}分")
-                        else:
-                            plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
+                        plog("WARNING", f"[ReviewAgent] ⚠️ V2评分提取失败: {name}({code}) 所有正则+兜底均失败，默认score=0")
 
             # 信心度（统一走 _extract_confidence，修复「高」字丢失）
             confidence = self._extract_confidence(block, score)

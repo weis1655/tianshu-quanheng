@@ -229,6 +229,11 @@ class PoolManager:
                             data["stocks"] = stocks[-limit:]
                             plog("INFO", f"[PoolManager] ⚠️ {pool_name} 超出容量限制({limit})，已自动截断")
             
+            # ── 写入前统一按代码去重（消除多路写入同一标的导致的重复记录）──
+            # 2026-09-23 边缘池紫金矿业(601899) 出现 55/52 两条：_scan_and_downgrade 与
+            # 止损降级两路 append 都不查重；在此统一合并为「保留综合分最高者」。
+            self._apply_dedup_to_pool(data, pool_name)
+            
             # ── 入池后自动排序：按综合分降序（无分值的排最后）──
             self._maybe_sort_pool(data, pool_name)
             # ── 同步更新持仓数统计（兜底：确保统计与 stocks 一致）──
@@ -264,6 +269,70 @@ class PoolManager:
 
     # ── 需要自动排序的池（按综合分降序）─────────────────────
     _SCORE_SORT_POOLS = {"重点观察池", "快筛候选池", "边缘池"}
+
+    @staticmethod
+    def _dedup_stocks(stocks: list) -> list:
+        """按「股票代码」去重：同一标的仅保留一条记录。
+
+        合并规则：保留综合分最高的一条（分数相同时保留降级/纳入日期最新的一条）。
+        边缘池曾因两路降级写入（存量扫描降级 / 止损降级）都不查重而重复入库
+        （2026-09-23 紫金矿业601899 出现 55 分和 52 分两条）—— 写入前统一按代码合并。
+        字段名双读兼容（"代码"/"股票代码"，"综合分"/"综合评分"），与池间字段差异一致。
+
+        Returns: 去重后的新列表（保持首次出现顺序）
+        """
+        def _code(s):
+            return s.get("代码") or s.get("股票代码") or ""
+
+        def _score(s):
+            v = s.get("综合分", s.get("综合评分"))
+            try:
+                return float(v) if v is not None else -1
+            except (TypeError, ValueError):
+                return -1
+
+        def _recency(s):
+            # 降级池用降级时间，普通池用纳入/建仓日期
+            return s.get("降级时间") or s.get("纳入日期") or s.get("建仓日期") or ""
+
+        best = {}       # code -> 保留项（仅针对有代码的条目）
+        order = []      # 首次出现顺序（存 stock dict）
+        for s in stocks:
+            c = _code(s)
+            if not c:
+                # 无代码条目无法判重，原样保留
+                order.append(s)
+                continue
+            cur = best.get(c)
+            if cur is None:
+                best[c] = s
+                order.append(s)
+                continue
+            cs_score, cs_rec = _score(cur), _recency(cur)
+            ns_score, ns_rec = _score(s), _recency(s)
+            # 取综合分更高者；分数相同取降级/纳入日期更新者
+            if ns_score > cs_score or (ns_score == cs_score and ns_rec >= cs_rec):
+                best[c] = s
+        # 按首次出现顺序输出各代码的合并后条目（无代码项原样穿插保留）
+        return [best.get(_code(s), s) for s in order]
+
+    @staticmethod
+    def _apply_dedup_to_pool(data: dict, pool_name: str) -> int:
+        """原地按代码去重池中 stocks，返回被合并（删除）的条数。
+
+        供 save_pool / add_stock / 降级写入共用，消除「多路写入同一标的」导致的重复记录。
+        仅统计删除数量，不改动 统计 字段（由调用方统一维护）。
+        """
+        stocks = data.get("stocks", [])
+        if not stocks:
+            return 0
+        deduped = PoolManager._dedup_stocks(stocks)
+        removed = len(stocks) - len(deduped)
+        if removed:
+            data["stocks"] = deduped
+            plog("INFO", f"[PoolManager] 🧹 {pool_name} 去重：合并 {removed} 条重复记录 "
+                         f"({len(stocks)}→{len(deduped)})")
+        return removed
 
     def _maybe_sort_pool(self, data: dict, pool_name: str):
         """按综合分降序排列池内股票（无分值/空值的排最后）。"""

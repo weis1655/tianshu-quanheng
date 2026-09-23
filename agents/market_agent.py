@@ -24,6 +24,35 @@ from thresholds import SCORE_BASE_HIGH, SCORE_BASE_MED
 
 
 # =============================================================================
+# [FIX-0923-01] 行情名称本地覆盖表
+# 背景: 腾讯行情 API (qt.gtimg.cn) 对部分股票的名称字段返回错误值，且我们无法修改其数据源。
+# 已知错误（09-23 盟主提出）：
+#   - 603501 腾讯返回"豪威集团"，实为"韦尔股份"（Will Semiconductor，豪威为旗下品牌）
+#   - 688410 腾讯返回"山外山"，实为"义翘神州"（Sino Biological）
+# 结构: {股票代码(6位纯数字): 正确名称}
+# 扩展方式: 后续发现新错误时，只需在下方字典追加一条 代码->名称，无需改动其他逻辑。
+# 匹配方式: fetch_quotes() 中用解析出的 parts[2]（即 code）作为 key 精确匹配。
+# =============================================================================
+STOCK_NAME_OVERRIDES: dict[str, str] = {
+    "603501": "韦尔股份",   # 腾讯误报为"豪威集团"
+    "688410": "义翘神州",   # 腾讯误报为"山外山"
+}
+
+
+def _resolve_stock_name(code: str, api_name: str) -> str:
+    """
+    [FIX-0923-01] 行情名称本地覆盖解析。
+    优先使用 STOCK_NAME_OVERRIDES 中的权威名称，未命中则回退到腾讯 API 返回值。
+    发现覆盖命中时记录 INFO 日志，便于后续审计与告警。
+    """
+    correct = STOCK_NAME_OVERRIDES.get(code)
+    if correct and correct != api_name:
+        plog("INFO", f"[行情数据] 名称覆盖: {code} 腾讯返回='{api_name}' -> 本地修正='{correct}'")
+        return correct
+    return api_name
+
+
+# =============================================================================
 # 新增工具：历史K线（新浪财经，无需Key）
 # =============================================================================
 
@@ -494,7 +523,8 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
             mkt_cap = float(parts[44])        # 流通市值(亿)
             total_cap = float(parts[45])      # 总市值(亿)
             # 【REP-02】自动ST检测
-            stock_name = parts[1]
+            # [FIX-0923-01] 应用本地名称覆盖，避免腾讯误报名称影响ST检测与下游展示
+            stock_name = _resolve_stock_name(code, parts[1])
             is_st = 'ST' in stock_name or '*ST' in stock_name
             if is_st:
                 # 自动更新ST_STOCKS集合
@@ -530,7 +560,7 @@ def fetch_quotes(codes: list[str]) -> list[dict]:
             results.append({
                 "代码": code,
                 "市场": market,
-                "名称": parts[1],
+                "名称": _resolve_stock_name(code, parts[1]),
                 "现价": price,
                 "昨收": prev_close,
                 "今开": float(parts[5]),

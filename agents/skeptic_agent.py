@@ -261,14 +261,15 @@ class SkepticAgent(BaseAgent):
             result = self.strip_chain_of_thought(result)
             challenges = self._parse_challenges(result)
         if not challenges:
-            # P0-20260922: 降级路径修复 — 之前对所有标的统一写 overall_verdict='challenge_required'，
+            # P0-20260923: 降级路径修复 — 之前对所有标的统一写 overall_verdict='challenge_required'，
             # Decision 层看到全 medium challenge 就把它们视为有效阻塞（阻塞计数不减，或反复 reset），
-            # 掩盖真正的 LLM 解析失败信号。修复策略：
-            # 1) 不再伪造 challenge_required，而是标记 overall_verdict='unknown' + degraded=True；
+            # 掩盖真正的 LLM 解析失败信号。修复策略（20260923 版）：
+            # 1) 不再伪造 challenge_required，直接标记 overall_verdict='pass' + degraded=True；
             # 2) challenges 为空（不塞占位 medium 质疑），让 _save_verdict 走 passed 分支；
             # 3) _apply_auto_risk_overrides 仍会扫描真实财务暴雷风险，命中后仍能追加真实 challenge_required。
-            # 下游（Decision/GateController）看到 unknown → 不算 veto、不算阻塞，阻塞计数正常 reset。
-            plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为 unknown 状态（不伪造 challenge_required）")
+            # 保守放行原则：LLM 输出解析失败时优先避免把下游决策误判为阻塞；真实财务风险仍由 auto_risk_overrides 追加。
+            # degraded=True 供下游/GateController 区分降级 vs 真实通过，可作观测信号。
+            plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为 pass 状态（degraded=True 标记，不伪造 challenge_required）")
             for s in stock_list:
                 code = s.get("code", s.get("代码", ""))
                 name = s.get("name", s.get("名称", "?"))
@@ -276,7 +277,8 @@ class SkepticAgent(BaseAgent):
                     "code": str(code),
                     "name": str(name),
                     "challenges": [],          # 不再塞占位 medium 质疑
-                    "overall_verdict": "unknown",
+                    "overall_verdict": "pass",  # P0-20260923: 保守放行
+                    "summary": "LLM输出解析失败，保守放行",
                     "veto_count": 0,
                     "high_count": 0,
                     "weighted_count": 0,
@@ -647,9 +649,10 @@ class SkepticAgent(BaseAgent):
         字段：**判定**：xxx / **摘要**：xxx
         表格：| 维度 | 质疑内容 | 严重性 |
         同代码若出现多次（高风险区 vs 详情区），仅保留带 **判定** 字段者。
+        P0-20260923: 扩展匹配 ASCII 括号 + 允许标题前无 emoji/序号 + 支持 6/10 位代码。
         """
         header_pat = re.compile(
-            r'^#{2,4}\s*(?:⚠️|✅)?\s*(?:\d+\.\s*)?(.+?)（(\d{6})）', re.MULTILINE)
+            r'^#{2,4}\s*(?:⚠️|✅|🔴|🟡|🟢)?\s*(?:\d+[.)、]\s*)?(.+?)[（(](\d{6}(?:\.[A-Z])?)[）)]', re.MULTILINE)
         matches = list(header_pat.finditer(text))
         by_code: dict = {}
         for idx, m in enumerate(matches):

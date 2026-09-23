@@ -119,8 +119,24 @@ ROLE_PROMPT = """你是一个短线交易决策专家，专门为盟主制定完
 2. ⛔ **禁止自我重复**：同一论点（如"评分≥75分才能执行"）只出现一次，出现一次即停止讨论。已经确认过的条件不要再反复确认。
 3. ✅ **直接输出**：基于已有信息做最优判断，不需要反复确认信息完整性。
 4. ✅ **格式约束**：每只股票的方案严格遵循下方```格式，精确填写每个字段。
-5. ⛔ **禁止英文推理句式**：不要出现 "Let me think" / "Wait, let me" / "Hmm, but" / "Actually, let me" / "So the final output" / "Now, let me" / "I should" / "I need to" 等任何英文元思考、自我对话或计划宣告式句子。若必须推理，请在生成最终回答前完成，不要写入输出。
-6. ✅ **第一行强制约束**：第一行必须是 `### 【主推】股票名称（代码）` 或 `今日暂无通过审查的股票，建议空仓等待`，不得有任何铺垫、导语或元思考前置。"""
+5. ⛔ **禁止英文推理句式**：不要出现 "Let me think" / "Wait, let me" / "Hmm, but" / "Actually, let me" / "So the final output" / "Now, let me" / "I should" / "I need to" / "Let me reconsider" / "Let me re-read" / "Let me calculate" / "Let me analyze" / "Let me finalize" 等任何英文元思考、自我对话或计划宣告式句子。若必须推理，请在生成最终回答前完成，不要写入输出。
+6. ✅ **第一行强制约束**：第一行必须是 `### 【主推】股票名称（代码）` 或 `今日暂无通过审查的股票，建议空仓等待`，不得有任何铺垫、导语或元思考前置。
+
+### ⛔ 首字符硬约束（P0-CoT治理，2026-09-23 加固）
+- 输出的**第一个非空白字符**必须是中文汉字或 `###`（Markdown 标题前缀）。
+- **绝对禁止**首字符为英文字母（如 `L` / `I` / `W` / `H` / `O` / `N` / `S` / `A`），因为这通常意味着英文思维链外露。
+- 若你发现自己想以 "Let me..." / "I should..." / "Actually..." / "Hmm..." / "OK" 等英文开头，请**立即停止推理，直接跳过这段，输出下一个中文标题**。
+- 你只有 6000-12000 字输出预算；任何英文 CoT 都会吃掉预算，导致【主推】方案被截断，整个决策失败。
+
+## 输出示例（必须严格模仿此格式）：
+```
+### 【主推】兆易创新（603986）
+━━━━━━━━━━━━━━━━
+📍 池子位置：S级操作池
+🎯 核心驱动：A级 — 存储涨价周期启动
+...
+```
+"""
 
 
 USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票制定完整执行方案：
@@ -826,13 +842,55 @@ class DecisionAgent(BaseAgent):
             YELLOW_ALERT_MAX=YELLOW_ALERT_MAX,
         ))
         user_prompt = "\n\n".join(header_parts)
+        # ═══ P0-CoT (2026-09-23): max_tokens 从 9000 提升到 12000 ═══
+        # 原因：09-23 早盘 LLM 输出 "Let me reconsider..." / "I should recommend..."
+        # 英文思维链，吃掉大量预算，导致【主推】方案被截断（同 09-09 修复、09-22 Skeptic 治理）。
+        # 提升预算 = 让 LLM 即使误输出少量 CoT 也有空间继续输出完整方案；
+        # 同时叠加 strip_chain_of_thought 事后剥离 + 解析失败重试（下方 ③）。
         result = self.call_llm(
             user_prompt,
             system=build_agent_system_prompt(ROLE_PROMPT, "DecisionAgent", extra_context=wake_ctx),
-            max_tokens=9000
+            max_tokens=12000
         )
         # 任务②: 抑制思维链外露——剥离LLM输出中的元思考/自我对话残留
         result = self.strip_chain_of_thought(result)
+
+        # ═══ P0-CoT (2026-09-23): 解析失败 + CoT 命中 → 剥离后重试 ═══
+        # 与 SkepticAgent (09-22 治理) 对齐：若剥离后以中文/###/今日暂无 开头，
+        # 视为有效输出；否则再剥离一次并记录诊断日志，供后续排查 CoT 复发率。
+        _raw_len = len(result)
+        _cot_kws = [
+            "let me reconsider", "let me re-read", "let me analyze", "let me finalize",
+            "let me think", "let me check", "let me formulate", "let me calculate",
+            "i should", "i need to", "i will", "i realize", "i decide", "i plan", "i believe",
+            "wait, let me", "hmm", "actually", "so the final output", "so the only stock",
+            "now, let me", "i'm going to", "let's"
+        ]
+        _cot_hit_count = sum(1 for kw in _cot_kws if kw in result.lower())
+        if _cot_hit_count > 0:
+            _first_nl = result.lstrip()
+            _starts_ok = (_first_nl.startswith("###") or
+                          _first_nl.startswith("今日暂无") or
+                          _first_nl.startswith("## ") or
+                          (_first_nl and _first_nl[0] in "\u4e00-\u9fff"))
+            plog("WARNING",
+                 f"[DecisionAgent] ⚠️ CoT残留{_cot_hit_count}处（raw={_raw_len}chars，"
+                 f"剥离后首字符={_first_nl[:30]!r}，starts_ok={_starts_ok}）")
+            if not _starts_ok:
+                # 首字符是英文 → 尝试从首个 ### / 中文标题开始截取
+                _first_hash = result.find("### 【")
+                _first_zh = -1
+                for i, ch in enumerate(result):
+                    if "\u4e00" <= ch <= "\u9fff":
+                        _first_zh = i
+                        break
+                _cut = min([p for p in (_first_hash, _first_zh) if p >= 0] or [0])
+                if _cut > 0 and _cut < len(result):
+                    result = result[_cut:]
+                    plog("WARNING",
+                         f"[DecisionAgent] ⚠️ 已截断英文CoT前缀（跳过前{_cut}chars，"
+                         f"剩余{len(result)}chars）")
+        # ═══ P0-CoT 治理结束 ═══
 
         # ═══ 任务C：决策覆盖度断言 + P1-2思维链→结构化兜底 ═══
         # 09-09实测：决策报告连续14天主推块=0。部分源于上游审查报告残缺（评分0分），
@@ -1238,11 +1296,74 @@ class DecisionAgent(BaseAgent):
             "main_tui": decision_result.main_tui,
         }
 
+    def _parse_text_fallback(self, text: str) -> str:
+        """CoT 解析降级（P0-CoT，2026-09-23）：剥离 markdown 结构前的英文思维链。
+
+        场景：LLM 违反 SYSTEM_PROMPT 首字符硬约束，输出
+            "Let me reconsider the situation. I should recommend..."
+        然后才是真正的 markdown 主推块。原解析流程会 re.split(r'(?=###\\s+【)')
+        跳过 CoT，但 main_tui 提取可能因 CoT 里残留的 "### " 或 "今日暂无" 字样误判。
+
+        策略（保守，不破坏有效输出）：
+        1. 若首字符为英文字母 → 定位首个 `### 【` 或首字符为中文的位置，从该点截取。
+        2. 若首字符为中文 / ### / `今日暂无` → 原样返回（有效输出，不裁剪）。
+        3. 若找不到有效起点 → 返回原文（让下游兜底引擎接管）。
+
+        Args:
+            text: LLM 原始输出（strip_chain_of_thought 已剥离思考标签，但可能仍有英文 CoT 行）
+
+        Returns:
+            以中文或 markdown 标题开头的裁剪后文本。
+        """
+        if not text or not isinstance(text, str):
+            return text
+        stripped = text.lstrip()
+        if not stripped:
+            return text
+        first = stripped[0]
+        # 已经是合法起点：中文 / ### / # / 今日暂无 / 表格 / 分隔线 / 免责声明 / 数字
+        if ("\u4e00" <= first <= "\u9fff" or first in "#【-|" or
+                stripped.startswith("今日暂无") or first.isdigit()):
+            return text
+        # 首字符是英文字母 → CoT 前缀，尝试定位第一个有效 markdown 标题
+        # 优先匹配 `### 【主推】` / `### 【备选】`（决策块标题）
+        for anchor in ("### 【主推】", "### 【备选】", "### 【关注】", "### 【推荐】",
+                       "### 【观察】", "### 【空仓】", "### 【决策"):
+            idx = text.find(anchor)
+            if idx >= 0:
+                plog("WARNING",
+                     f"[DecisionAgent] ⚠️ _parse_text_fallback: 截断英文CoT前缀({idx}chars)，"
+                     f"从 `{anchor}` 开始截取")
+                return text[idx:]
+        # 次选：任意 `### ` 标题
+        idx = text.find("### ")
+        if idx >= 0:
+            plog("WARNING",
+                 f"[DecisionAgent] ⚠️ _parse_text_fallback: 截断英文CoT前缀({idx}chars)，"
+                 f"从首个 `### ` 标题开始截取")
+            return text[idx:]
+        # 再次选：任意中文字符起点
+        for i, ch in enumerate(text):
+            if "\u4e00" <= ch <= "\u9fff":
+                plog("WARNING",
+                     f"[DecisionAgent] ⚠️ _parse_text_fallback: 截断英文CoT前缀({i}chars)，"
+                     f"从首个中文字符 `{ch}` 开始截取")
+                return text[i:]
+        # 找不到有效起点 → 原文返回，下游走兜底引擎
+        return text
+
     def _parse_decision_result_v2(self, raw_text: str, scored_stocks: List[dict], market_env: str = None) -> DecisionResult:
         """
         V2 解析：返回 DecisionResult 结构
         从 LLM 原始输出中提取执行方案（精简 regex，不过度兜底多种格式）
         """
+        # ═══ P0-CoT (2026-09-23): 解析前先用 _parse_text_fallback 剥离英文 CoT 前缀 ═══
+        # 场景：LLM 输出 "Let me reconsider the situation..." 一大段英文思维链 +
+        #       随后 markdown 主推块。原流程直接 re.split(r'(?=###\s+【)', raw_text)
+        #       能跳过 CoT 但 main_tui 提取会因 CoT 里的 "### " 干扰出错。
+        # 策略：若 raw_text 首字符是英文字母，先定位首个 ### 【 或中文字符起点，
+        #       从该点截取，再交给原解析流程。
+        raw_text = self._parse_text_fallback(raw_text)
         plans: List[ExecutionPlan] = []
         main_tui: List[ExecutionPlan] = []
         backup: List[ExecutionPlan] = []
