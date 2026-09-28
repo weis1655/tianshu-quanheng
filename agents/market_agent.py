@@ -430,8 +430,17 @@ def _sanitize_code_list(codes: list[str]) -> list[str]:
         s = str(c).strip()
         if not s:
             continue
-        # 剥离常见前后缀后判断是否为 6 位数字
-        bare = s.upper().replace(".SH", "").replace(".SZ", "").replace("SH", "").replace("SZ", "")
+        # [FIX-0928-01] 已带合法市场前缀 → 原样保留，绝不在此处剥前缀再按首位重推。
+        # 旧逻辑对 sh000001（上证指数）执行 upper().replace("SH","") 得裸 000001，
+        # 再按首位判 sz → 变成 sz000001（平安银行），与真实 sz000001 撞码后去重丢失，
+        # 导致上证指数全链消失、个股混入大盘判定（2026-09-28 盘中复盘事故）。
+        low = s.lower()
+        if low.startswith(("sh", "sz", "bj")) and len(low) == 8 and low[2:].isdigit():
+            clean.append(low)
+            continue
+        # 裸代码或 .SH/.SZ 后缀 → 剥离后按首位重推前缀（仅用于无前缀场景）
+        bare = s.upper().replace(".SH", "").replace(".SZ", "").replace(".BJ", "") \
+                     .replace("SH", "").replace("SZ", "").replace("BJ", "")
         if len(bare) != 6 or not bare.isdigit():
             continue
         prefix = "sh" if bare.startswith(("6", "5", "9")) else "sz"

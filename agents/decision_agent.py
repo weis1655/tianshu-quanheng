@@ -1825,8 +1825,9 @@ class DecisionAgent(BaseAgent):
                 with open(sm_file) as f:
                     data = json.load(f)
                 if data and isinstance(data, list):
-                    # 上证指数 sh000001
-                    sh = next((s for s in data if s.get("代码") == "000001"), None)
+                    # 上证指数：必须按名称匹配。代码 000001 存在歧义
+                    # （sh000001=上证指数 / sz000001=平安银行），按代码匹配会取错标的。
+                    sh = next((s for s in data if s.get("名称") == "上证指数"), None)
                     # 创业板指 sz399006
                     cyb = next((s for s in data if s.get("代码") == "399006"), None)
                     if sh:
@@ -1834,13 +1835,13 @@ class DecisionAgent(BaseAgent):
                         sh_price = sh.get("现价", 0)
                         sh_vol = sh.get("量比", 1)
                         sh_status = "偏强" if sh_chg > 0.5 else "偏弱" if sh_chg < -0.5 else "震荡"
-                        # 估算指数点位（腾讯API不直接返回点位，但返回涨跌额）
-                        # 用昨收+涨跌额估算
-                        sh_prev = sh.get("昨收", sh_price)
-                        idx_est = round(sh_prev / (1 + sh_chg / 100), 0) if sh_chg != 0 else sh_price
+                        # 指数的「现价」字段即指数点位，直接展示。
+                        # [FIX-0928-02] 旧逻辑用 昨收/(1+涨跌幅) 反算，分子分母颠倒，
+                        # 且对个股（如平安银行）反算结果毫无意义（曾输出"约11点附近"）。
+                        idx_est = round(sh_price, 2)
 
                         lines = [
-                            f"- **上证指数**：{sh_status}，约{int(idx_est)}点附近，{sh_chg:+.2f}%",
+                            f"- **上证指数**：{sh_status}，{idx_est}点，{sh_chg:+.2f}%",
                             f"  量比 {sh_vol:.2f}x {'放量' if sh_vol > 1.5 else '缩量'}",
                         ]
                         if cyb:
@@ -1902,7 +1903,8 @@ class DecisionAgent(BaseAgent):
                 with open(sm_file) as f:
                     data = json.load(f)
                 if data and isinstance(data, list):
-                    sh = next((s for s in data if s.get("代码") == "000001"), None)
+                    # 按名称匹配上证指数（代码 000001 与平安银行 sz000001 歧义，不可用代码匹配）
+                    sh = next((s for s in data if s.get("名称") == "上证指数"), None)
                     if sh:
                         sh_chg = sh.get("涨跌幅", 0)
                         result["sh_chg"] = sh_chg
