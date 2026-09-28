@@ -54,3 +54,9 @@ logs/
 *.key
 *.crt
 data/backups/
+
+# 运行时生成的报告/数据（2026-09-28 从版本控制摘除，本地保留，cron 产物不入库）
+data/dq/
+data/运营日报/
+data/backtest_workbench/
+data/回测快照/
