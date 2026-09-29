@@ -231,6 +231,12 @@ class ReviewAgent(BaseAgent):
                 for es in edge_stocks:
                     es_code = str(es.get("代码", es.get("股票代码", "")))
                     es_score = es.get("综合分", es.get("综合评分", es.get("score", 0)))
+                    # 2026-09-29 修复：dict.get 的默认值只在键「不存在」时生效，
+                    # 键存在但值为 None 时返回 None（兆易创新/比亚迪综合分=None），
+                    # None >= 60 抛 TypeError 并被外层 except 吞掉 → 整个回补循环中断，
+                    # 已扫到的 ≥60 分候选同样补不进来，raw 恒为 0。
+                    if es_score is None:
+                        continue
                     if es_code and es_score >= 60 and es_code not in existing_codes:
                         raw.append(es)
                         existing_codes.add(es_code)
@@ -295,6 +301,54 @@ class ReviewAgent(BaseAgent):
 
         if not candidate_stocks.strip() or candidate_stocks == "（无候选股票）":
             return {"success": False, "error": "候选池为空"}
+
+        # ═══ 2026-09-29 修复：实际候选为空时诚实返回，不要空转调用 LLM ═══
+        # 此前 candidate_stocks 在 raw 为空时回退到 _extract_from_report(screen_report)，
+        # 从快筛报告文本里"借"出候选文本 → 守卫放行 → 拿空 raw 调 LLM（0 批次、1ms 假完成）
+        # → 覆盖度告警拿 candidate_stocks 当分母打出 2/0=0%，并硬编码"疑似思维链污染"。
+        # 但 LLM 根本没被调用，思维链污染无从谈起（cot_hits 恒为 0 恰说明没有思维链）。
+        # 根因：守卫检查的是 candidate_stocks（含文本兜底），LLM 调用用的是 raw，两者不同源。
+        # 现改为 raw 为空即返回空的成功审查结果——弱市/极端行情日快筛全被拦属正常，
+        # 不应伪装成"审过 0 只"的覆盖度事故，也不应触发级联终止。
+        if not raw:
+            # 说明：candidate_stocks 在 raw 为空时含 _extract_from_report 文本兜底，
+            # 与实际可审候选数不是同一个口径。日志中并列输出两者，避免再次误读。
+            plog("WARNING",
+                 f"[ReviewAgent] ⚠️ 审查候选为空，跳过 LLM 审查（未调用）。"
+                 f" 注意：candidate_stocks 文本口径 {self._count_stocks(candidate_stocks)} 只、"
+                 f"实际可审候选 0 只，两者不同源。候选池为空≠审查失败，今日不产生池流转。")
+            report = f"""# 【审查报告】{today}
+
+━━━━━━━━━━━━━━━━
+
+## 候选池审查结果
+
+### 候选池现有：0 只（无快筛候选，边缘池回补 0 只）
+
+## 深度审查结果
+
+无审查标的，今日不产生池流转。（弱市/极端行情日快筛全被技术门槛拦截属正常现象，非审查失败。）
+
+---
+
+（本期无池流转）
+
+---
+审查执行时间：{datetime.now().strftime('%H:%M')}"""
+            out_file = self.history_dir / f"{today}_审查报告.md"
+            try:
+                out_file.parent.mkdir(parents=True, exist_ok=True)
+                out_file.write_text(report, encoding="utf-8")
+            except Exception as _rep_err:
+                plog("INFO", f"[ReviewAgent] 空候选审查报告写盘失败(不影响主流程): {_rep_err}")
+            return {
+                "success": True, "error": "",
+                "reason": "no_candidates",
+                "high_risk_count": 0, "high_risk_stocks": [],
+                "challenges": [], "stocks": [], "report": report,
+                "saved_to": str(out_file),
+            }
+        # ═══ 空候选早退结束 ═══
 
         # LLM 审查（含市场状态上下文）
         self.logger.llm_call("review_stocks", tokens=len(candidate_stocks))

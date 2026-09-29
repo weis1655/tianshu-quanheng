@@ -423,18 +423,50 @@ class ScreenAgent(BaseAgent):
                     raw = resp.read().decode("gbk", errors="replace")
                 fallback_data = json.loads(raw) if raw.startswith("[") else []
                 cand = []
+                # 2026-09-29 修复：该接口不返回 turnover/volume_ratio/amplitude（实测全为 None），
+                # 原逻辑 float(None)=0.0 后四重阈值(换手3%+量比1.5+振幅5%)恒不满足，
+                # 这个 fallback 一次都没成功过，只默默打印"无结果"。
+                # 实测 30 条涨幅榜里迈信林/迅捷兴(20cm涨停)本可入选，被字段缺失判死。
+                # 改为硬门槛只用涨幅（该接口稳定提供），换手/量比取到就作为附加条件。
                 for s in fallback_data:
                     code = s.get("code", "")
                     if code in pooled_codes:
                         continue
-                    chg = float(s.get("changepercent", 0))
-                    turnover = float(s.get("turnover", 0))
-                    vol_ratio = float(s.get("volume_ratio", 0))
-                    amplitude = float(s.get("amplitude", 0))
-                    if chg >= 5 and turnover >= 3 and vol_ratio >= 1.5 and amplitude >= 5:
-                        name = s.get("name", "?")
-                        reason = f"量价异动(新浪): 涨{chg:.1f}%+换手{turnover:.1f}%+量比{vol_ratio:.1f}"
-                        cand.append({"code": code, "name": name, "chg_pct": chg, "reason": reason})
+                    try:
+                        chg = float(s.get("changepercent", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    # 换手率/量比/振幅：字段缺失时按"未知"处理，不阻塞入选
+                    def _num(v):
+                        try:
+                            return float(v) if v not in (None, "", "None") else None
+                        except (TypeError, ValueError):
+                            return None
+                    turnover = _num(s.get("turnover"))
+                    vol_ratio = _num(s.get("volume_ratio"))
+                    amplitude = _num(s.get("amplitude"))
+                    # 硬门槛：涨幅≥5%；软门槛：已知的换手/量比不达标则跳过
+                    if chg < 5:
+                        continue
+                    if turnover is not None and turnover < 3:
+                        continue
+                    if vol_ratio is not None and vol_ratio < 1.5:
+                        continue
+                    name = s.get("name", "?")
+                    # 2026-09-29: 剔除新股/次新股首日（名称带 N/C 前缀，如 N鸿富诚 654%）。
+                    # 上市首日不设涨跌幅限制，量能数据无意义，且封板无法买入。
+                    if name.startswith(("N", "C")):
+                        continue
+                    # 剔除 *ST/ST（涨跌幅5%，且退市风险高，快筛主流程同样排除）
+                    if name.startswith("*ST") or name.startswith("ST"):
+                        continue
+                    bits = [f"涨{chg:.1f}%"]
+                    if turnover is not None:
+                        bits.append(f"换手{turnover:.1f}%")
+                    if vol_ratio is not None:
+                        bits.append(f"量比{vol_ratio:.1f}")
+                    reason = f"量价异动(新浪): {'+'.join(bits)}"
+                    cand.append({"code": code, "name": name, "chg_pct": chg, "reason": reason})
                 if cand:
                     plog("INFO", f"[技术面补位] 📊 新浪fallback 发现 {len(cand)} 只异动标的: {[s['name'] for s in cand[:3]]}")
                     return cand[:5]
