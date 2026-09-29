@@ -1,5 +1,6 @@
 """决策Agent核心函数单元测试"""
 import sys, re
+import pytest
 sys.path.insert(0, 'agents')
 sys.path.insert(0, '.')
 
@@ -99,3 +100,6 @@ def test_gate_controller_yellow():
     assert len(alerts) == 1
     assert alerts[0]["code"] == "000002"
     check("黄色预警区间[60-75)", True)
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

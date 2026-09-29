@@ -151,3 +151,6 @@ def test_scenario_high_turnover():
     # 基准50 + 涨跌幅3-8%加5分 + 换手率>10%扣5分 = 50
     assert score <= 55, f"高换手应扣分, 实际得分={score}"
     print(f"  ✅ 高换手(15%): 技术分={score}, 扣分逻辑生效")
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

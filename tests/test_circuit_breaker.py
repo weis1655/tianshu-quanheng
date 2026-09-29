@@ -196,3 +196,6 @@ class TestCircuitBreakerHalfOpen:
         result = breaker.call(lambda: "ok")
         assert result == "ok"
         assert breaker.state == CircuitState.CLOSED
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
