@@ -125,7 +125,11 @@ class PoolManager:
                     for pool_name, cap in yaml_caps.items():
                         if pool_name in cls.POOL_CAPACITY_LIMITS:
                             cls.POOL_CAPACITY_LIMITS[pool_name] = cap
-                            plog("INFO", f"[PoolManager] 📋 池容量已加载: {pool_name}={cap}")
+                            # 2026-09-30: INFO→DEBUG。模块加载即触发 4 行写生产日志，
+                            # 9-29 单日志 412 行（占 33%）几乎全为此噪音。
+                            # 降级后 stdout 仍可见（plog 的 print 独立于 level），
+                            # cron 终端可读性不受影响；生产日志不再写入。
+                            plog("DEBUG", f"[PoolManager] 📋 池容量已加载: {pool_name}={cap}")
         except Exception as e:
             # 加载失败不阻塞，使用硬编码值
             plog("INFO", f"[PoolManager] ⚠️ config.yaml 加载失败，使用默认池容量: {e}")
