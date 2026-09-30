@@ -12,6 +12,7 @@
 
 import sys
 import json
+import logging
 import tempfile
 import unittest
 from datetime import datetime
@@ -162,10 +163,39 @@ class TestEmptyCandidates(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
+        self.agent = None          # _restore_logger 依赖，需先置空
+        import logger as _logger_mod
+        self._old_handlers = []
+        self._old_propagate = True
+
+        # ── 日志隔离（2026-09-29 第三次修正）─────────────────────────────
+        # 有【两条】独立写入路径指向生产日志 logs/{今天}.log：
+        #   ① plog() → root logger 的 FileHandler（硬编码 LOG_DIR）
+        #   ② StructuredLogger.__init__（logger.py:52-54）构造时自己 addHandler
+        #     一个 FileHandler 到 LOG_DIR，与 root 无关。
+        # 位置要求：本段必须在 self.agent = ReviewAgent() 【之前】。
+        #   ReviewAgent.__init__ 内部就构造 PoolManager，其 _init_capacity_limits
+        #   会 plog 输出「池容量已加载」，若此时 root 仍指生产目录即产生写入。
+        #   实测漏写 4 行。
+        # 手法（照 tests/test_coverage_f06.py::test_plog 既有范式，并补齐 ②）：
+        #   重置 _ROOT_LOGGER_SETUP 一次性守卫后 setup_root_logger(log_dir=tmp)。
+        #   不重置则守卫为 True 直接 return，log_dir 参数被忽略——这是关键坑。
+        #   注意：test_coverage_f06.py:109 未重置守卫，在 setup_root_logger()
+        #   已被其他代码调用过的进程里它其实不生效；此处必须重置。
+        # 还原顺序：addCleanup 为 LIFO，先登记清理、后登记还原 → 还原先执行。
+        self._tmp_log = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp_log.cleanup)
+        self.addCleanup(self._restore_logger)
+        self._old_setup_flag = _logger_mod._ROOT_LOGGER_SETUP
+        self._old_root_handlers = list(logging.getLogger().handlers)
+        _logger_mod._ROOT_LOGGER_SETUP = False
+        _logger_mod.setup_root_logger(level="INFO", log_dir=self._tmp_log.name)
+
+        # ── 构造与路径重定向 ──
         # 用真实 __init__ 拿到全部属性（stats/logger/pool_manager 等），
         # 再把路径切到临时目录，避免污染真实的五池管理和历史记录。
-        # （曾试用 ReviewAgent.__new__ 手工补属性，结果越补越多——漏了 pool_dir、
-        #   stats 等，且补不全 BaseAgent 的状态，故改回真实构造。）
+        # （曾试用 ReviewAgent.__new__ 手工补属性，越补越多——漏 pool_dir、stats
+        #   等，且补不全 BaseAgent 状态，故改回真实构造。）
         self.agent = ReviewAgent()
         self.agent.root = self.tmp
         self.agent.history_dir = self.tmp / "data" / "历史记录"
@@ -174,6 +204,35 @@ class TestEmptyCandidates(unittest.TestCase):
         self.agent.pool_dir.mkdir(parents=True, exist_ok=True)
         from pool_manager import PoolManager
         self.agent.pool_manager = PoolManager(self.agent.pool_dir)
+
+        # ② 清掉 agent.logger 自己在【构造时】挂上的生产 FileHandler，并断开冒泡。
+        #   此时 root 已指临时目录，构造期间 plog 写入已进临时目录（预期无害）。
+        self._old_handlers = [
+            (h, getattr(h, "formatter", None))
+            for h in self.agent.logger.logger.handlers]
+        self._old_propagate = self.agent.logger.logger.propagate
+        self.agent.logger.logger.handlers.clear()
+        self.agent.logger.logger.propagate = False
+
+    def _restore_logger(self):
+        """还原 root logger 与 agent.logger，避免污染同进程内后续测试。"""
+        import logger as _logger_mod
+        # ① 还原 root 到真实 LOG_DIR（必须重置守卫，否则参数被忽略）
+        _logger_mod._ROOT_LOGGER_SETUP = False
+        _logger_mod.setup_root_logger(level="INFO", log_dir=str(_logger_mod.LOG_DIR))
+        # 清掉指向已删除临时目录的 handler，还原真实 LOG_DIR handler
+        root = logging.getLogger()
+        root.handlers.clear()
+        for h in self._old_root_handlers:
+            root.addHandler(h)
+        # ② 还原 agent.logger 的 handlers 与 propagate
+        if self.agent is not None:
+            lg = self.agent.logger.logger
+            lg.propagate = self._old_propagate
+            for h, f in self._old_handlers:
+                if f is not None:
+                    h.setFormatter(f)
+                lg.addHandler(h)
 
     def _make_pools(self, screen_stocks="[]"):
         """池文件必须写在 pool_dir（= root/五池管理）下，不是 root。"""
