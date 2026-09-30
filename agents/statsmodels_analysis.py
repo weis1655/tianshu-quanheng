@@ -382,7 +382,11 @@ def main():
         # 从池文件读取
         pool_file = PROJECT_ROOT / "五池管理" / f"{args.pool}.json"
         if pool_file.exists():
-            data = json.loads(pool_file.read_text(encoding="utf-8"))
+            try:
+                data = json.loads(pool_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                plog("WARNING", f"[Statsmodels] 池文件解析失败 {pool_file}: {e}")
+                data = {}
             stocks = data.get("stocks", [])
             codes = [(s.get("代码", ""), s.get("名称", "")) for s in stocks if s.get("代码")]
         else:

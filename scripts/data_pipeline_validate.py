@@ -115,8 +115,8 @@ def validate_price_consistency():
             if t_price and e_price:
                 diff = abs(t_price - e_price) / t_price * 100
                 price_diffs.append(diff)
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[Validate] 校验失败: {e}，跳过")
     if price_diffs:
         max_diff = max(price_diffs)
         avg_diff = sum(price_diffs) / len(price_diffs)

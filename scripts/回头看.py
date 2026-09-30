@@ -678,8 +678,8 @@ def extract_decision_results(filepath):
                         code = str(s.get('代码', ''))
                         if code:
                             pool_codes.add(code)
-                except Exception:
-                    pass
+                except Exception as e:
+                    plog("WARNING", f"[回头看] 池代码读取失败: {e}，跳过")
         if pool_codes:
             all_stock_codes = {s['code'] for s in result['main_stocks']}
             all_stock_codes |= {s['code'] for s in result['backup_stocks']}
@@ -1051,8 +1051,8 @@ def load_skeptic_blocked_codes(trading_days):
                     blocked_map[date] = {
                         s.get("code", "") for s in blocked_list if s.get("code")
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                plog("WARNING", f"[回头看] 阻塞列表解析失败: {e}，跳过")
     return blocked_map
 
 

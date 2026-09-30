@@ -185,8 +185,8 @@ class PoolUpdater:
                     q = fetch_quotes([to_api(code)])
                     if q and len(q) > 0:
                         entry_price = q[0].get("现价", 0)
-                except Exception:  # 安全降级: 价格获取失败→保持默认价格，不影响池更新
-                    pass
+                except Exception as e:
+                    plog("WARNING", f"[PoolUpdater] 价格获取失败: {e}，保持默认价格")
             # 从决策报告提取推荐买入价（优先于实时行情）
             buy_price_m = re.search(
                 rf'{re.escape(name)}\s*[（(]{re.escape(code)}[）)][^$]*?买入价[：:]\s*([\d.]+)',
@@ -306,8 +306,8 @@ class PoolUpdater:
                             if not ma5 and not ma10:
                                 # API不返回MA数据，无法判断趋势，放行不拦截
                                 return ""
-                    except Exception:  # 安全降级: 池记录读取失败→返回空字符串，不影响更新
-                        pass
+                    except Exception as e:
+                        plog("WARNING", f"[PoolUpdater] 池记录读取失败: {e}，返回空字符串")
                     # 阈值从85%放宽到92%（P1-3放松）
                     if ratio > 0.92:
                         return f"追高风险: 当前价{current_price}/52周最高{high_52w}={ratio:.0%}>92%"
@@ -369,8 +369,8 @@ class PoolUpdater:
                             return {"state": "震荡偏弱", "s_pool_cap": 2}
                         else:
                             return {"state": "偏空", "s_pool_cap": 1}
-        except Exception:  # 安全降级: 市场状态获取失败→降级为偏空，保守处理
-            pass
+        except Exception as e:
+            plog("WARNING", f"[PoolUpdater] 市场状态获取失败: {e}，降级为偏空")
         return {"state": "震荡", "s_pool_cap": 2}
 
     def _check_s_pool_overlap(self, new_stocks: list):

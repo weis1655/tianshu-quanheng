@@ -355,10 +355,11 @@ def safe_str(v, default: str = "") -> str:
 
 
 if __name__ == "__main__":
-    # 自测：扫描天枢项目
+    # 自测：扫描天枢项目（使用相对路径，不写死绝对路径）
+    _project_root = Path(__file__).parent.parent.resolve()
     findings = scan_sensitive_files([
-        "/home/seven/hermes-data/tianshu-quanheng/agents",
-        "/home/seven/hermes-data/tianshu-quanheng/main.py",
+        str(_project_root / "agents"),
+        str(_project_root / "main.py"),
     ])
     if findings:
         plog("INFO", f"⚠️ 发现 {len(findings)} 处敏感信息:")

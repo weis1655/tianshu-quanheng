@@ -304,8 +304,8 @@ def was_recently_fixed(issue_type: str, history_dir: Path) -> bool:
             for r in log.get("results", []):
                 if r.get("status") == "merged" and r.get("issue", {}).get("type") == issue_type:
                     return True
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[AutoHeal] 操作失败: {e}，跳过")
     return False
 
 

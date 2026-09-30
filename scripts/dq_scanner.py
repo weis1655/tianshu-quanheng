@@ -363,8 +363,8 @@ def _refresh_pool_stats(pool_path: str, data: dict) -> None:
         stats["更新日期"] = NOW.strftime("%Y-%m-%d %H:%M:%S")
         with open(pool_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        plog("WARNING", f"[DQScanner] 数据写入失败: {e}，忽略")
 
 
 def check_timeliness(pool_name: str, data: dict) -> list[dict]:

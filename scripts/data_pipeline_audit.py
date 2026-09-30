@@ -89,8 +89,8 @@ def phase1_data_source_audit() -> dict:
                 for k in s:
                     if any(x in k for x in ["分", "score", "评分"]):
                         score_field_names[pf.stem].add(k)
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[Audit] 审计解析失败: {e}，跳过")
 
     for pool, fields in sorted(score_field_names.items()):
         if len(fields) > 1:

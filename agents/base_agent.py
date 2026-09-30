@@ -650,8 +650,12 @@ class BaseAgent(ABC):
                     # OpenCode Zen (opencode-zen) 已于 2026-09-02 实测 401 不可用，移除。
                     import requests as _requests
                     sn_key = os.environ.get("SENSENOVA_API_KEY") or os.environ.get("SN_API_KEY") or os.environ.get("SN_CHAT_API_KEY")
-                    sn_base = os.environ.get("SN_CHAT_BASE_URL") or os.environ.get("SN_BASE_URL") or "https://token.sensenova.cn/v1"
-                    for fallback_m in ("deepseek-v4-flash", "sensenova-6.8-flash-lite"):
+                    # T-023/CQ-010 修复：以下为硬编码兜底 URL，优先从 config 读取；
+                    # 当 config 缺失时才走此路径，添加注释标记便于后续迁移
+                    _FALLBACK_LLM_BASE_URL = "https://token.sensenova.cn/v1"
+                    _FALLBACK_LLM_MODELS = ("deepseek-v4-flash", "sensenova-6.8-flash-lite")
+                    sn_base = os.environ.get("SN_CHAT_BASE_URL") or os.environ.get("SN_BASE_URL") or _FALLBACK_LLM_BASE_URL
+                    for fallback_m in _FALLBACK_LLM_MODELS:
                         if not sn_key:
                             break
                         try:

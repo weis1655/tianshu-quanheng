@@ -87,8 +87,8 @@ for pool_name, label in [("重点观察池", "📊 重点池"), ("快筛候选�
             chg = s.get("今日涨跌", s.get("涨跌幅", "-"))
             score = s.get("综合分", s.get("技术面评分", "-"))
             print(f"  {name}({code})  收盘:{price}  涨跌:{chg}  评分:{score}")
-    except Exception:
-        pass
+    except Exception as e:
+        plog("WARNING", f"[PriceRefresh] 价格刷新失败: {e}，忽略")
 
 # ── OPT-1: 实盘止损集成 — 条件单扫描 ─────────────────────
 try:

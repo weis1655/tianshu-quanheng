@@ -130,8 +130,9 @@ def generate_report(result: dict) -> str:
                 h_crit = h.get("criticals", 0)
                 h_fix = h.get("fixed", 0)
                 lines.append(f"| {h_date} | {h_status} | {h_warn} | {h_crit} | {h_fix} |")
-        except Exception:
+        except Exception as e:
             lines.append("（历史数据解析失败）")
+            plog("WARNING", f"[DQ] 历史数据解析失败: {e}")
     else:
         lines.append("（首次运行，无历史数据）")
     lines.append("")

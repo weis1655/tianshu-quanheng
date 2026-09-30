@@ -54,8 +54,8 @@ def collect_metrics(target_date: str) -> dict:
             # 近似LLM调用：每次决策1次LLM
             if decisions:
                 metrics["llm_calls"] += len(decisions) * 2  # 审查+决策
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[Ops] metrics 解析失败: {e}，跳过")
 
     # 2. 历史记录中的当日文件
     history_dir = PROJECT_ROOT / "data" / "历史记录"

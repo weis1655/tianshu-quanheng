@@ -36,7 +36,8 @@ import signal
 # RPM 限流节流：LLM 调用阶段之间的最小间隔（秒）
 # 商汤 SenseNova RPM 限额较低，密集调用会触发 429
 # 25 秒间隔可确保 5-6 次调用横跨 100+ 秒，低于 5 RPM 滑动窗口
-LLM_THROTTLE_SECONDS = 25
+# T-047 (CQ-018): 支持环境变量覆盖，避免每次修改代码
+LLM_THROTTLE_SECONDS = int(os.environ.get('LLM_THROTTLE_SECONDS', '25'))
 
 # ── T-029 (BP-013): 弱市简化审查阈值（模块级常量，语义独立于 thresholds.py）──
 # 这些阈值用于 main.py:1021+ 的弱市简化审查（纯规则、无 LLM 调用）。

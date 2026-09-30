@@ -19,7 +19,8 @@ from path_config import ensure_agent_paths; ensure_agent_paths()
 # 统一阈值管理（SSOT）
 from thresholds import (
     SCORE_S_LEVEL, SCORE_A_LEVEL, SCORE_B_LEVEL, SCORE_C_LEVEL,
-    AUTO_DOWNGRADE_SCORE, SCORE_DECAY_DAYS, SCORE_DECAY_PER_DAY,
+    AUTO_DOWNGRADE_SCORE, HARD_DOWNGRADE_SCORE,
+    SCORE_DECAY_DAYS, SCORE_DECAY_PER_DAY,
     SCORE_DECAY_MAX, SCORE_DECAY_FLOOR, POOL_CAPACITY_LIMITS,
     INTRADAY_OVERHEAT_MIN_SCORE,
     EDGE_POOL_STALE_DAYS,
@@ -270,8 +271,8 @@ class PoolManager:
             for old in backups[2:]:
                 try:
                     old.unlink()
-                except Exception:
-                    pass
+                except Exception as e:
+                    plog("WARNING", f"[PoolManager] 备份清理失败 {old.name}: {e}，忽略")
             return True
         except Exception as e:
             plog("INFO", f"[PoolManager] 保存池失败 {pool_name}: {e}")
@@ -1018,7 +1019,8 @@ class PoolManager:
                     os.environ.get("OPENCODE_ZEN_MODEL", "") or \
                     "gemini-1.5-flash"
 
-        # ── 第3层：硬编码兜底（OpenCode Zen 免费端点）──────────────
+        # ── 第3层：硬编码兜底（T-023/CQ-010：优先从 config 读取，此为 fallback）──
+        # 建议迁移到 thresholds.py 统一管理，此处为紧急兜底，非标准配置入口
         if not api_url or not api_key:
             # P0-降级延迟修复：即使无API也返回结构化提示，让调用方能走硬编码降级逻辑
             plog("INFO", "[PoolManager] ⚠️  LLM API 完全未配置，跳过 LLM 评估，使用硬编码兜底降级规则")
@@ -1459,10 +1461,10 @@ class PoolManager:
                         self.add_stock("边缘池", {
                             "代码": s_code,
                             "名称": s_name,
-                            "综合分": 65,
+                            "综合分": AUTO_DOWNGRADE_SCORE,
                             "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                             "驱动来源": "S级操作池止损降级",
-                            "核心逻辑": f"S级止损触发，现价{s.get('今日收盘', s.get('最新价', '?'))}<止损线{s_stop}",
+                            "核心逻辑": f"S级止损触发，现价{s.get('今日收盘', s.get('最新价', '?'))}<止损线{s.get('止损触发', s.get('止损线', 0))}",
                         })
                         s_pool_data["stocks"].remove(s)
                 if s_pool_data["stocks"]:
@@ -1643,7 +1645,7 @@ class PoolManager:
                     edge_stock = {
                         "代码": code,
                         "名称": name,
-                        "综合分": 65,
+                        "综合分": AUTO_DOWNGRADE_SCORE,
                         "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                         "驱动来源": "持仓池止损降级",
                         "核心逻辑": f"持仓池止损触发，收盘价跌破止损线{s.get('止损线', 0)}",
@@ -1675,18 +1677,19 @@ class PoolManager:
             if demoted:
                 plog("INFO", f"[PoolManager] 🧹 持仓池止损降级：移除 {len(demoted)} 只")
 
-            # ── 评分时间衰减（无条件执行，不依赖行情。行情失败时仍对存量标做评分衰减）──
-            for stock in stocks:
-                code = stock.get("代码", "")
-                PoolManager.apply_score_decay(stock)
-
             plog("INFO", f"[PoolManager] ✅ 持仓池价格刷新完成: {len(refreshed)}/{len(stocks)} 只股票")
             if stop_loss_warnings:
                 plog("INFO", f"[PoolManager] ⚠️ 共 {len(stop_loss_warnings)} 只股票触发止损告警")
                 for w in stop_loss_warnings:
                     plog("INFO", f"  {w}")
 
-        # 扫描评分<65的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
+        # T-036 (AL-009): 评分衰减无条件执行，不依赖行情刷新是否成功
+        # 修复：原代码将衰减嵌套在 if refreshed: 内，行情失败时衰减被跳过。
+        # 移至 if 外，确保行情失败场景下仍对存量标做评分衰减。
+        for stock in stocks:
+            PoolManager.apply_score_decay(stock)
+
+        # 扫描评分<AUTO_DOWNGRADE_SCORE 的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
         self._scan_and_downgrade(data)
         self.save_pool("持仓池", data)
 
@@ -1831,14 +1834,14 @@ class PoolManager:
                             plog("INFO", f"  [止损解除] {stock.get('名称','?')}({code}) 收盘{now_price}>止损{stop_loss}, 标记清除")
                 refreshed.append(code)
 
-        if refreshed:
-            data["统计"] = data.get("统计", {})
-            data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            # ── 评分时间衰减（无条件执行，不依赖行情）──
-            for stock in stocks:
-                code = stock.get("代码", stock.get("股票代码", ""))
-                PoolManager.apply_score_decay(stock)
-        # 扫描评分<65的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
+        # T-036 (AL-009): 评分衰减无条件执行，不依赖行情刷新是否成功
+        # 修复：原代码在 if refreshed: 分支内做衰减，行情失败时衰减被跳过。
+        # 移至 if 外，确保行情失败场景下仍对存量标做评分衰减。
+        data["统计"] = data.get("统计", {})
+        data["统计"]["更新日期"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for stock in stocks:
+            PoolManager.apply_score_decay(stock)
+        # 扫描评分<AUTO_DOWNGRADE_SCORE 的存量股，自动降级（P0：即使行情刷新失败也执行降级扫描）
         self._scan_and_downgrade(data)
         self.save_pool("S级操作池", data)
 

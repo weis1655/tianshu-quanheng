@@ -267,9 +267,13 @@ class SkepticAgent(BaseAgent):
             # 1) 不再伪造 challenge_required，直接标记 overall_verdict='pass' + degraded=True；
             # 2) challenges 为空（不塞占位 medium 质疑），让 _save_verdict 走 passed 分支；
             # 3) _apply_auto_risk_overrides 仍会扫描真实财务暴雷风险，命中后仍能追加真实 challenge_required。
+            # T-041 (AL-014): 保守放行分支补 PE 检查——PE>50 或 PE<0（负增长/亏损）的标的
+            # 不能直接 pass，需追加 auto_risk 标记（下段 auto_flags 会转成 challenge_required）。
+            # 否则 LLM 解析失败时会把 PE>50-100 段的负增长标的错误放行给决策。
             # 保守放行原则：LLM 输出解析失败时优先避免把下游决策误判为阻塞；真实财务风险仍由 auto_risk_overrides 追加。
             # degraded=True 供下游/GateController 区分降级 vs 真实通过，可作观测信号。
             plog("WARNING", f"[SkepticAgent] ⚠️ LLM输出解析失败({len(result)}chars)，降级为 pass 状态（degraded=True 标记，不伪造 challenge_required）")
+            _pre_flags = []  # T-041: 保守放行前追加的 auto_risk 标记
             for s in stock_list:
                 code = s.get("code", s.get("代码", ""))
                 name = s.get("name", s.get("名称", "?"))
@@ -285,8 +289,26 @@ class SkepticAgent(BaseAgent):
                     "degraded": True,          # 供 _save_verdict 区分降级 vs 真实通过
                     "degrade_reason": "llm_parse_failed",
                 })
+            # T-041: 保守放行分支补 PE 检查——PE>50（高估值）或 PE<0（负增长/亏损）的标的
+            # 不能仅凭 degraded=True 直接放行给决策，追加 auto_risk 标记（下段 auto_flags 会命中）
+            for s in stock_list:
+                try:
+                    pe_val = float(s.get("PE", s.get("市盈率", 0)) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if pe_val > 50 or pe_val < 0:
+                    _pre_flags.append({
+                        "code": s.get("代码", s.get("code", "")),
+                        "name": s.get("名称", s.get("name", "")),
+                        "severity": "medium",
+                        "reason": f"【自动】{s.get('名称', s.get('name', ''))}({s.get('代码', s.get('code', ''))}) PE={pe_val}，"
+                                  f"{'亏损/负增长' if pe_val < 0 else '高估值>50'}，LLM解析失败保守放行前需人工关注"
+                    })
         # ── P0-1: 客观财务因子自动裁决覆盖 ──
+        # T-041: 若上方 LLM 解析失败的保守放行分支已 append 到 _pre_flags，此处合并
+        _auto_flags_base = list(locals().get('_pre_flags', []))
         auto_flags = self._apply_auto_risk_overrides(stock_list, review_report, market_state)
+        auto_flags = _auto_flags_base + auto_flags
         for flag in auto_flags:
             code = flag["code"]
             found = False

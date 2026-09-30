@@ -43,8 +43,8 @@ def _atomic_write_text(path, data: str, encoding: str = "utf-8") -> None:
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[Portfolio] 临时文件清理失败 {tmp_path}: {e}，忽略")
 
 # ── 配置加载 ─────────────────────────────────────
 
@@ -96,8 +96,8 @@ def _load_portfolio_config() -> dict:
                 for section in ("rebalance", "risk", "performance"):
                     if section in pc:
                         cfg[section].update(pc[section])
-        except Exception:
-            pass  # 文件不存在或格式错误，使用默认值
+        except Exception as e:
+            plog("WARNING", f"[Portfolio] config 加载失败: {e}，使用默认值")
     _PORTFOLIO_CONFIG = cfg
     return cfg
 
@@ -552,8 +552,8 @@ class PortfolioManager:
                 if data:
                     self._state.correlation_matrix = data.get("matrix", {})
                     self._state.alerts = data.get("alerts", [])
-            except Exception:
-                pass
+            except Exception as e:
+                plog("WARNING", f"[Portfolio] 相关性缓存加载失败: {e}，忽略")
 
     def _save_correlation_cache(self) -> None:
         """保存相关性缓存"""
@@ -635,8 +635,8 @@ class PortfolioManager:
             try:
                 data = json.loads(self.CIRCUIT_FILE.read_text(encoding="utf-8"))
                 self._circuit_breakers = data.get("breakers", {})
-            except Exception:
-                self._circuit_breakers = {}
+            except Exception as e:
+                plog("WARNING", f"[Portfolio] 熔断器加载失败: {e}，使用空熔断器")
 
     def _save_circuit_state(self) -> None:
         """保存熔断状态"""
@@ -1156,8 +1156,8 @@ class PortfolioManager:
                     data["versions"] = []
                 cfg = StrategyConfig(**data)
                 self._strategies[cfg.name] = cfg
-            except Exception:
-                continue
+            except Exception as e:
+                plog("WARNING", f"[Portfolio] 策略加载失败 {path.name}: {e}，跳过")
 
     def _save_strategies(self) -> None:
         """保存策略列表"""
@@ -1176,8 +1176,8 @@ class PortfolioManager:
                 if "alerts" not in data:
                     data["alerts"] = []
                 self._state = PortfolioState(**data)
-            except Exception:
-                self._state = PortfolioState()
+            except Exception as e:
+                plog("WARNING", f"[Portfolio] 组合状态加载失败: {e}，使用默认状态")
 
     def _save_snapshot(self, allocation: Dict[str, float]) -> None:
         """保存组合快照"""
@@ -1195,10 +1195,10 @@ class PortfolioManager:
                 for old_snap in snapshot_files[:-50]:
                     try:
                         old_snap.unlink()
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        plog("WARNING", f"[Portfolio] 快照清理失败 {old_snap.name}: {e}，忽略")
+        except Exception as e:
+            plog("WARNING", f"[Portfolio] 快照目录扫描失败: {e}，跳过清理")
         plog("INFO", f"[Portfolio] 快照已保存: 分配策略数={len(allocation)}")
 
     def save_checkpoint(self) -> None:

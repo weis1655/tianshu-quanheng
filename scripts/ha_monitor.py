@@ -319,8 +319,8 @@ def check_data_integrity(report):
                                     value={"last_pnl_date": last_pnl_date, "gap_days": gap},
                                     severity=level,
                                 )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            plog("WARNING", f"[HA] 告警发送失败: {e}，忽略")
             else:
                 report.add_check(
                     dl_check_name, "warning",

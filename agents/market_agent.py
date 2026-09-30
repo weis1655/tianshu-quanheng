@@ -892,7 +892,11 @@ class MarketAgent:
         for name in ["快筛候选池", "重点观察池", "持仓池"]:
             f = self.pool_dir / f"{name}.json"
             if f.exists():
-                data = json.loads(f.read_text(encoding="utf-8"))
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                except Exception as e:
+                    plog("WARNING", f"[MarketAgent] {name} 解析失败: {e}，跳过")
+                    continue
                 objs = data.get("stocks", [])
                 for obj in objs:
                     code = obj.get("股票代码", obj.get("代码", ""))

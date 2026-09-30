@@ -149,9 +149,9 @@ USER_PROMPT_TEMPLATE = """请根据以下审查报告，为通过审查的股票
 
 **原始新闻**见：{history_dir}/{today}_宏观前置分析.md
 
-请只对评分≥75分的股票制定执行方案。
-     如果无≥75分的股票，请输出"今日暂无通过审查的股票"，并列出{YELLOW_ALERT_MIN}-{YELLOW_ALERT_MAX}分（黄色预警）的备选观察标的及其关注要点。
-     低于60分的不输出。
+请只对评分≥{DECISION_MIN_SCORE}分的股票制定执行方案。
+     如果无≥{DECISION_MIN_SCORE}分的股票，请输出"今日暂无通过审查的股票"，并列出{YELLOW_ALERT_MIN}-{YELLOW_ALERT_MAX}分（黄色预警）的备选观察标的及其关注要点。
+     低于{HARD_DOWNGRADE_SCORE}分的不输出。（T-038: 与 thresholds.HARD_DOWNGRADE_SCORE 同步）
 
 评分引用规则（硬性，2026-09-16 评分串味事故）：
 - 每只股票的评分**只允许**引用上方「评分溯源拦截」和评分列表里给出的数值，
@@ -855,6 +855,8 @@ class DecisionAgent(BaseAgent):
             today=today,
             YELLOW_ALERT_MIN=YELLOW_ALERT_MIN,
             YELLOW_ALERT_MAX=YELLOW_ALERT_MAX,
+            DECISION_MIN_SCORE=DECISION_MIN_SCORE,   # T-038
+            HARD_DOWNGRADE_SCORE=HARD_DOWNGRADE_SCORE,  # T-038
         ))
         user_prompt = "\n\n".join(header_parts)
         # ═══ P0-CoT (2026-09-23): max_tokens 从 9000 提升到 12000 ═══
@@ -954,10 +956,10 @@ class DecisionAgent(BaseAgent):
                         f"### 【观察】{best['name']}（{best['code']}）\n"
                         f"━━━━━━━━━━━━━━━━\n"
                         f"📍 审查通过（综合评分{best['score']}分）\n"
-                        f"💡 逻辑支撑：评分≥75分，驱动明确，但当前市场震荡偏弱\n"
+                        f"💡 逻辑支撑：评分≥{dynamic_min}分（震荡偏弱动态阈值），驱动明确，但当前市场震荡偏弱\n"
                         f"⏳ 建议：观察等待，不急于入场\n"
-                        f"• 观察条件：评分维持在≥75分，市场回暖确认\n"
-                        f"• 失效条件：跌破关键支撑位或评分降至74分以下\n"
+                        f"• 观察条件：评分维持在≥{dynamic_min}分，市场回暖确认\n"
+                        f"• 失效条件：跌破关键支撑位或评分降至{dynamic_min-1}分以下\n"
                         f"\n"
                         f"⚠️ 免责声明：此观察建议由兜底引擎自动生成，不构成买入建议。\n"
                     )
@@ -1783,6 +1785,23 @@ class DecisionAgent(BaseAgent):
             if status in ("涨停", "跌停"):
                 self._limit_up_excluded_codes.add(raw)
                 excluded_codes_by_status.setdefault(status, []).append((raw, q.get("名称", info.get("name", "?")), q.get("现价", 0), q.get("涨跌幅", 0)))
+
+        # ── T-010/BP-006：停牌股过滤框架（A股制度缺失补丁） ──
+        # 腾讯行情 API 的「交易状态」字段可能返回「停牌」/「S停牌」/「ST」等值。
+        # 集合竞价/北向资金异动等制度性检查属于触发层（agents/trigger.py::check_north_money），
+        # 决策层此处只做「不可买入」的最直接硬门：停牌股不能下单，必须前置剔除。
+        # TODO(T-010): 待接入权威停牌数据源（东方财富/新浪停牌公告 API）后，
+        # 把 _suspended_stocks 集合与合规黑名单/ST 名单一起纳入统一硬门。
+        suspended_codes = set()
+        for raw, info in code_map.items():
+            q = all_quotes.get(raw, {})
+            status = (q.get("交易状态") or "").strip() if q else ""
+            if "停牌" in status:
+                suspended_codes.add(raw)
+                self._limit_up_excluded_codes.add(raw)  # 停牌股视同封板剔除，避免误推送
+                plog("WARNING", f"  ⏸️ [停牌排除] {raw} {q.get('名称', info.get('name', '?'))} 状态={status}")
+        if suspended_codes:
+            warn_lines.append(f"⏸️ **以下股票已停牌，无法交易（已从候选池移除）：{', '.join(sorted(suspended_codes))}**")
 
         # ── 生成涨停/跌停排除说明 ──
         warn_lines = []
