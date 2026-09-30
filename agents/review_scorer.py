@@ -147,10 +147,11 @@ class OverheatDetector:
 
         # ── RULE 5.5: WARNING-fallback — 涨幅>8%且评分>=70（强市豁免）──
         # 解决：涨幅>10%但PE≤80、换手≤12%、评分≤75、量比≤3时的漏检盲区
-        # 放宽条件：涨幅>8%且评分>=70即可触发（修复：>= 而非 > 防止70分漏检）
+        # 放宽条件：涨幅>=8%且评分>=70即可触发（修复：>= 而非 > 防止70分/8%边界漏检）
         # P2-2026-09-30 T-031: > 8 硬编码替换为 OverheatDetector.WARN1_GAIN_PCT（SSOT）
+        # P2-2026-09-30 T-037: > 改 >= 关闭 score=70,chg=8.0 盲区（原>需chg>8才触发）
         if not strong_market and (
-            change_pct > OverheatDetector.WARN1_GAIN_PCT
+            change_pct >= OverheatDetector.WARN1_GAIN_PCT
             and composite_score >= OverheatDetector.WARN2_SCORE_FALLBACK
         ):
             return {
