@@ -263,7 +263,7 @@ class ScreenAgent(BaseAgent):
                 "| 代码 | 名称 | 涨幅 | 换手率 | 量比 | 振幅 | 说明 |",
                 "|------|------|:----:|:-----:|:----:|:----:|------|",
             ] + [
-                f"| {s['code']} | {s['name']} | +{s['chg_pct']:.1f}% | {s['turnover']:.1f}% | {s['vol_ratio']:.1f} | {s['amplitude']:.1f}% | {s['reason']} |"
+                f"| {s.get('code','')} | {s.get('name','')} | +{s.get('chg_pct',0):.1f}% | {s.get('turnover',0):.1f}% | {s.get('vol_ratio',0):.1f} | {s.get('amplitude',0):.1f}% | {s.get('reason','')} |"
                 for s in tech_candidates
             ] + [
                 "",
@@ -272,7 +272,7 @@ class ScreenAgent(BaseAgent):
             result = result + "\n\n" + tech_section if result else tech_section
             # 技术面标的也加入候选池更新
             for s in tech_candidates:
-                result += f"\n- {s['name']}（{s['code']}）- {s['reason']} [驱动级别:B]"
+                result += f"\n- {s.get('name','')}（{s.get('code','')}）- {s.get('reason','')} [驱动级别:B]"
             plog("INFO", f"[技术面补位] 📊 发现 {len(tech_candidates)} 只量价异动标的: {[s['name'] for s in tech_candidates]}")
 
         # 格式化报告
