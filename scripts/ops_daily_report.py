@@ -9,7 +9,6 @@
   python scripts/ops_daily_report.py --output     # 输出到文件
 """
 import sys
-from logger import plog
 import json
 import re
 import os
@@ -20,6 +19,7 @@ from collections import defaultdict
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT / "agents"))
 from path_config import ensure_agent_paths; ensure_agent_paths()
+from logger import plog
 
 REPORT_DIR = PROJECT_ROOT / "data" / "运营日报"
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
