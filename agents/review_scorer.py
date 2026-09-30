@@ -83,7 +83,7 @@ class OverheatDetector:
         if (
             change_pct > OverheatDetector.CRITICAL_GAIN_PCT
             and (
-                pe_ttm > 120  # AI-01: 科技股PE阈值放宽至120（原80）
+                pe_ttm > OverheatDetector.CRITICAL_PE_LIMIT  # AL-001: 使用thresholds.OVERHEAT_CRITICAL_PE(=80)，原硬编码120
                 or turnover > OverheatDetector.CRITICAL_TURNOVER_PCT
             )
         ):
@@ -120,10 +120,10 @@ class OverheatDetector:
                 ),
             }
 
-        # ── RULE 4: WARNING-1 — 涨幅>8% + 评分>75（强市豁免）────
+        # ── RULE 4: WARNING-1 — 涨幅>8% + 评分>=75（强市豁免；T-033 修 >为 >=）──
         if not strong_market and (
             change_pct > OverheatDetector.WARN1_GAIN_PCT
-            and composite_score > OverheatDetector.WARN1_SCORE
+            and composite_score >= OverheatDetector.WARN1_SCORE
         ):
             return {
                 "overheat_level": OverheatDetector.LEVEL_WARNING,
@@ -148,8 +148,9 @@ class OverheatDetector:
         # ── RULE 5.5: WARNING-fallback — 涨幅>8%且评分>=70（强市豁免）──
         # 解决：涨幅>10%但PE≤80、换手≤12%、评分≤75、量比≤3时的漏检盲区
         # 放宽条件：涨幅>8%且评分>=70即可触发（修复：>= 而非 > 防止70分漏检）
+        # P2-2026-09-30 T-031: > 8 硬编码替换为 OverheatDetector.WARN1_GAIN_PCT（SSOT）
         if not strong_market and (
-            change_pct > 8
+            change_pct > OverheatDetector.WARN1_GAIN_PCT
             and composite_score >= OverheatDetector.WARN2_SCORE_FALLBACK
         ):
             return {

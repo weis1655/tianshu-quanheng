@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable
 from logger import plog
 from path_config import ensure_agent_paths; ensure_agent_paths()
+from thresholds import DECISION_MIN_SCORE
 
 
 class TrackRecorder:
@@ -66,7 +67,7 @@ class TrackRecorder:
             ReviewEvo = get_review_evo()
             evo = ReviewEvo(root=self.root)
 
-            actionable = [s for s in scored_stocks if s.get("score", 0) >= 70]
+            actionable = [s for s in scored_stocks if s.get("score", 0) >= DECISION_MIN_SCORE]
             for s in actionable[:3]:  # 最多记录3只
                 rec = "建议关注"
                 if "买入" in decision_result or "建仓" in decision_result:

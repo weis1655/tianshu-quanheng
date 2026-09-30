@@ -52,7 +52,7 @@
       "failed_calls": 0,
       "rejected_calls": 0,
       "consecutive_failures": 0,
-      "last_state_change": "2026-09-30T11:47:03.785301"
+      "last_state_change": "2026-09-30T11:49:27.156102"
     },
     "t_screen": {
       "state": "closed",
@@ -61,7 +61,7 @@
       "failed_calls": 0,
       "rejected_calls": 0,
       "consecutive_failures": 0,
-      "last_state_change": "2026-09-30T11:47:03.786606"
+      "last_state_change": "2026-09-30T11:49:27.157399"
     },
     "t_review": {
       "state": "closed",
@@ -70,7 +70,7 @@
       "failed_calls": 0,
       "rejected_calls": 0,
       "consecutive_failures": 0,
-      "last_state_change": "2026-09-30T11:47:03.788034"
+      "last_state_change": "2026-09-30T11:49:27.158645"
     },
     "scenario_test": {
       "state": "open",
@@ -79,7 +79,7 @@
       "failed_calls": 6,
       "rejected_calls": 0,
       "consecutive_failures": 6,
-      "last_state_change": "2026-09-30T11:47:03.797849"
+      "last_state_change": "2026-09-30T11:49:27.166097"
     }
   }
 }

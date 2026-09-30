@@ -3,7 +3,10 @@
 """
 import json
 from datetime import datetime
-from thresholds import S_POOL_MIN_SCORE, YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SKEPTIC_BLOCK_LIMIT
+from thresholds import (
+    S_POOL_MIN_SCORE, KEY_WATCH_MIN_SCORE,
+    YELLOW_ALERT_MIN, DECISION_MIN_SCORE, SKEPTIC_BLOCK_LIMIT,
+)
 from pathlib import Path
 from typing import Set, Dict, List, Any, Optional, Tuple
 from logger import plog
@@ -258,9 +261,13 @@ class GateController:
             if len(stocks) >= max_cap:
                 return {'allowed': False, 'reason': f'{target_pool}已达容量上限{max_cap}只'}
         # 2. 规则检查（统一走 score_of，容忍综合评分=None 的"无评分"语义）
+        # P2-2026-09-30 T-042: 补齐快筛候选池/边缘池准入规则，避免默认 lambda s: True 放行任意分
+        # 快筛候选池：宽松（≥40）；边缘池：最宽松收容区（≥30）；S级/重点/持仓维持既有语义
         rules = {
             'S级操作池': lambda s: GateController.score_of(s) >= S_POOL_MIN_SCORE,
-            '重点观察池': lambda s: GateController.score_of(s) >= 50,
+            '重点观察池': lambda s: GateController.score_of(s) >= KEY_WATCH_MIN_SCORE,
+            '快筛候选池': lambda s: GateController.score_of(s) >= 40,
+            '边缘池': lambda s: GateController.score_of(s) >= 30,
             '持仓池': lambda s: True,
         }
         rule_fn = rules.get(target_pool, lambda s: True)

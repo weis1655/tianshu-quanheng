@@ -256,26 +256,32 @@ class EnhancedScheduler:
             time.sleep(check_interval)
 
     def _check_and_run(self, now: datetime):
-        """检查并执行到期的任务"""
+        """检查并执行到期的任务（CQ-002：任务执行移出锁外，避免长任务阻塞调度循环）"""
         with self._lock:
+            # 锁内仅做共享结构的读写：筛选到期任务并摘出
+            due: List[ScheduleEntry] = []
             for entry in self.entries:
                 if not entry.enabled:
                     continue
-
                 if entry.next_run and now >= entry.next_run:
-                    try:
-                        entry.last_run = now
-                        entry.func(**entry.kwargs)
+                    entry.last_run = now
+                    due.append(entry)
 
-                        # 计算下次执行时间
-                        entry.next_run = self._calc_next_run_for_entry(entry, now)
-                        plog("INFO", f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
+        # 锁外执行任务函数，长任务不再阻塞其他定时任务触发
+        for entry in due:
+            try:
+                entry.func(**entry.kwargs)
+            except Exception as e:
+                plog("ERROR", f"❌ 任务 {entry.name} 执行失败: {e}")
 
-                    except Exception as e:
-                        plog("INFO", f"❌ 任务 {entry.name} 执行失败: {e}")
-
-                        # 计算下次执行时间（即使失败也要继续调度）
-                        entry.next_run = self._calc_next_run_for_entry(entry, now)
+            # 下次执行时间的更新在锁内进行（仅改共享字段）
+            with self._lock:
+                try:
+                    entry.next_run = self._calc_next_run_for_entry(entry, now)
+                    plog("INFO", f"✅ 任务 {entry.name} 已执行，下次执行: {entry.next_run}")
+                except Exception as e:
+                    plog("INFO", f"⚠️ 任务 {entry.name} 下次执行时间计算失败: {e}")
+                    entry.next_run = None
 
     def _calc_next_run_for_entry(self, entry: ScheduleEntry, now: datetime) -> Optional[datetime]:
         """计算任务的下次执行时间"""

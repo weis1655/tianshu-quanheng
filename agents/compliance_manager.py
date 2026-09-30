@@ -237,6 +237,11 @@ class ComplianceChecker:
         if is_cancel:
             self._daily_cancel_count += 1
             self._cancel_timeline.append(time.time())
+        # T-018/CQ-003: 保留最近100条，防止无限增长
+        if len(self._order_timeline) > 100:
+            self._order_timeline = self._order_timeline[-100:]
+        if len(self._cancel_timeline) > 100:
+            self._cancel_timeline = self._cancel_timeline[-100:]
 
     # ═══════════════════════════════════════════════════════
     # C-005 + C-006: 持仓比例/举牌线

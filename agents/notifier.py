@@ -8,6 +8,7 @@ import os
 import sys
 import requests
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -27,30 +28,32 @@ FEISHU_HOME_CHANNEL = os.environ.get("FEISHU_HOME_CHANNEL", "")  # oc_xxx
 
 TENANT_TOKEN = None
 TENANT_TOKEN_EXPIRES = 0
+_token_lock = threading.Lock()
 
 
 def get_tenant_token() -> Optional[str]:
     """获取 tenant access token"""
     global TENANT_TOKEN, TENANT_TOKEN_EXPIRES
 
-    # 缓存检查（有效期 2 小时）
-    if TENANT_TOKEN and datetime.now().timestamp() < TENANT_TOKEN_EXPIRES - 300:
+    with _token_lock:
+        # 缓存检查（有效期 2 小时）
+        if TENANT_TOKEN and datetime.now().timestamp() < TENANT_TOKEN_EXPIRES - 300:
+            return TENANT_TOKEN
+
+        url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+        resp = requests.post(url, json={
+            "app_id": FEISHU_APP_ID,
+            "app_secret": FEISHU_APP_SECRET
+        }, timeout=10)
+
+        data = resp.json()
+        if data.get("code") != 0:
+            plog("ERROR", f"[Notifier] 获取Token失败: {data}")
+            return None
+
+        TENANT_TOKEN = data["tenant_access_token"]
+        TENANT_TOKEN_EXPIRES = datetime.now().timestamp() + data.get("expire", 7200)
         return TENANT_TOKEN
-
-    url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-    resp = requests.post(url, json={
-        "app_id": FEISHU_APP_ID,
-        "app_secret": FEISHU_APP_SECRET
-    }, timeout=10)
-
-    data = resp.json()
-    if data.get("code") != 0:
-        plog("INFO", f"[Notifier] 获取Token失败: {data}")
-        return None
-
-    TENANT_TOKEN = data["tenant_access_token"]
-    TENANT_TOKEN_EXPIRES = datetime.now().timestamp() + data.get("expire", 7200)
-    return TENANT_TOKEN
 
 
 def send_card(receive_id: str, card: dict) -> bool:

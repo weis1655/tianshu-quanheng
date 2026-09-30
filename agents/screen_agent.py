@@ -370,8 +370,8 @@ class ScreenAgent(BaseAgent):
                         pd = json.loads(pf.read_text(encoding="utf-8"))
                         for s in pd.get("stocks", []):
                             pooled_codes.add(s.get("代码", ""))
-                    except Exception:  # 安全降级: 存量池代码去重失败→跳过，不影响本轮快筛
-                        pass
+                    except Exception as e:
+                        plog("WARNING", f"[ScreenAgent] 存量池代码去重失败: {e}，跳过本轮快筛")
 
             # 筛选：涨幅>5% + 换手>8%(涨停股放宽到>3%) + 量比>1.5 + 振幅>5% + 市值>50亿 + 不在现有池中
             candidates = []
@@ -507,8 +507,8 @@ class ScreenAgent(BaseAgent):
                 api_codes = [to_api(c) for c in codes]
                 quotes = fetch_quotes(api_codes)
                 realtime_map = {q["代码"]: q for q in quotes if q.get("代码")}
-            except Exception:
-                pass  # 行情获取失败不阻塞
+            except Exception as e:
+                plog("WARNING", f"[ScreenAgent] 行情获取失败: {e}，不阻塞流程")
 
         # 推断驱动级别
         def infer_level(text: str) -> str:
@@ -618,8 +618,8 @@ class ScreenAgent(BaseAgent):
                 valid_codes = validate_stock_codes(codes)
                 if valid_codes:  # 有结果才过滤；空结果说明网络问题，保守保留
                     all_found = [s for s in all_found if s[1] in valid_codes]
-            except Exception:  # 安全降级: 历史池验证解析失败→跳过，不影响快筛
-                pass
+            except Exception as e:
+                plog("WARNING", f"[ScreenAgent] 历史池验证解析失败: {e}，跳过本轮快筛")
 
         # P1: 批量获取实时行情，附着到候选池
         realtime_pool_map = {}
@@ -629,8 +629,8 @@ class ScreenAgent(BaseAgent):
                 if codes:
                     qs = fetch_quotes([to_api(c) for c in codes])
                     realtime_pool_map = {q["代码"]: q for q in qs if q.get("代码")}
-            except Exception:  # 安全降级: 实时行情映射失败→使用默认空映射
-                pass
+            except Exception as e:
+                plog("WARNING", f"[ScreenAgent] 实时行情映射失败: {e}，使用默认空映射")
 
         new_stocks = []
         for name, code in all_found[:10]:
@@ -641,8 +641,8 @@ class ScreenAgent(BaseAgent):
                 try:
                     ts = calculate_technical_score(q)
                     tech_score_val = ts.get("技术面评分")
-                except Exception:  # 安全降级: 技术面评分获取失败→跳过该标的
-                    pass
+                except Exception as e:
+                    plog("WARNING", f"[ScreenAgent] 技术面评分获取失败: {e}，跳过该标的")
 
             # P1-2: Screen阶段最低技术评分门槛（65分），S/A级驱动豁免
             # 理由：与 PoolManager._scan_and_downgrade 降级线 65 对齐（09-12 c79418e 教训）；
@@ -757,8 +757,8 @@ class ScreenAgent(BaseAgent):
                         cross_pool_blocked.add(code)
             if cross_pool_blocked:
                 plog("INFO", f"[ScreenAgent] 活跃池防护: {sorted(cross_pool_blocked)}")
-        except Exception:
-            pass  # 安全降级: 跨池检查失败不阻断快筛
+        except Exception as e:
+            plog("WARNING", f"[ScreenAgent] 跨池检查失败: {e}，不阻断快筛")
 
         final_stocks = []
         for s in filtered:
@@ -865,8 +865,8 @@ class ScreenAgent(BaseAgent):
                     trend = "📈" if chg > 0 else "📉" if chg < 0 else "➡️"
                     idx_lines.append(f"- {trend} {name}: {price:.2f} ({chg:+.2f}%) 成交{vol_str}")
                 parts.append("\n".join(idx_lines))
-        except Exception:  # 安全降级: 索引行拼接失败→降级到空索引
-            pass
+        except Exception as e:
+            plog("WARNING", f"[ScreenAgent] 索引行拼接失败: {e}，降级到空索引")
 
         # ── 2. 五池现状（持仓 + 重点观察）────────────────────────
         pool_info = []

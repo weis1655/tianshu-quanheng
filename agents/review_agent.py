@@ -1922,7 +1922,21 @@ class ReviewAgent(BaseAgent):
                     "核心逻辑": meta.get("核心逻辑", "") if meta.get("核心逻辑", "") not in ("", "四维审查综合判断") else v2_logics.get(code, meta.get("核心逻辑", "")),
                     "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                 })
-            self._add_to_pool("重点观察池", upgrade_stocks, skip_pools=["快筛候选池"])
+            # T-028 (BP-010): 写入重点观察池前必须经过 GateController.enforce_writing_rules 校验，
+            # 与 decision_agent.py:318 S级回流写入模式一致，避免绕过容量/跨池/评分准入 SSOT。
+            from agents.gate_controller import GateController
+            gate_allowed_up, gate_blocked_up = [], []
+            for _us in upgrade_stocks:
+                _rule = GateController.enforce_writing_rules(
+                    dict(_us), "重点观察池", pool_manager=self.pool_manager)
+                if _rule.get('allowed'):
+                    gate_allowed_up.append(_us)
+                else:
+                    gate_blocked_up.append((_us, _rule.get('reason', '')))
+            for _us, _reason in gate_blocked_up:
+                plog("WARNING", f"[ReviewAgent][Gate] 🚫 {_us.get('名称','?')}({_us.get('代码','')}) 写入重点观察池被拦截：{_reason}")
+            if gate_allowed_up:
+                self._add_to_pool("重点观察池", gate_allowed_up, skip_pools=["快筛候选池"])
 
         # ── Step 3：降级到边缘池 ──
         if demotions:

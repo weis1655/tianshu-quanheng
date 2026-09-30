@@ -15,19 +15,15 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from logger import plog
+from thresholds import DYNAMIC_SCORE_THRESHOLDS
 
 
 class QualityGate:
     """S级操作池硬性质检门 — 候选池升S池前的最后一道质检"""
 
-    # 市场状态 → 动态准入阈值
-    MARKET_SCORE_THRESHOLDS = {
-        "偏空": 85,        # 偏空市场：≥85分才准入
-        "震荡偏弱": 80,    # 震荡偏弱：≥80分
-        "震荡": 78,        # 震荡市场：≥78分
-        "震荡偏强": 75,    # 震荡偏强：≥75分（原标准）
-        "偏多": 75,        # 偏多市场：≥75分（原标准）
-    }
+    # 市场状态 → 动态准入阈值（SSOT：直接引用 thresholds.DYNAMIC_SCORE_THRESHOLDS，避免双定义漂移）
+    # P2-2026-09-30 T-032: 与阈值模块共享同一真相来源
+    MARKET_SCORE_THRESHOLDS = DYNAMIC_SCORE_THRESHOLDS
 
     # 历史亏损扣分（每亏3%扣1.5分，上限10分）
     HISTORY_PENALTY_PER_3PCT = 1.5
@@ -155,16 +151,31 @@ class QualityGate:
         return None
 
     def _detect_overheat(self, code: str) -> Optional[dict]:
-        """过热二次检测 — 调用 OverheatDetector（如果当前有行情数据）"""
+        """过热二次检测 — 调用 OverheatDetector。
+        数据源优先级：
+          1) shared_memory.json（当日行情快照）
+          2) QuoteProvider.fetch_quote（实时行情 API；T-040 修复：shared_memory 缺失时的兜底）
+        两源均不可用时返回 None（不阻拦入池；上层 QualityGate.check 仅在有结果时应用扣分）。
+        """
+        detector = None
         try:
             from review_scorer import OverheatDetector
-            # 从 shared_memory.json 获取行情数据
+            detector = OverheatDetector
+        except ImportError:
+            # 安全降级：ML/规则评分模块未安装→跳过过热检测，返回 None（不阻拦入池）
+            return None
+        except Exception as e:
+            plog("INFO", f"[QualityGate] ⚠️ 过热检测模块加载失败({code}): {e}")
+            return None
+
+        # ── 源1：shared_memory.json ────────────────────────────
+        try:
             sm_file = self.root / "data" / "shared_memory.json"
             if sm_file.exists():
                 data = json.loads(sm_file.read_text(encoding="utf-8"))
                 for s in data if isinstance(data, list) else []:
                     if str(s.get("代码", "")) == code:
-                        return OverheatDetector.detect(
+                        return detector.detect(
                             change_pct=float(s.get("涨跌幅", 0)),
                             pe_ttm=float(s.get("PE_TTM", 0)),
                             turnover=float(s.get("换手率", 0)),
@@ -173,8 +184,27 @@ class QualityGate:
                             quarter_chg=float(s.get("季涨跌幅", 0)),
                             composite_score=int(s.get("评分", 0)),
                         )
-        except ImportError:  # 安全降级: ML评分模块未安装→跳过ML检查，仅用规则检查
-            pass
+        except (json.JSONDecodeError, IOError) as e:
+            plog("INFO", f"[QualityGate] ⚠️ shared_memory 读取失败({code}): {e}，尝试实时行情兜底")
         except Exception as e:
             plog("INFO", f"[QualityGate] ⚠️ 过热检测异常({code}): {e}")
+
+        # ── 源2（T-040 修复）：QuoteProvider 实时行情兜底 ──────
+        try:
+            from quote_provider import QuoteProvider
+            quote = QuoteProvider.fetch_quote(code)
+            if isinstance(quote, dict):
+                return detector.detect(
+                    change_pct=float(quote.get("chg_pct", 0)),
+                    pe_ttm=float(quote.get("pe", 0)),
+                    turnover=float(quote.get("turnover", 0)),
+                    volume_ratio=float(quote.get("vol_ratio", 0)),
+                    month_chg=float(quote.get("month_chg", 0)),
+                    quarter_chg=float(quote.get("quarter_chg", 0)),
+                    composite_score=0,  # 实时行情无评分；W1/CRITICAL 等规则仍可有效
+                )
+        except ImportError:
+            plog("INFO", f"[QualityGate] ⚠️ 行情模块不可用，跳过过热二次检测({code})")
+        except Exception as e:
+            plog("INFO", f"[QualityGate] ⚠️ 实时行情兜底异常({code}): {e}")
         return None

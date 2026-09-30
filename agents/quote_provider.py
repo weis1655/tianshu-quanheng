@@ -110,6 +110,18 @@ class QuoteProvider:
     _cache: Dict[str, Any] = {}
     _cache_time: Dict[str, float] = {}
     CACHE_TTL = 300  # 5分钟
+    CACHE_MAX = 500  # T-020/CQ-005: 缓存上限，超过则清理最老的20%
+
+    @classmethod
+    def _evict_cache(cls):
+        """T-020/CQ-005: 缓存超限时按时间排序删除最老的20%"""
+        if len(cls._cache) <= cls.CACHE_MAX:
+            return
+        items = sorted(cls._cache_time.items(), key=lambda x: x[1])
+        keep = max(cls.CACHE_MAX // 2, 1)
+        for k, _ in items[:keep]:
+            cls._cache.pop(k, None)
+            cls._cache_time.pop(k, None)
 
     @classmethod
     def _code_prefix(cls, code: str) -> str:
@@ -135,6 +147,7 @@ class QuoteProvider:
             text = raw.decode(encoding, errors='replace')
             cls._cache[cache_key] = text
             cls._cache_time[cache_key] = now
+            cls._evict_cache()
             return text
         except Exception:
             return None
@@ -154,6 +167,7 @@ class QuoteProvider:
             data = json.loads(raw.decode('utf-8', errors='replace'))
             cls._cache[cache_key] = data
             cls._cache_time[cache_key] = time.time()
+            cls._evict_cache()
             return data
         except Exception:
             return None

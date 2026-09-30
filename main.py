@@ -38,6 +38,19 @@ import signal
 # 25 秒间隔可确保 5-6 次调用横跨 100+ 秒，低于 5 RPM 滑动窗口
 LLM_THROTTLE_SECONDS = 25
 
+# ── T-029 (BP-013): 弱市简化审查阈值（模块级常量，语义独立于 thresholds.py）──
+# 这些阈值用于 main.py:1021+ 的弱市简化审查（纯规则、无 LLM 调用）。
+# 设计意图：与 thresholds.py 的评分语义不同——thresholds.py 管评分层级，
+# 而此处管"风险信号"的绝对阈值（涨幅/PE/换手率/量比/价格分位/成交量倍数）。
+# 集中在此便于维护，语义为"弱市快速否决"信号，不做 SSOT 合并。
+SIMPLIFIED_DAILY_CHG_MAX      = 15     # R1: 单日涨幅>15% → 短期过热
+SIMPLIFIED_PE_MAX             = 80     # R2: PE>80 → 估值偏高
+SIMPLIFIED_TURNOVER_MAX       = 12     # R3: 换手率>12% → 筹码松动
+SIMPLIFIED_SCORE_MIN          = 50     # R4: 评分<50 → 基本面存疑
+SIMPLIFIED_VOL_RATIO_MAX      = 5      # R5: 量比>5 → 放量出货嫌疑
+SIMPLIFIED_20D_PCT_MAX        = 0.85   # R6: 价格处20日>85%分位 → 追高风险
+SIMPLIFIED_VOL_MULTIPLE       = 3      # R7: 今日量/5日均量>3倍 → 成交量异常放大
+
 _graceful_shutdown = False
 
 def _signal_handler(sig, frame):
@@ -304,9 +317,18 @@ def run_phase(phase: str, pools: dict, wake_ctx: str = "") -> dict:
             eliminated = pm.survival_competition()
             if eliminated:
                 print(f"  🏆 优胜劣汰淘汰: {', '.join(eliminated)}")
-            # 组合风控
-            alerts = pm.check_portfolio_risk(
-                {s.name: [] for s in pm.get_enabled_strategies()})
+            # 组合风控（BP-005：传入真实持仓，而非恒空 positions）
+            from agents.pool_manager import PoolManager
+            _pool = PoolManager()
+            _holdings = _pool.get_stocks("持仓池")
+            # 按策略名分组（持仓池无策略归属字段时归入 "持仓池" 单桶）
+            _positions = {}
+            for _stk in _holdings:
+                _sname = _stk.get("策略") or _stk.get("策略名") or _stk.get("source") or "持仓池"
+                _positions.setdefault(_sname, []).append(_stk)
+            if not _positions:
+                print("  ℹ️ 持仓池为空，跳过组合风控跨策略暴露检查")
+            alerts = pm.check_portfolio_risk(_positions)
             if alerts:
                 for a in alerts:
                     print(f"  ⚠️ {a}")
@@ -667,6 +689,7 @@ def main():
 
     print(f"🚀 天枢权衡 启动 | 阶段: {phase}")
     print(f"📅 时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    plog("INFO", f"[启动] 🚀 天枢权衡 phase={phase} @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", module="cron")
 
     # ── MemPalace 唤醒：加载跨天记忆到上下文 ──────────────────────
     try:
@@ -1030,50 +1053,50 @@ def main():
 
                 risk_flags = []
 
-                # R1: 单日暴涨 >15%
-                if daily_chg > 15:
-                    risk_flags.append(f"单日涨幅{daily_chg:.1f}%>15%，短期过热")
+                # R1: 单日暴涨 > SIMPLIFIED_DAILY_CHG_MAX
+                if daily_chg > SIMPLIFIED_DAILY_CHG_MAX:
+                    risk_flags.append(f"单日涨幅{daily_chg:.1f}%>{SIMPLIFIED_DAILY_CHG_MAX}%，短期过热")
 
-                # R2: PE异常（>80或负值）
-                if pe > 80:
-                    risk_flags.append(f"PE{pe:.0f}>80，估值偏高")
+                # R2: PE异常（>SIMPLIFIED_PE_MAX 或负值）
+                if pe > SIMPLIFIED_PE_MAX:
+                    risk_flags.append(f"PE{pe:.0f}>{SIMPLIFIED_PE_MAX}，估值偏高")
                 elif pe < 0 and pe != 0:
                     risk_flags.append(f"PE{pe:.0f}为负，持续亏损")
 
                 # R3: 换手率异常高
-                if turnover > 12:
-                    risk_flags.append(f"换手率{turnover:.1f}%>12%，筹码松动")
+                if turnover > SIMPLIFIED_TURNOVER_MAX:
+                    risk_flags.append(f"换手率{turnover:.1f}%>{SIMPLIFIED_TURNOVER_MAX}%，筹码松动")
 
                 # R4: 评分过低
                 if score <= 0:
                     risk_flags.append(f"评分{score}分，已触及安全底线")
-                elif score < 50:
-                    risk_flags.append(f"评分{score}分<50，基本面存疑")
+                elif score < SIMPLIFIED_SCORE_MIN:
+                    risk_flags.append(f"评分{score}分<{SIMPLIFIED_SCORE_MIN}，基本面存疑")
 
-                # R5: 量比过大（>5，主力出货信号）
+                # R5: 量比过大（>SIMPLIFIED_VOL_RATIO_MAX，主力出货信号）
                 try:
                     vol_ratio = float(s.get("量比", s.get("vol_ratio", 0)) or 0)
-                    if vol_ratio > 5:
-                        risk_flags.append(f"量比{vol_ratio:.1f}>5，放量出货嫌疑")
+                    if vol_ratio > SIMPLIFIED_VOL_RATIO_MAX:
+                        risk_flags.append(f"量比{vol_ratio:.1f}>{SIMPLIFIED_VOL_RATIO_MAX}，放量出货嫌疑")
                 except (ValueError, TypeError):
                     pass
 
-                # R6: 价格处于近20日高位（>80%分位，追高风险）
+                # R6: 价格处于近20日高位（>{SIMPLIFIED_20D_PCT_MAX*100:.0f}%分位，追高风险）
                 try:
                     high_20d = float(s.get("近20日最高", s.get("high_20d", 0)) or 0)
                     cur_price = float(s.get("当前价", s.get("close", 0)) or 0)
                     if high_20d > 0 and cur_price > 0:
                         pct = cur_price / high_20d
-                        if pct > 0.85:
+                        if pct > SIMPLIFIED_20D_PCT_MAX:
                             risk_flags.append(f"价格处于20日高位{pct*100:.0f}%，追高风险")
                 except (ValueError, TypeError):
                     pass
 
-                # R7: 成交量异常放大（今日量>5日均量3倍）
+                # R7: 成交量异常放大（今日量>5日均量 SIMPLIFIED_VOL_MULTIPLE 倍）
                 try:
                     vol_today = float(s.get("今日量", s.get("vol", 0)) or 0)
                     vol_avg5 = float(s.get("5日均量", s.get("vol_avg5", 0)) or 0)
-                    if vol_avg5 > 0 and vol_today > vol_avg5 * 3:
+                    if vol_avg5 > 0 and vol_today > vol_avg5 * SIMPLIFIED_VOL_MULTIPLE:
                         risk_flags.append(f"成交量异常放大(今日量/5日均量={vol_today/vol_avg5:.1f}倍)")
                 except (ValueError, TypeError):
                     pass
@@ -1091,7 +1114,7 @@ def main():
                 f"- 审查范围：重点观察池 + S级操作池",
                 f"- 审查标的：{len(all_stocks_for_review)}只",
                 f"- 审查方法：弱市简化模式（纯规则，无LLM调用）",
-                f"- 风险规则：日涨幅>15%/PE>80或负/换手率>12%/评分<50/量比>5/价格处20日高位>85%/成交量放大>3倍",
+                f"- 风险规则：日涨幅>{SIMPLIFIED_DAILY_CHG_MAX}%/PE>{SIMPLIFIED_PE_MAX}或负/换手率>{SIMPLIFIED_TURNOVER_MAX}%/评分<{SIMPLIFIED_SCORE_MIN}/量比>{SIMPLIFIED_VOL_RATIO_MAX}/价格处20日高位>{SIMPLIFIED_20D_PCT_MAX*100:.0f}%/成交量放大>{SIMPLIFIED_VOL_MULTIPLE}倍",
                 "",
             ]
             if simplified_blocked:
@@ -1232,11 +1255,13 @@ def main():
             # 宪法守卫：质疑报告缺失时跳过决策，防止无审查决策
             if not results.get("skeptic", {}).get("success"):
                 print("\n❌ 【宪法守卫】质疑报告缺失或失败，跳过决策阶段（违反DecisionAgent宪法：决策前必须提供质疑审查报告）")
+                plog("ERROR", "[宪法守卫] 质疑报告缺失或失败，跳过决策阶段", module="cron")
                 results["decision"] = {"success": False, "error": "质疑报告缺失，决策阶段被宪法守卫拦截"}
                 record_failure("decision")
             else:
                 # RPM 限流节流：skeptic→decision 间隔
                 print(f"[Decision调度] ⏳ Skeptic完成，等待{LLM_THROTTLE_SECONDS}s后进入Decision阶段（09-18 B项日志）")
+                plog("INFO", f"[Decision调度] Skeptic完成，等待{LLM_THROTTLE_SECONDS}s后进入Decision阶段", module="cron")
                 time.sleep(LLM_THROTTLE_SECONDS)
                 pools = orch.get_pools()
                 if not check_circuit_breaker("decision"):
@@ -1244,12 +1269,15 @@ def main():
                     r_decision = {}
                 else:
                     print(f"[Decision调度] ▶️ 进入Decision阶段（LLM调用即将发起）")
+                    plog("INFO", "[Decision调度] 进入Decision阶段（LLM调用即将发起）", module="cron")
                     # D: 异常兜底（09-18）— Decision 阶段任何异常都不影响主流程返回
                     try:
                         r_decision = run_phase("decision", pools, wake_ctx=wake_ctx)
                         print(f"[Decision调度] ✅ Decision阶段返回，success={r_decision.get('success') if isinstance(r_decision,dict) else 'N/A'}")
+                        plog("INFO", f"[Decision调度] Decision阶段返回 success={r_decision.get('success') if isinstance(r_decision,dict) else 'N/A'}", module="cron")
                     except Exception as _d_exc:
                         print(f"[Decision调度] ❌ Decision阶段异常: {type(_d_exc).__name__}: {_d_exc}")
+                        plog("ERROR", f"[Decision调度] Decision阶段异常 {type(_d_exc).__name__}: {_d_exc}", module="cron")
                         r_decision = {"success": False, "error": f"决策阶段异常: {_d_exc}"}
                 if _graceful_shutdown:
                     print("[守护] 已中断")
@@ -1278,18 +1306,53 @@ def main():
             print(f"  ⚠️ 边缘池清理异常（不影响主流程）: {e}")
         # ── 池清理结束 ─────────────────────────────────────────────
         # ── OPT-1: 实盘止损集成 — 条件单扫描 ───────────────────────
+        # T-015: 触发后不仅 print，还要落盘到日志文件并标记已执行
         try:
             from agents.conditional_order import OrderEngine
             engine = OrderEngine()
             triggers = engine.scan_once()
             if triggers:
-                print(f"  🔔 条件单触发: {len(triggers)}条")
+                today_mark = datetime.now().strftime("%Y-%m-%d")
+                ts_mark = datetime.now().strftime("%H:%M:%S")
+                plog("INFO", f"[条件单] 🔔 触发 {len(triggers)} 条，落盘执行标记", module="cron")
                 for t in triggers:
-                    print(f"    {t.code} {t.name} → {t.action} @ {t.trigger_price}")
+                    plog("INFO",
+                         f"[条件单] {t.log_id} {t.code} {t.name} → {t.action} @ {t.trigger_price} "
+                         f"({t.reason})", module="cron")
+                # 写入日志文件（不只是 stdout），供审计追踪
+                try:
+                    log_dir = PROJECT_ROOT / "data" / "条件单执行"
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    log_file = log_dir / f"{today_mark}_条件单触发.jsonl"
+                    entries = []
+                    for t in triggers:
+                        entries.append(json.dumps({
+                            "log_id": t.log_id, "order_id": t.order_id,
+                            "code": t.code, "name": t.name,
+                            "trigger_time": t.trigger_time,
+                            "trigger_price": t.trigger_price,
+                            "action": t.action, "quantity": t.quantity,
+                            "amount": t.amount, "reason": t.reason,
+                            "success": t.success, "error_msg": t.error_msg,
+                            "executed_at": ts_mark,
+                        }, ensure_ascii=False))
+                    with open(log_file, "a", encoding="utf-8") as _lf:
+                        _lf.write("\n".join(entries) + "\n")
+                    # 标记已执行（同一批次触发避免重复执行）
+                    mark_file = log_dir / f"{today_mark}.executed"
+                    prev_mark = mark_file.read_text(encoding="utf-8") if mark_file.exists() else ""
+                    mark_file.write_text(
+                        (prev_mark.rstrip() + f"\n{ts_mark}\t{len(triggers)}条\t"
+                         f"{','.join(t.log_id for t in triggers)}\n"),
+                        encoding="utf-8",
+                    )
+                    plog("INFO", f"[条件单] ✅ 已记录 {len(triggers)} 条到 {log_file}", module="cron")
+                except Exception as _log_e:
+                    plog("WARNING", f"[条件单] ⚠️ 触发日志写入失败: {_log_e}", module="cron")
             else:
-                print(f"  ✅ 条件单扫描: 无触发")
+                plog("INFO", "[条件单] ✅ 扫描完成: 无触发", module="cron")
         except Exception as e:
-            print(f"  ⚠️ 条件单扫描异常（不影响主流程）: {e}")
+            plog("WARNING", f"[条件单] ⚠️ 扫描异常（不影响主流程）: {e}", module="cron")
         # ── 条件单扫描结束 ────────────────────────────────────────
         # ── 合规日结 ──────────────────────────────────────────────
         try:
@@ -1298,10 +1361,13 @@ def main():
             summary = checker.logger.summary()
             if summary["high_risk"] > 0 or summary["blocked"] > 0:
                 print(f"  🔴 合规拦截: {summary['blocked']}条 | 红线: {summary['high_risk']}条")
+                plog("ERROR", f"[合规日结] 拦截 {summary['blocked']} 条 / 红线 {summary['high_risk']} 条", module="cron")
             else:
                 print(f"  ✅ 合规检查: 通过（{summary['total_events']}条事件）")
+                plog("INFO", f"[合规日结] 通过 ({summary['total_events']} 事件)", module="cron")
         except Exception as e:
             print(f"  ⚠️ 合规日结异常: {e}")
+            plog("WARNING", f"[合规日结] 异常: {e}", module="cron")
         # ── 合规日结结束 ──────────────────────────────────────────
     elif phase == "screen":
         if not check_circuit_breaker("screen"):

@@ -273,8 +273,8 @@ class DecisionAgent(BaseAgent):
             try:
                 t1_data = json.loads(t1_path.read_text(encoding="utf-8"))
                 t1_tracker = t1_data.get("stocks", {})
-            except Exception:  # 安全降级: T+1追踪文件读取失败→使用空tracker
-                pass
+            except Exception as e:
+                plog("WARNING", f"[DecisionAgent] T+1追踪文件读取失败: {e}，使用空tracker")
         for r in expired_result["removed"]:
             r_code = r.get("代码", "")
             t1_info = t1_tracker.get(r_code, {}).get("t1_performance") if r_code else None
@@ -292,6 +292,12 @@ class DecisionAgent(BaseAgent):
                     plog("INFO", f"  [S级回流-惩罚] {r.get('名称','?')}({r_code}) T+1亏损{pnl}%，额外扣{extra_penalty}分")
             # 09-10修复: S池存档字段为「综合评分」，原代码只读「综合分」→ 全部落到幻影默认80分，
             # 导致无评分标的被当作80分衰减回流重点观察池（实际可能仅40余分）。
+            # T-034 (AL-007): 55/70 硬编码设计意图说明——
+            #   - 55 = 衰减分数下限。略高于 SCORE_DECAY_FLOOR(40)，确保回流标的至少进入
+            #     黄色预警区（YELLOW_ALERT_MIN=60 以下但不至于直接硬性降级），留出 Skeptic 判断空间。
+            #   - 70 = "无评分"标的的回流基准。DECISION_MIN_SCORE=75 是决策准入，70 意味着
+            #     无评分标的即便回流也不足以直接进入决策链，必须重新经过审查评分。
+            #   - 0.85 = 15% 时间衰减（对应 SCORE_DECAY 语义，非 SSOT 常量，此处仅 S 级回流专用）。
             original_score = r.get("综合分", r.get("综合评分", None))
             if original_score is None:
                 # 「无评分」语义：无真实评分时不虚构高分，走保守下限
@@ -344,8 +350,8 @@ class DecisionAgent(BaseAgent):
                     if fp.exists():
                         for m in set(re.findall(r"[（(](\d{6})[）)]", fp.read_text(encoding="utf-8", errors="replace"))):
                             dup_codes.add(m)
-        except Exception:  # 安全降级: 重复推荐检查失败→跳过，不影响决策
-            pass
+        except Exception as e:
+            plog("WARNING", f"[DecisionAgent] 重复推荐检查失败: {e}，跳过")
         dup_warning = ""
         if dup_codes:
             dup_in_picks = {isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or str(s) for s in scored_stocks if str(isinstance(s, dict) and s.get("code", s.get("股票代码", "")) or s) in dup_codes}
@@ -401,7 +407,7 @@ class DecisionAgent(BaseAgent):
         )
         for dm in demotions:
             edge = {
-                "代码": dm["代码"], "名称": dm["名称"], "综合分": 60,
+                "代码": dm["代码"], "名称": dm["名称"], "综合分": HARD_DOWNGRADE_SCORE,  # AL-008: 统一使用HARD_DOWNGRADE_SCORE(60)
                 "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                 "驱动来源": "连续质疑阻塞降级",
                 "核心逻辑": f"被Skeptic连续质疑阻塞{dm['count']}次",
@@ -455,7 +461,7 @@ class DecisionAgent(BaseAgent):
         hard_rule_hits = self._apply_hard_rules(extra_codes)
         if hard_rule_hits:
             for h in hard_rule_hits:
-                print(f"  ⛔ [硬规则] {h}")
+                plog("WARNING", f"  ⛔ [硬规则] {h}")
         # 命中硬规则的标的从候选中剔除，不再进入评分与决策
         extra_codes = [c for c in extra_codes
                        if not any(h["code"] == c and h["action"] == "剔除" for h in hard_rule_hits)]
@@ -603,7 +609,7 @@ class DecisionAgent(BaseAgent):
                         edge = {
                             "代码": dm["代码"],
                             "名称": dm["名称"],
-                            "综合分": 60,  # 连续质疑不过，保守给60
+                            "综合分": HARD_DOWNGRADE_SCORE,  # AL-008: 统一使用HARD_DOWNGRADE_SCORE(60)  # 连续质疑不过，保守给60
                             "纳入日期": datetime.now().strftime("%Y-%m-%d"),
                             "驱动来源": "连续质疑阻塞降级",
                             "核心逻辑": f"被Skeptic连续质疑阻塞{dm['count']}次",
@@ -666,8 +672,8 @@ class DecisionAgent(BaseAgent):
             try:
                 _fs_data = self.safe_read_json(_fs_pool_file, {})
                 _today_fs_codes = {str(s.get("代码", s.get("股票代码", ""))) for s in _fs_data.get("stocks", [])}
-            except Exception:
-                pass
+            except Exception as e:
+                plog("WARNING", f"[DecisionAgent] 快筛池文件读取失败: {e}，跳过旧数据检查")
         _stale_warning = ""
         if _today_fs_codes and scored_stocks:
             _stale_stocks = [s for s in scored_stocks
@@ -802,8 +808,8 @@ class DecisionAgent(BaseAgent):
                 wr_content = win_rate_file.read_text(encoding="utf-8")
                 if len(wr_content) > 100:
                     header_parts.append(f"\n\n{wr_content}")
-        except Exception:  # 安全降级: 准确率模式文件读取失败→跳过注入，不影响决策
-            pass
+        except Exception as e:
+            plog("WARNING", f"[DecisionAgent] 准确率模式文件读取失败: {e}，跳过注入")
         # ────────────────────────────────────────────────────
         if dup_warning:
             header_parts.append(dup_warning)
@@ -1054,6 +1060,15 @@ class DecisionAgent(BaseAgent):
                         )
                         plog("INFO", f"[模板兜底] ✅ 为 {best['name']}({best['code']}) {best['score']}分 生成模板化方案（偏多/震荡偏强市场）")
 
+                # ── T-013: 兜底引擎生成的推荐也经过合规预检查（复用 _pre_compliance_filter） ──
+                try:
+                    filtered_fallback = self._pre_compliance_filter(result, today)
+                    if filtered_fallback != result:
+                        plog("INFO", "[兜底引擎合规预检] ✅ 已过滤兜底推荐中的违规项")
+                        result = filtered_fallback
+                except Exception as _fb_e:
+                    plog("WARNING", f"[兜底引擎合规预检] ⚠️ 异常，保留原结果: {_fb_e}")
+
         # 格式化报告
         report = f"""# 【决策报告】{today}
 
@@ -1085,8 +1100,8 @@ class DecisionAgent(BaseAgent):
                             if isinstance(s, dict) and s.get('代码'):
                                 pool_confirmed_codes.add(str(s['代码']))
                                 s_pool_today_codes.add(str(s['代码']))
-            except Exception:  # 安全降级: S池历史记录解析失败→跳过，不影响代码去重
-                pass
+            except Exception as e:
+                plog("WARNING", f"[DecisionAgent] S池历史记录解析失败: {e}，跳过代码去重")
         # 同时也读重点观察池中的标的（长效跟踪）
         kw_pool_path = self.pool_dir / '重点观察池.json'
         kw_data = {'stocks': []}
@@ -1097,8 +1112,8 @@ class DecisionAgent(BaseAgent):
                     code = str(s.get('代码', ''))
                     if code:
                         pool_confirmed_codes.add(code)
-            except Exception:  # 安全降级: S池代码解析失败→跳过，不影响池状态
-                pass
+            except Exception as e:
+                plog("WARNING", f"[DecisionAgent] S池代码解析失败: {e}，跳过池状态更新")
         
         # 从result中移除未落池的【主推】标的
         if pool_confirmed_codes:
@@ -1137,6 +1152,15 @@ class DecisionAgent(BaseAgent):
                     if not line.startswith('###') and not line.startswith('---') and '━━' not in line:
                         filtered.append(line)
                 result = '\n'.join([l for l in filtered if l.strip()]) or '📭 今日S级操作池：无标的通过质检'
+
+        # ── P0-T002: 合规前置拦截（在结果嵌入报告前，先剔除违规推荐）──
+        try:
+            filtered_result = self._pre_compliance_filter(result, today)
+            if filtered_result != result:
+                plog("INFO", "[合规预检] ✅ 已过滤违规推荐，使用合规过滤后的结果生成报告")
+                result = filtered_result
+        except Exception as _e:
+            plog("WARNING", f"[合规预检] ⚠️ 前置过滤异常，跳过（保留原推荐）: {_e}")
 
         # 格式化报告
         s_pool_today = len(s_pool_today_codes)  # S池今日进入
@@ -1252,6 +1276,11 @@ class DecisionAgent(BaseAgent):
         # ── S级操作池写入（退化检测之后，避免矛盾）────────────
         if not is_degraded:
             self._update_s_pool(result, scored_stocks=scored_stocks or [])
+            # ── P0-T001: 持仓池写入——【主推】建仓（LLM决策+Skeptic未阻断+合规预检通过之后）──
+            try:
+                self._add_to_holding_pool(today, result)
+            except Exception as _e:
+                plog("WARNING", f"[持仓池] ⚠️ 入池流程异常（不影响决策流程）: {_e}")
         # ──────────────────────────────────────────────────────
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────
@@ -1740,20 +1769,18 @@ class DecisionAgent(BaseAgent):
             except Exception:  # 安全降级: 行情解析单条失败→跳过该标的，继续处理其他
                 pass
 
-        # ── 涨停/跌停检测：仅在盘中交易时段启用 → 并将排除代码写到实例变量供_run_impl过滤 ──
+        # ── 涨停/跌停检测：全时段启用（P0-T004修复：移除 is_trading_session 门控，full_cycle 07:10启动也能过滤封板股）──
         now = datetime.now()
-        is_trading_session = (now.weekday() < 5  # 周一至周五
-                              and (9 <= now.hour < 11 or 12 <= now.hour < 15))
         self._limit_up_excluded_codes = set()
         excluded_codes_by_status = {"涨停": [], "跌停": []}
 
-        # 预扫描：收集封板标的
+        # 预扫描：收集封板标的（无条件执行）
         for raw, info in code_map.items():
             q = all_quotes.get(raw, {})
             if not q or not q.get("现价"):
                 continue
             status = q.get("交易状态", "正常")
-            if is_trading_session and status in ("涨停", "跌停"):
+            if status in ("涨停", "跌停"):
                 self._limit_up_excluded_codes.add(raw)
                 excluded_codes_by_status.setdefault(status, []).append((raw, q.get("名称", info.get("name", "?")), q.get("现价", 0), q.get("涨跌幅", 0)))
 
@@ -2292,6 +2319,51 @@ class DecisionAgent(BaseAgent):
         self.logger.pool_operation("S级操作池", "sync", count=0)
 
     # ── P0: 推荐追踪器 ──
+    def _add_to_holding_pool(self, today: str, result: str):
+        """P0-T001: LLM决策通过+Skeptic未阻断后，将【主推】标的写入持仓池。
+        调用 pool_manager.add_to_holding()（唯一入池入口），
+        成本价用实时行情现价兜底（LLM文本未结构化提取买入价）。
+        幂等：add_to_holding 内部检查重复持仓，已持仓标的会被跳过。
+        """
+        import re as _re
+        if not result:
+            return
+        matches = _re.findall(
+            r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]",
+            result,
+        )
+        if not matches:
+            return
+        added = 0
+        for name, code in matches:
+            try:
+                # 尝试从实时行情取现价作为成本价兜底
+                cost = 0.0
+                try:
+                    from market_agent import fetch_quotes, to_api
+                    api_code = to_api(code)
+                    quotes = fetch_quotes([api_code]) or []
+                    q = next((q for q in quotes if str(q.get("代码", "")) == code), {})
+                    cost = float(q.get("现价") or 0)
+                except Exception:
+                    cost = 0.0
+                if cost <= 0:
+                    plog("WARNING", f"[持仓池] ⚠️ {name}({code}) 无有效现价，跳入池")
+                    continue
+                rec = self.pool_manager.add_to_holding(
+                    code=code, name=name, cost=cost,
+                    build_date=today, remark=f"决策Agent主推建仓（{today}）",
+                )
+                if rec:
+                    added += 1
+                    plog("INFO", f"[持仓池] ✅ {name}({code}) 已入池，成本价={cost}")
+                else:
+                    plog("INFO", f"[持仓池] ℹ️ {name}({code}) 已持仓或入池失败，跳过")
+            except Exception as e:
+                plog("WARNING", f"[持仓池] ⚠️ {name}({code}) 入池异常（不影响决策流程）: {e}")
+        if added:
+            self.logger.pool_operation("持仓池", "build", count=added)
+
     def _record_recommendation_tracker(self, today: str, result: str):
         """记录每日推荐标的到追踪器，用于后续执行状态跟踪和冷却期判断。"""
         import json
@@ -2328,15 +2400,19 @@ class DecisionAgent(BaseAgent):
             # 合规检查：拦截违规推荐
             from compliance_manager import get_checker
             checker = get_checker()
+            # T-011: 读取真实总资金，替换硬编码 1_000_000
+            total_capital = self._get_total_capital()
             compliant_entries = []
             blocked_entries = []
             for entry in new_entries:
                 code = entry.get("code", "")
                 name = entry.get("name", "")
                 amount = entry.get("amount", 0) or 100000  # 默认10万
+                # T-011: 从实时行情读取 prev_close/bid_price，不再硬编码为 10
+                prev_close, bid_price = self._get_quote_prices(code)
                 passed, reasons = checker.check_all(code, name, amount,
-                    total_capital=1_000_000, prev_close=entry.get("price", 10),
-                    bid_price=entry.get("price", 10), is_st="ST" in name or "*ST" in name)
+                    total_capital=total_capital, prev_close=prev_close,
+                    bid_price=bid_price, is_st="ST" in name or "*ST" in name)
                 if passed:
                     compliant_entries.append(entry)
                 else:
@@ -2359,6 +2435,127 @@ class DecisionAgent(BaseAgent):
                 plog("INFO", f"[推荐追踪器] ⚠️ 写入失败（不影响决策结果）: {e}")
         else:
             plog("INFO", f"[推荐追踪器] ℹ️ {today}无推荐标的（空仓/无匹配）")
+
+    # ── T-011: 合规参数读取（替换硬编码 total_capital/prev_close/bid_price） ────
+    def _get_total_capital(self) -> float:
+        """从 PortfolioManager 读取真实总资金，失败时返回更合理默认值（不再硬编码 1_000_000）。"""
+        try:
+            from agents.portfolio_manager import PortfolioManager
+            pm = PortfolioManager()
+            cap = float(getattr(pm, "_state", None) and getattr(pm._state, "total_capital", 0) or 0)
+            if cap > 0:
+                return cap
+        except Exception:
+            pass
+        # 保守默认：与 thresholds 保持一致的 100万基准
+        return 1_000_000.0
+
+    def _get_quote_prices(self, code: str) -> tuple:
+        """拉取实时行情返回 (prev_close, bid_price)；数据不可用时返回 (0, 0) 让合规层按缺省放行。"""
+        prev_close = 0.0
+        bid_price = 0.0
+        try:
+            from market_agent import fetch_quotes, to_api
+            api_code = to_api(code)
+            for q in (fetch_quotes([api_code]) or []):
+                if str(q.get("代码", "")) == str(code):
+                    prev_close = float(q.get("昨收") or q.get("昨收价") or 0)
+                    bid_price = float(q.get("现价") or q.get("买一价") or 0)
+                    break
+        except Exception:
+            pass
+        return prev_close, bid_price
+
+    def _pre_compliance_filter(self, result: str, today: str) -> str:
+        """P0-T002: 合规前置拦截——在推荐写入报告/追踪器前扫描【主推】/【备选】，
+        命中合规违规的整段执行方案被替换为"合规拦截"块（保留可审计痕迹）。
+        不删除 _record_recommendation_tracker 内的后置合规检查（双保险）。
+        """
+        if not result:
+            return result
+        import re as _re
+        try:
+            from compliance_manager import get_checker
+        except Exception as e:
+            plog("WARNING", f"[合规预检] ⚠️ 加载 compliance_manager 失败，跳过预检: {e}")
+            return result
+        try:
+            checker = get_checker()
+        except Exception as e:
+            plog("WARNING", f"[合规预检] ⚠️ 获取合规检查器失败，跳过预检: {e}")
+            return result
+
+        # 定位所有推荐块：【主推】/【备选】 名称（代码）
+        block_pat = _re.compile(
+            r"(###\s*)?【(主推|备选)】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]",
+        )
+        blocks = list(block_pat.finditer(result))
+        if not blocks:
+            return result
+
+        # 计算每个块的范围（到下一个同级标题或 EOF）
+        def block_end(start_idx: int) -> int:
+            # 找到该块起始的换行位置（块标题行）
+            line_start = result.rfind("\n", 0, start_idx) + 1
+            # 从下一行开始扫描，遇到下一个 "### " 或 "━" 分节符停止
+            pos = result.find("\n", start_idx) + 1
+            if pos <= start_idx:
+                pos = len(result)
+            while pos < len(result):
+                nl = result.find("\n", pos)
+                if nl < 0:
+                    nl = len(result)
+                line = result[pos:nl]
+                if line.startswith("### ") or line.startswith("━") * 8 or "━━━" in line:
+                    break
+                pos = nl + 1
+            return pos
+
+        # 反向处理：从末尾向前替换，避免破坏前面的偏移
+        new_blocks = {}  # idx -> new_block_text
+        # T-011: 读取真实总资金（替换硬编码 1_000_000）
+        total_capital = self._get_total_capital()
+        for idx, m in enumerate(blocks):
+            tag, name, code = m.group(2), m.group(3), m.group(4)
+            # T-011: 从实时行情读取 prev_close/bid_price（替换硬编码 0）
+            prev_close, bid_price = self._get_quote_prices(code)
+            try:
+                passed, reasons = checker.check_all(
+                    code, name, buy_amount=100_000,
+                    total_capital=total_capital, prev_close=prev_close, bid_price=bid_price,
+                    today=today, is_st=("ST" in name or "*ST" in name),
+                )
+            except Exception as e:
+                plog("WARNING", f"[合规预检] ⚠️ {name}({code}) 检查异常，放行: {e}")
+                continue
+            if passed:
+                continue
+            # 拦截：整块替换为合规拦截说明
+            start = m.start()
+            end = block_end(start)
+            replacement = (
+                f"### ⛔ 合规拦截：{name}（{code}）— 未写入推荐\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"⚠️ 合规检查未通过，该推荐已被前置拦截，不进入今日决策方案。\n"
+                f"拦截原因：\n"
+                + "\n".join(f"- {r}" for r in reasons)
+                + "\n\n_如需重新评估，请等待次日审查更新分数后再决策。_\n"
+            )
+            new_blocks[start] = (end, replacement)
+            plog("INFO", f"[合规预检] 🚫 拦截违规推荐: {name}({code}) {'; '.join(reasons)}")
+
+        if not new_blocks:
+            return result
+
+        parts = []
+        last = 0
+        for start in sorted(new_blocks):
+            end, replacement = new_blocks[start]
+            parts.append(result[last:start])
+            parts.append(replacement)
+            last = end
+        parts.append(result[last:])
+        return "".join(parts)
 
     def _build_empty_decision(self, today: str, pools: dict,
                                market_env: str, reason: str,

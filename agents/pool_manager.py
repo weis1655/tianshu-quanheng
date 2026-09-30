@@ -246,26 +246,32 @@ class PoolManager:
             data["统计"]["持仓数"] = len(stocks)
             self.pool_dir.mkdir(parents=True, exist_ok=True)
             # ── T-M06: 备份轮转（保留最近3份）───────────────
+            # T-026/CQ-017: 原子写入 — 先写临时文件再 rename，成功后删除旧备份
             backup_dir = self.pool_dir / "__backups__"
             backup_dir.mkdir(parents=True, exist_ok=True)
             backup_prefix = f"{pool_name}.bak"
             backups = sorted(backup_dir.glob(f"{backup_prefix}.*"), reverse=True)
-            # 写当前备份
+            # 写当前备份（原子：tmp → rename）
             if pool_file.exists():
                 idx = len(backups) + 1
                 backup_file = backup_dir / f"{backup_prefix}.{idx:04d}"
-                backup_file.write_text(pool_file.read_text(encoding="utf-8"), encoding="utf-8")
-            # 轮转：只保留最近3份
+                backup_tmp = backup_file.with_suffix(backup_file.suffix + ".tmp")
+                backup_tmp.write_text(pool_file.read_text(encoding="utf-8"), encoding="utf-8")
+                backup_tmp.replace(backup_file)  # os.replace 原子重命名
+            # 轮转：先写主文件，成功后才删除旧备份（原子顺序）
+            # ── 写入主文件（原子：tmp → rename）─────────────
+            pool_tmp = pool_file.with_suffix(pool_file.suffix + ".tmp")
+            pool_tmp.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+            pool_tmp.replace(pool_file)
+            # 主文件写入成功后再删除旧备份
             for old in backups[2:]:
                 try:
                     old.unlink()
                 except Exception:
                     pass
-            # ── 写入主文件 ──────────────────────────────────
-            pool_file.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
             return True
         except Exception as e:
             plog("INFO", f"[PoolManager] 保存池失败 {pool_name}: {e}")

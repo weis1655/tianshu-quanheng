@@ -14,13 +14,37 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
 
+from logger import plog
+
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
+
+def _atomic_write_text(path, data: str, encoding: str = "utf-8") -> None:
+    """原子写入 JSON 文件：先写临时文件再 os.rename 原子替换。
+
+    临时文件与目标文件位于同一目录，确保 os.rename 在同一文件系统上为原子操作。
+    写入失败时记录 warning 日志而非静默吞掉。
+    """
+    path = Path(path)
+    tmp_path = str(path) + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding=encoding) as f:
+            f.write(data)
+        os.rename(tmp_path, str(path))
+    except Exception as e:
+        plog("WARNING", f"[Portfolio] 写入失败 {path}: {e}")
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
 
 # ── 配置加载 ─────────────────────────────────────
 
@@ -193,6 +217,7 @@ class PortfolioManager:
         config.versions = [self._version_snapshot(config)]
         self._strategies[config.name] = config
         self._save_strategies()
+        plog("INFO", f"[Portfolio] 策略注册: {config.name} allocation={config.allocation}")
         return True
 
     def enable_strategy(self, name: str) -> bool:
@@ -235,6 +260,7 @@ class PortfolioManager:
         if changed:
             # ══ PM-001: 自动版本管理 ══
             self._auto_version(s)
+            plog("INFO", f"[Portfolio] 策略更新: {name} changes={list(kwargs.keys())}")
         self._save_strategies()
         return True
 
@@ -531,16 +557,15 @@ class PortfolioManager:
 
     def _save_correlation_cache(self) -> None:
         """保存相关性缓存"""
-        try:
-            data = {
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "window_days": self.cfg["performance"]["evaluation_period_days"],
-                "matrix": self._state.correlation_matrix,
-                "alerts": self._state.alerts if hasattr(self._state, "alerts") else [],
-            }
-            self.CORR_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        data = {
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "window_days": self.cfg["performance"]["evaluation_period_days"],
+            "matrix": self._state.correlation_matrix,
+            "alerts": self._state.alerts if hasattr(self._state, "alerts") else [],
+        }
+        _atomic_write_text(
+            self.CORR_CACHE_FILE,
+            json.dumps(data, ensure_ascii=False, indent=2))
 
     def update_correlation(self, perf_data: Dict[str, List[float]]) -> Dict[str, Dict[str, float]]:
         """更新策略间相关系数矩阵（PM-003）
@@ -615,14 +640,13 @@ class PortfolioManager:
 
     def _save_circuit_state(self) -> None:
         """保存熔断状态"""
-        try:
-            data = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "breakers": self._circuit_breakers,
-            }
-            self.CIRCUIT_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        data = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "breakers": self._circuit_breakers,
+        }
+        _atomic_write_text(
+            self.CIRCUIT_FILE,
+            json.dumps(data, ensure_ascii=False, indent=2))
 
     def check_strategy_circuit_breaker(self, name: str) -> bool:
         """检查并执行策略熔断（PM-004）
@@ -641,6 +665,7 @@ class PortfolioManager:
             s.status = "circuit_triggered"
             self._save_circuit_state()
             self._save_strategies()
+            plog("WARNING", f"[Portfolio] 策略熔断触发: {name} dd={dd}% 阈值={threshold}%")
             return True
 
         # 恢复逻辑
@@ -844,8 +869,10 @@ class PortfolioManager:
 
         Returns: {策略名: 新分配比例}
         """
+        plog("INFO", f"[Portfolio] rebalance 入口 method={method} force={force} smooth={smooth}")
         target = self.allocate(method, **kwargs)
         if not target:
+            plog("WARNING", "[Portfolio] rebalance 无有效目标分配，跳过")
             return {}
 
         # 平滑
@@ -863,6 +890,9 @@ class PortfolioManager:
             self._state.last_rebalance = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             self._save_snapshot(target)
             self._last_rebalance_time = datetime.now()
+            plog("INFO", f"[Portfolio] rebalance 完成 触发={needs} 分配数={len(target)}")
+        else:
+            plog("INFO", "[Portfolio] rebalance 未触发，偏离度未超阈值")
 
         return target
 
@@ -1107,10 +1137,8 @@ class PortfolioManager:
 
         # 保存报告
         report_file = self.REPORT_DIR / f"portfolio_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        try:
-            report_file.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        _atomic_write_text(report_file, json.dumps(report, ensure_ascii=False, indent=2))
+        plog("INFO", f"[Portfolio] 报告已保存: {report_file.name}")
 
         return report
 
@@ -1135,10 +1163,9 @@ class PortfolioManager:
         """保存策略列表"""
         for cfg in self._strategies.values():
             path = self.STRATEGY_DIR / f"{cfg.name}.json"
-            try:
-                path.write_text(json.dumps(asdict(cfg), ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+            _atomic_write_text(
+                path,
+                json.dumps(asdict(cfg), ensure_ascii=False, indent=2))
 
     def _load_state(self) -> None:
         """加载组合状态"""
@@ -1156,15 +1183,23 @@ class PortfolioManager:
         """保存组合快照"""
         self._state.allocated = allocation
         self._state.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        payload = json.dumps(asdict(self._state), ensure_ascii=False, indent=2)
+        _atomic_write_text(self.PORTFOLIO_FILE, payload)
+        # 历史快照
+        history_file = self.HISTORY_DIR / f"snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        _atomic_write_text(history_file, payload)
+        # T-019/CQ-004: 快照超过50个则删除最早的
         try:
-            self.PORTFOLIO_FILE.write_text(
-                json.dumps(asdict(self._state), ensure_ascii=False, indent=2), encoding="utf-8")
-            # 历史快照
-            history_file = self.HISTORY_DIR / f"snapshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            history_file.write_text(
-                json.dumps(asdict(self._state), ensure_ascii=False, indent=2), encoding="utf-8")
+            snapshot_files = sorted(self.HISTORY_DIR.glob("snapshot_*.json"))
+            if len(snapshot_files) > 50:
+                for old_snap in snapshot_files[:-50]:
+                    try:
+                        old_snap.unlink()
+                    except Exception:
+                        pass
         except Exception:
             pass
+        plog("INFO", f"[Portfolio] 快照已保存: 分配策略数={len(allocation)}")
 
     def save_checkpoint(self) -> None:
         """保存开发/运行checkpoint"""
@@ -1179,10 +1214,7 @@ class PortfolioManager:
                 "drawdown": self._state.drawdown,
             },
         }
-        try:
-            self.CHECKPOINT_FILE.write_text(json.dumps(cp, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        _atomic_write_text(self.CHECKPOINT_FILE, json.dumps(cp, ensure_ascii=False, indent=2))
 
 
 # ═══════════════════════════════════════════════════
