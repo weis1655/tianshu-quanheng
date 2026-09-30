@@ -181,5 +181,6 @@ print()
 print("━" * 60)
 print(f"总计: {TOTAL} | ✅ 通过: {PASS} | ❌ 失败: {FAIL}")
 print("━" * 60)
-
-sys.exit(0 if FAIL == 0 else 1)
+# 2026-09-30 T01/Q-H02: sys.exit 移入 __main__ 守卫，避免 pytest 收集阶段 SystemExit 导致全套 0 tests ran。
+if __name__ == "__main__":
+    sys.exit(0 if FAIL == 0 else 1)

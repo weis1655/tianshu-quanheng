@@ -203,10 +203,15 @@ class CircuitOpenError(Exception):
 
 
 def save_circuit_state(path: Path, breaker: "CircuitBreaker") -> None:
-    """将熔断器状态持久化到 JSON，供进程重启后恢复"""
+    """将熔断器状态持久化到 JSON，供进程重启后恢复
+
+    2026-09-30 T05/Q-H04 修复：传入单一文件时改为「单文件 + 按 name 分区」字典结构，
+    原实现每次写入整份 state，5 个熔断器互相覆盖，恢复时全部加载同一份快照
+    （生产文件曾滞留 2026-08-14 的新闻熔断快照）。
+    """
     try:
         m = breaker._metrics
-        state = {
+        breaker_state = {
             "state": breaker._state.value,
             "total_calls": m.total_calls,
             "successful_calls": m.successful_calls,
@@ -215,17 +220,49 @@ def save_circuit_state(path: Path, breaker: "CircuitBreaker") -> None:
             "consecutive_failures": m.consecutive_failures,
             "last_state_change": breaker._last_state_change.isoformat(),
         }
-        path.write_text(json.dumps(state), encoding="utf-8")
+        doc = {}
+        if path.exists():
+            try:
+                doc = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                doc = {}
+        if doc and "breakers" not in doc:
+            # 旧结构：整份文件就是一个无 name 归属的快照，无法判定属于哪个熔断器。
+            # 不做认领（认领即等于把 A 熔断器的历史套给 B），直接丢弃重建并告警。
+            _get_plog()("WARNING",
+                        f"[熔断器] 丢弃无 name 归属的旧版单文件快照（滞留于生产文件），"
+                        f"重建为按 name 分区结构")
+            doc = {"breakers": {}}
+        doc.setdefault("breakers", {})[breaker.name] = breaker_state
+        path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         _get_plog()("ERROR", f"save_circuit_state 失败: {e}")
 
 
 def restore_circuit_state(path: Path, breaker: "CircuitBreaker") -> None:
-    """从 JSON 恢复熔断器状态"""
+    """从 JSON 恢复熔断器状态
+
+    2026-09-30 T05/Q-H04：兼容两种结构
+    - 新结构（单文件 + 按 name 分区）：{"breakers": {"news_only": {...}}}
+    - 旧结构（单文件 = 单个 breaker 状态）：{"state": ..., "total_calls": ...}
+      旧结构仅在 name 匹配缺失时兜底读取，避免 5 个熔断器共享同一快照。
+    """
     try:
         if not path.exists():
             return
-        state = json.loads(path.read_text(encoding="utf-8"))
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if "breakers" in doc:
+            # 新结构：只取本 breaker 的分区；缺失则视为无历史（不套用别人的快照）
+            state = doc["breakers"].get(breaker.name)
+            if not state:
+                _get_plog()("INFO", f"熔断器 {breaker.name} 无持久化记录，使用默认状态")
+                return
+        else:
+            # 旧结构：整份文件是单个无 name 归属的快照，无法确认属于本熔断器。
+            # 拒绝套用（否则会把 A 熔断器的失败历史套给 B），下次 save 时会自动迁移。
+            _get_plog()("WARNING",
+                        f"熔断器 {breaker.name} 读到无 name 归属的旧版快照，不套用，使用默认状态")
+            return
         with breaker._lock:
             breaker._state = CircuitState(state["state"])
             breaker._metrics = CircuitMetrics(

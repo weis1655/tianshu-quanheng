@@ -17,10 +17,10 @@ def test_extreme_cyb_drop_triggers_empty():
     agent = DecisionAgent(PROJECT_ROOT)
     sm = PROJECT_ROOT / "data" / "shared_memory.json"
     sm.write_text(json.dumps([
-        {"代码": "000001", "涨跌幅": -0.5, "最新价": 3100},
-        {"代码": "399006", "涨跌幅": -4.2, "最新价": 1800},  # 创业板-4.2%
-        {"代码": "000688", "涨跌幅": -2.5, "最新价": 800},
-        {"代码": "000300", "涨跌幅": -1.5, "最新价": 3600},
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": -0.5, "最新价": 3100},
+        {"代码": "sz399006", "名称": "创业板指", "涨跌幅": -4.2, "最新价": 1800},  # 创业板-4.2%
+        {"代码": "sz000688", "名称": "科创50", "涨跌幅": -2.5, "最新价": 800},
+        {"代码": "sh000300", "名称": "沪深300", "涨跌幅": -1.5, "最新价": 3600},
     ]))
     result = agent._get_market_state()
     assert result["extreme_warning"] is True
@@ -35,10 +35,10 @@ def test_hs300_drop_triggers_extreme():
     agent = DecisionAgent(PROJECT_ROOT)
     sm = PROJECT_ROOT / "data" / "shared_memory.json"
     sm.write_text(json.dumps([
-        {"代码": "000001", "涨跌幅": -1.2, "最新价": 3100},
-        {"代码": "399006", "涨跌幅": -1.5, "最新价": 1800},  # 创业板-1.5%未触发
-        {"代码": "000688", "涨跌幅": -1.0, "最新价": 800},
-        {"代码": "000300", "涨跌幅": -2.8, "最新价": 3600},  # 沪深300-2.8%触发
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": -1.2, "最新价": 3100},
+        {"代码": "sz399006", "名称": "创业板指", "涨跌幅": -1.5, "最新价": 1800},  # 创业板-1.5%未触发
+        {"代码": "sz000688", "名称": "科创50", "涨跌幅": -1.0, "最新价": 800},
+        {"代码": "sh000300", "名称": "沪深300", "涨跌幅": -2.8, "最新价": 3600},  # 沪深300-2.8%触发
     ]))
     result = agent._get_market_state()
     assert result["extreme_warning"] is True
@@ -52,9 +52,9 @@ def test_normal_market_state():
     agent = DecisionAgent(PROJECT_ROOT)
     sm = PROJECT_ROOT / "data" / "shared_memory.json"
     sm.write_text(json.dumps([
-        {"代码": "000001", "涨跌幅": 0.8, "最新价": 3100},
-        {"代码": "399006", "涨跌幅": 0.5, "最新价": 1800},
-        {"代码": "000300", "涨跌幅": 0.3, "最新价": 3600},
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": 0.8, "最新价": 3100},
+        {"代码": "sz399006", "名称": "创业板指", "涨跌幅": 0.5, "最新价": 1800},
+        {"代码": "sh000300", "名称": "沪深300", "涨跌幅": 0.3, "最新价": 3600},
     ]))
     result = agent._get_market_state()
     assert result["extreme_warning"] is False
@@ -67,13 +67,114 @@ def test_market_state_bianduo():
     agent = DecisionAgent(PROJECT_ROOT)
     sm = PROJECT_ROOT / "data" / "shared_memory.json"
     sm.write_text(json.dumps([
-        {"代码": "000001", "涨跌幅": 1.5, "最新价": 3100},
-        {"代码": "399006", "涨跌幅": 0.8, "最新价": 1800},
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": 1.5, "最新价": 3100},
+        {"代码": "sz399006", "名称": "创业板指", "涨跌幅": 0.8, "最新价": 1800},
     ]))
     result = agent._get_market_state()
     assert result["extreme_warning"] is False
     assert result["state"] == "偏多"
     print(f"  ✅ 上证+1.5% → 偏多模式 s_pool_cap={result['s_pool_cap']}")
+
+
+# ── 测试4b: 市场状态鲁棒性回归（Q-H03 / Q-H06）────────────────────────────
+def test_market_state_sh_index_code_collision():
+    """Q-H03回归：上证指数(sh000001) 与 平安银行(sz000001) 撞码不得互相误认。
+
+    历史缺陷：review_agent 曾按 `代码=="000001"` 匹配大盘，
+    实际取到的是平安银行的涨跌幅，导致市场状态判定全线错位。
+    """
+    from decision_agent import DecisionAgent
+    agent = DecisionAgent(PROJECT_ROOT)
+    sm = PROJECT_ROOT / "data" / "shared_memory.json"
+    sm.write_text(json.dumps([
+        {"代码": "sz000001", "名称": "平安银行", "涨跌幅": 3.5, "最新价": 10.5},  # 银行大涨
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": 0.2, "最新价": 3100},   # 大盘微涨
+    ]))
+    result = agent._get_market_state()
+    assert result["state"] == "震荡偏强", f"误取平安银行涨跌幅导致 {result['state']}"
+    assert abs(result["sh_chg"] - 0.2) < 1e-6
+    print(f"  ✅ 撞码回归: sh_chg={result['sh_chg']:.2f} (取上证指数而非平安银行) state={result['state']}")
+
+
+def test_market_state_missing_index_fails_loud():
+    """Q-H03：指数行情缺失时不再静默——必须标记 data_missing（fail-loud）。"""
+    from decision_agent import DecisionAgent
+    agent = DecisionAgent(PROJECT_ROOT)
+    sm = PROJECT_ROOT / "data" / "shared_memory.json"
+    sm.write_text(json.dumps([
+        {"代码": "600519", "名称": "贵州茅台", "涨跌幅": 1.2, "最新价": 1500},
+    ]))
+    result = agent._get_market_state()
+    assert result.get("data_missing") is True
+    assert result["extreme_warning"] is False
+    print(f"  ✅ 指数缺失: data_missing=True，退化震荡但显式标记")
+
+
+def test_market_state_code_fallback_without_name():
+    """Q-H03：名称字段缺失时按市场前缀+代码兜底匹配，仍应正确判定。"""
+    from decision_agent import DecisionAgent
+    agent = DecisionAgent(PROJECT_ROOT)
+    sm = PROJECT_ROOT / "data" / "shared_memory.json"
+    sm.write_text(json.dumps([
+        {"代码": "sh000001", "涨跌幅": 1.5, "最新价": 3100},   # 无"名称"字段
+        {"代码": "sz399006", "涨跌幅": 0.8, "最新价": 1800},
+    ]))
+    result = agent._get_market_state()
+    assert result["state"] == "偏多"
+    assert result.get("data_missing") is None
+    print(f"  ✅ 名称缺失兜底: state={result['state']} sh_chg={result['sh_chg']:+.2f}")
+
+
+def test_hard_rules_st_block():
+    """Q-H06回归：ST/*ST 标的必须在决策前置硬规则中被剔除。
+
+    注意：必须用 `from compliance_manager import` 形式注入——
+    `import agents.compliance_manager` 与 `compliance_manager` 是两个独立模块实例，
+    ST_STOCKS 集合不共享（agents/ 同时在 sys.path 上，会被双重加载）。
+    """
+    from decision_agent import DecisionAgent
+    from compliance_manager import ST_STOCKS
+    agent = DecisionAgent(PROJECT_ROOT)
+    ST_STOCKS.add("600999")
+    try:
+        hits = agent._apply_hard_rules(["600999", "600519"])
+        blocked = [h for h in hits if h["code"] == "600999"]
+        assert blocked, "ST 标的应被拦截"
+        assert blocked[0]["reason"] == "ST/*ST 标的"
+        assert not any(h["code"] == "600519" for h in hits), "正常标的不得被误杀"
+        print(f"  ✅ 硬规则-ST: 600999 剔除，600519 放行")
+    finally:
+        ST_STOCKS.discard("600999")
+
+
+def test_hard_rules_name_keyword_block():
+    """Q-H06回归：名称含「退市」「暂停上市」的标的必须被剔除。"""
+    from decision_agent import DecisionAgent
+    agent = DecisionAgent(PROJECT_ROOT)
+    sm = PROJECT_ROOT / "data" / "shared_memory.json"
+    sm.write_text(json.dumps([
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": 0.5, "最新价": 3100},
+        {"代码": "600123", "名称": "S退市股", "涨跌幅": 0, "最新价": 1},
+        {"代码": "000456", "名称": "某暂停上市", "涨跌幅": 0, "最新价": 2},
+    ]))
+    hits = agent._apply_hard_rules(["600123", "000456"])
+    codes = {h["code"] for h in hits}
+    assert "600123" in codes and "000456" in codes
+    print(f"  ✅ 硬规则-名称关键字: {sorted(codes)} 全部剔除")
+
+
+def test_hard_rules_no_false_positive():
+    """Q-H06回归：无黑名单、无 ST、未持仓的正常标的不得被误杀。"""
+    from decision_agent import DecisionAgent
+    agent = DecisionAgent(PROJECT_ROOT)
+    sm = PROJECT_ROOT / "data" / "shared_memory.json"
+    sm.write_text(json.dumps([
+        {"代码": "sh000001", "名称": "上证指数", "涨跌幅": 0.5, "最新价": 3100},
+        {"代码": "600519", "名称": "贵州茅台", "涨跌幅": 1.2, "最新价": 1500},
+    ]))
+    hits = agent._apply_hard_rules(["600519"])
+    assert not hits, f"正常标的被误杀: {hits}"
+    print(f"  ✅ 硬规则-无误杀: 贵州茅台放行")
 
 
 # ── 测试5: 仓位风控常量正确 ────────────────────────────────────────────────
@@ -231,7 +332,71 @@ def test_gate_controller_block_demotion():
     print(f"  ✅ GateController 阻塞≥{SKEPTIC_BLOCK_LIMIT}次 → demotion={len(demotions)}")
 
 
-# ── 测试13: 熔断器模块级函数 check_circuit_breaker / record_failure ───────
+# ── 测试13: 熔断器状态持久化分区隔离（Q-H04）─────────────────────────────
+def test_circuit_state_multi_breaker_isolation():
+    """Q-H04回归：多熔断器共用单文件持久化时不得互相覆盖。
+
+    历史缺陷：save_circuit_state 每次写整份 state，5 个熔断器共用 1 个文件，
+    后者覆盖前者；进程重启后所有熔断器恢复成同一份快照。
+    """
+    import json, tempfile
+    from pathlib import Path
+    import agents.error_handling as eh
+
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        f.write("{}")
+        tmp = Path(f.name)
+    try:
+        names = ["t_news", "t_screen", "t_review"]
+        for n in names:
+            eh._circuit_breakers.pop(n, None)
+        for n in names:
+            for _ in range(3):
+                eh.record_success(n)
+            eh.save_circuit_state(tmp, eh.get_circuit_breaker(n))
+
+        doc = json.loads(tmp.read_text())
+        assert "breakers" in doc, "应迁移为按 name 分区结构"
+        assert len(doc["breakers"]) == 3, f"应有3个独立分区，实际 {len(doc['breakers'])}"
+        for n in names:
+            assert doc["breakers"][n]["successful_calls"] == 3
+
+        # 模拟进程重启：重新加载各熔断器
+        for n in names:
+            eh._circuit_breakers.pop(n, None)
+        for n in names:
+            b = eh.get_circuit_breaker(n)
+            eh.restore_circuit_state(tmp, b)
+            assert b._metrics.successful_calls == 3, f"{n} 恢复失败"
+        print(f"  ✅ 熔断器分区隔离: {len(doc['breakers'])} 个独立分区，重启后各自恢复")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def test_circuit_state_ignores_ownerless_legacy_snapshot():
+    """Q-H04回归：无 name 归属的旧版单文件快照不得被套用到任意熔断器。"""
+    import json, tempfile
+    from pathlib import Path
+    import agents.error_handling as eh
+
+    legacy = {"state": "open", "total_calls": 52, "successful_calls": 48,
+              "failed_calls": 4, "rejected_calls": 0, "consecutive_failures": 0,
+              "last_state_change": "2026-08-14T07:10:41.222051"}
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(legacy, f)
+        tmp = Path(f.name)
+    try:
+        eh._circuit_breakers.pop("t_legacy", None)
+        b = eh.get_circuit_breaker("t_legacy")
+        eh.restore_circuit_state(tmp, b)
+        assert b._state.value == "closed", "旧快照无归属，不得套用"
+        assert b._metrics.total_calls == 0
+        print(f"  ✅ 无主旧快照被拒绝: total_calls=0 state=closed")
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+# ── 测试15: 熔断器模块级函数 check_circuit_breaker / record_failure ───────
 def test_module_level_circuit_breaker():
     from error_handling import check_circuit_breaker, record_failure, record_success
     

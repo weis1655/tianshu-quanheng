@@ -903,7 +903,8 @@ class MarketAgent:
         codes.append("sh000001")  # 上证指数
         codes.append("sz399001")  # 深证成指
         codes.append("sz399006")  # 创业板指
-        return list(dict.fromkeys(codes))  # 去重
+        codes.append("sh000300")  # 沪深300（Q-H05: 决策层级联跌检测的数据来源）
+        return list(dict.fromkeys(codes))  # 去重保序
 
     def run(self, codes: Optional[list[str]] = None) -> dict:
         """

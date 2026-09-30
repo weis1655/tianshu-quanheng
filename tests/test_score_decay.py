@@ -151,4 +151,6 @@ check("DC-8b 未超期返回False", D(sB) is False)
 
 print()
 print(f"═══ 结果: {PASS} 通过 / {FAIL} 失败 ═══")
-sys.exit(1 if FAIL else 0)
+# 2026-09-30 T01/Q-H02: sys.exit 移入 __main__ 守卫，避免 pytest 收集阶段 SystemExit 导致全套 0 tests ran。
+if __name__ == "__main__":
+    sys.exit(1 if FAIL else 0)

@@ -96,6 +96,8 @@ weights:
 logging:
   level: "INFO"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  # 实际写入行为：agents/logger.py 按「日志目录 + 当日日期」滚动写入（如 logs/2026-09-30.log），
+  # 本字段仅作日志目录的声明性参考，并非固定文件名（2026-09-30 T08/Q-H07 口径标注，勿据此 grep tianshu.log）
   file: "logs/tianshu.log"
   
   # 是否打印到stdout

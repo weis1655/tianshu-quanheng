@@ -451,6 +451,15 @@ class DecisionAgent(BaseAgent):
             # 匹配 ## 600547 山东黄金 或 ## 600547(山东黄金) 等多种格式
             extra_codes = re.findall(r'##\s*\[?(\d{6})\]?\s*[（(]?', review_report)
 
+        # ── Q-H06：硬规则前置拦截（原 check_hard_rules 仅存于 Orchestrator 且生产零调用）──
+        hard_rule_hits = self._apply_hard_rules(extra_codes)
+        if hard_rule_hits:
+            for h in hard_rule_hits:
+                print(f"  ⛔ [硬规则] {h}")
+        # 命中硬规则的标的从候选中剔除，不再进入评分与决策
+        extra_codes = [c for c in extra_codes
+                       if not any(h["code"] == c and h["action"] == "剔除" for h in hard_rule_hits)]
+
         # ── P0-3：S级操作池优先读取（优先于审查报告）────────────
         s_pool_data = pools.get("S级操作池", {})
         s_pool_stocks = s_pool_data.get("stocks", []) if isinstance(s_pool_data, dict) else []
@@ -1891,9 +1900,76 @@ class DecisionAgent(BaseAgent):
 - **市场状态**：分化格局，强者恒强
 - **环境评级**：震荡偏强，仓位建议单票10-20%，总仓位30%"""
 
+    def _apply_hard_rules(self, codes: list) -> list:
+        """Q-H06：硬规则前置拦截，返回命中清单 [{"code","name","reason","action"}]
+
+        承接原 Orchestrator.check_hard_rules（仅测试调用、生产零调用）的职责：
+        1. ST/*ST、退市、暂停上市 —— 一票剔除
+        2. 持仓池已持仓 —— T+1 不得重复买入
+        采用保守策略：仅拦截明确命中的标的，不扩大拦截范围（避免误杀）。
+        """
+        hits = []
+        seen = set()
+        try:
+            from compliance_manager import ST_STOCKS, BLACKLIST_STOCKS
+        except Exception:
+            ST_STOCKS, BLACKLIST_STOCKS = set(), set()
+
+        # 持仓池快照（T+1 判重）
+        held = {}
+        try:
+            from pool_manager import PoolManager
+            hp = PoolManager().load_pool("持仓池") or {}
+            for s in hp.get("stocks", []):
+                c = str(s.get("代码", s.get("股票代码", "")))
+                if c:
+                    held[c] = s.get("名称", s.get("股票名称", ""))
+        except Exception:
+            held = {}
+
+        # 名称快照（从行情缓存读取，用于名称类规则）
+        names = {}
+        try:
+            import json
+            sm_file = self.root / "data" / "shared_memory.json"
+            if sm_file.exists():
+                for s in json.loads(sm_file.read_text(encoding="utf-8")):
+                    if isinstance(s, dict) and s.get("代码"):
+                        names[str(s["代码"])] = s.get("名称", "")
+        except Exception:
+            names = {}
+
+        for raw in codes:
+            code = str(raw)
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            name = names.get(code, "")
+
+            if code in ST_STOCKS or "ST" in name.upper() or "*ST" in name.upper():
+                hits.append({"code": code, "name": name or "?", "reason": "ST/*ST 标的", "action": "剔除"})
+                continue
+            if code in BLACKLIST_STOCKS:
+                hits.append({"code": code, "name": name or "?", "reason": "黑名单标的", "action": "剔除"})
+                continue
+            for kw in ("退市", "暂停上市", "终止上市"):
+                if kw in name:
+                    hits.append({"code": code, "name": name or "?", "reason": f"命中关键字「{kw}」", "action": "剔除"})
+                    break
+            else:
+                if code in held:
+                    hits.append({"code": code, "name": name or held.get(code, "?"),
+                                 "reason": "T+1：已在持仓池", "action": "剔除"})
+        return hits
+
     # ── Level-2: 市场状态预判（结构化，决定 S 池推荐数量）───
     def _get_market_state(self) -> dict:
-        """获取量化市场状态，返回 {state, sh_chg, s_pool_cap, suggestion, extreme_warning}"""
+        """获取量化市场状态，返回 {state, sh_chg, s_pool_cap, suggestion, extreme_warning}
+
+        2026-09-30 T02/Q-H03 修复：
+        1. fail-loud — 指数行情缺失时显式告警（原静默退化"震荡"，极端行情空仓防线悄然失效）。
+        2. 代码兜底匹配 — 名称缺失时回退按市场前缀+6位代码匹配，避免数据源字段漂移导致全 miss。
+        """
         import json
         from pathlib import Path
         sm_file = self.root / "data" / "shared_memory.json"
@@ -1903,49 +1979,66 @@ class DecisionAgent(BaseAgent):
                 with open(sm_file) as f:
                     data = json.load(f)
                 if data and isinstance(data, list):
-                    # 按名称匹配上证指数（代码 000001 与平安银行 sz000001 歧义，不可用代码匹配）
+                    # 按名称匹配上证指数（代码 000001 与平安银行 sz000001 歧义，不可单独用代码匹配）
                     sh = next((s for s in data if s.get("名称") == "上证指数"), None)
-                    if sh:
-                        sh_chg = sh.get("涨跌幅", 0)
-                        result["sh_chg"] = sh_chg
-                        # 创业板/科创50 极端跌幅检测 + 沪深300级联跌
-                        cyb = next((s for s in data if s.get("代码") in ("399006", "000688")), None)
-                        hs300 = next((s for s in data if s.get("代码") == "000300"), None)
-                        if cyb:
-                            cyb_chg = cyb.get("涨跌幅", 0)
-                            if cyb_chg <= -3:
-                                result["state"] = "极弱"
-                                result["s_pool_cap"] = 0
-                                result["suggestion"] = "❗极端行情：创业板/科创50暴跌，空仓回避"
-                                result["extreme_warning"] = True
-                                return result
-                        # 沪深300级联跌检测（>2%触发极弱）
-                        if hs300:
-                            hs300_chg = hs300.get("涨跌幅", 0)
-                            if hs300_chg <= -2:
-                                result["state"] = "极弱"
-                                result["s_pool_cap"] = 0
-                                result["suggestion"] = f"❗极端行情：沪深300跌{hs300_chg:.1f}%，空仓回避"
-                                result["extreme_warning"] = True
-                                return result
-                        if sh_chg > 1:
-                            result["state"] = "偏多"
-                            result["s_pool_cap"] = 3       # P2升级：3只
-                            result["suggestion"] = "积极，关注科技+券商"
-                        elif sh_chg > 0:
-                            result["state"] = "震荡偏强"
-                            result["s_pool_cap"] = 3       # P2升级：3只
-                            result["suggestion"] = "谨慎积极"
-                        elif sh_chg > -1:
-                            result["state"] = "震荡偏弱"
-                            result["s_pool_cap"] = 2        # P2升级：2只（原1只）
-                            result["suggestion"] = "防御为主，关注高股息"
-                        else:
-                            result["state"] = "偏空"
-                            result["s_pool_cap"] = 1         # P2升级：1只（原0只）
-                            result["suggestion"] = "严格风控，仅极优标的"
+                    cyb = next((s for s in data if s.get("名称") == "创业板指"), None)
+                    hs300 = next((s for s in data if s.get("名称") == "沪深300"), None)
+                    # 兜底：名称字段缺失时按 市场前缀+代码 匹配（sh000001 与 sz000001 不撞码）
+                    if sh is None:
+                        sh = next((s for s in data if str(s.get("代码", "")) in ("sh000001", "1A0001")), None)
+                    if cyb is None:
+                        cyb = next((s for s in data if str(s.get("代码", "")) in ("sz399006", "399006", "sz000688", "000688")), None)
+                    if hs300 is None:
+                        hs300 = next((s for s in data if str(s.get("代码", "")) in ("sh000300", "000300")), None)
+                    if sh is None:
+                        # fail-loud：无上证指数行情 → 市场状态不可判定，显式告警而非静默按标准容量出方案
+                        from logger import plog
+                        plog("WARNING", f"[市场状态] ❌ 上证指数行情缺失（{sm_file.name} 无上证指数条目），"
+                                        f"退化为默认'震荡'——极端行情空仓防线可能失效", module="market_state")
+                        result["data_missing"] = True
+                        return result
+                    sh_chg = sh.get("涨跌幅", 0)
+                    result["sh_chg"] = sh_chg
+                    # 创业板/科创50 极端跌幅检测 + 沪深300级联跌
+                    if cyb:
+                        cyb_chg = cyb.get("涨跌幅", 0)
+                        if cyb_chg <= -3:
+                            result["state"] = "极弱"
+                            result["s_pool_cap"] = 0
+                            result["suggestion"] = "❗极端行情：创业板/科创50暴跌，空仓回避"
+                            result["extreme_warning"] = True
+                            return result
+                    # 沪深300级联跌检测（>2%触发极弱）
+                    if hs300:
+                        hs300_chg = hs300.get("涨跌幅", 0)
+                        if hs300_chg <= -2:
+                            result["state"] = "极弱"
+                            result["s_pool_cap"] = 0
+                            result["suggestion"] = f"❗极端行情：沪深300跌{hs300_chg:.1f}%，空仓回避"
+                            result["extreme_warning"] = True
+                            return result
+                    if sh_chg > 1:
+                        result["state"] = "偏多"
+                        result["s_pool_cap"] = 3       # P2升级：3只
+                        result["suggestion"] = "积极，关注科技+券商"
+                    elif sh_chg > 0:
+                        result["state"] = "震荡偏强"
+                        result["s_pool_cap"] = 3       # P2升级：3只
+                        result["suggestion"] = "谨慎积极"
+                    elif sh_chg > -1:
+                        result["state"] = "震荡偏弱"
+                        result["s_pool_cap"] = 2        # P2升级：2只（原1只）
+                        result["suggestion"] = "防御为主，关注高股息"
+                    else:
+                        result["state"] = "偏空"
+                        result["s_pool_cap"] = 1         # P2升级：1只（原0只）
+                        result["suggestion"] = "严格风控，仅极优标的"
             except Exception:  # 安全降级: 弱市建议计算失败→使用默认值，不影响决策
                 pass
+        else:
+            from logger import plog
+            plog("WARNING", f"[市场状态] ❌ 行情文件缺失（{sm_file.name}），退化为默认'震荡'", module="market_state")
+            result["data_missing"] = True
         return result
 
     def _load_authoritative_scores(self, review_report: str, today: str) -> dict:

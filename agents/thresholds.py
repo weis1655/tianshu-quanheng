@@ -80,7 +80,10 @@ OVERHEAT_CRITICAL_DAY_CHG = 12     # 日涨幅 >12%
 OVERHEAT_CRITICAL_PE = 80          # PE >80
 OVERHEAT_CRITICAL_TURNOVER = 12    # 换手率 >12%
 OVERHEAT_CRITICAL_MONTH_CHG = 25   # 月涨跌 >25%
-OVERHEAT_CRITICAL_SCORE = 70       # 月涨触发时评分 >70（与 WARNING-1 的75不一致）
+OVERHEAT_CRITICAL_SCORE = 70       # 月涨/季涨触发时评分 >=70（刻意低于 W1 的75，非笔误）
+                                    # 设计意图：CRITICAL 是「强制降级」闸门，需覆盖70+的票以防高位股
+                                    # 因月涨过大被放过；W1 是「扣10分」惩罚，只针对高分票（>75），
+                                    # 两者规则独立且阈值故意错开，勿改齐。
 OVERHEAT_CRITICAL_QUARTER_CHG = 50 # 季涨跌 >50%
 
 # WARNING-1 — 扣10分

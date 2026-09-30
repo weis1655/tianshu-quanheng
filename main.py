@@ -88,7 +88,7 @@ from agents.error_handling import check_circuit_breaker, record_success, record_
 
 # 统一日志（初始化根日志器）
 from agents.logger import setup_root_logger, plog
-from agents.thresholds import CANDIDATE_EXPIRE_DAYS, EDGE_POOL_STALE_DAYS
+from agents.thresholds import CANDIDATE_EXPIRE_DAYS, EDGE_POOL_STALE_DAYS, AUTO_DOWNGRADE_SCORE
 setup_root_logger(level="INFO", log_dir=str(PROJECT_ROOT / "logs"))
 
 # 启动时恢复熔断器状态（防止进程重启后保护丢失）
@@ -489,7 +489,7 @@ def main():
     # C: 全流程看门狗（09-18）— 记录启动时刻，后续各阶段判断累计耗时
     _run_started_at = time.time()
     _run_start_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[Cron看门狗] ⏱️ full_cycle 启动 @ {_run_start_str}")
+    plog("INFO", f"[Cron看门狗] ⏱️ full_cycle 启动 @ {_run_start_str}", module="cron")
 
     # 解析命令行参数
     phase_arg = sys.argv[1] if len(sys.argv) > 1 else None
@@ -687,14 +687,14 @@ def main():
     # 执行
     if phase == "news_only":
         if not check_circuit_breaker("news_only"):
-            print(f"[熔断器] ⛔ news_only 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ news_only 熔断，跳过", module="cron")
             results = {}
         else:
             results = run_phase("news_only", pools)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
-        if results.get("success"):
+        if results.get("news", {}).get("success"):   # Q-H01: run_phase 返回 {"news": r} 嵌套结构
             record_success("news_only")
         else:
             record_failure("news_only")
@@ -763,14 +763,15 @@ def main():
                     print(f"  [News] ⚠️ 本地联播文件存在但质量不足 ({len(raw)} chars)，回退实时抓取")
             # fallback：实时抓取
             if not check_circuit_breaker("news_only"):
-                print(f"[熔断器] ⛔ news_only 熔断，跳过")
+                plog("WARNING", f"[熔断器] ⛔ news_only 熔断，跳过", module="cron")
                 r = {}
             else:
                 r = run_phase("news_only", pools, wake_ctx=wake_ctx)
             if _graceful_shutdown:
                 print("[守护] 已中断")
                 return results
-            if r.get("success"):
+            # Q-H01: r = run_phase 返回 {"news": {...}}，无顶层 success 键（原判断恒 None）
+            if r.get("news", {}).get("success"):
                 record_success("news_only")
             else:
                 record_failure("news_only")
@@ -782,7 +783,7 @@ def main():
         # ── 质量门控：新闻不合格则终止 ─────────────────────
         news_data = results.get("news", {})
         if not news_data.get("success"):
-            print(f"\n❌ 【严重】新闻质量不合格: {news_data.get('error', news_data.get('quality_check', '未知'))}")
+            plog("ERROR", f"❌ 【严重】新闻质量不合格: {news_data.get('error', news_data.get('quality_check', '未知'))}", module="cron")
             print("   无有效新闻输入，终止。")
             card = build_feishu_card(phase, results, orch.get_pools())
             print("\n📱 飞书卡片内容预览:")
@@ -907,7 +908,7 @@ def main():
         time.sleep(LLM_THROTTLE_SECONDS)
         pools = orch.get_pools()
         if not check_circuit_breaker("screen"):
-            print(f"[熔断器] ⛔ screen 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ screen 熔断，跳过", module="cron")
             r_screen = {}
         else:
             r_screen = run_phase("screen", pools, wake_ctx=wake_ctx)
@@ -916,7 +917,7 @@ def main():
             return results
         results.update(r_screen)
         if not results.get("screen", {}).get("success"):
-            print("\n❌ 【级联终止】快筛失败，停止后续阶段")
+            plog("ERROR", "❌ 【级联终止】快筛失败，停止后续阶段", module="cron")
             card = build_feishu_card(phase, results, orch.get_pools())
             print("\n📱 飞书卡片内容预览:")
             print(json.dumps(card, ensure_ascii=False, indent=2))
@@ -928,7 +929,7 @@ def main():
 
         pools = orch.get_pools()
         if not check_circuit_breaker("review"):
-            print(f"[熔断器] ⛔ review 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ review 熔断，跳过", module="cron")
             r_review = {}
         else:
             r_review = run_phase("review", pools, wake_ctx=wake_ctx)
@@ -937,7 +938,7 @@ def main():
             return results
         results.update(r_review)
         if not results.get("review", {}).get("success"):
-            print("\n❌ 【级联终止】审查失败，停止后续阶段")
+            plog("ERROR", "❌ 【级联终止】审查失败，停止后续阶段", module="cron")
             card = build_feishu_card(phase, results, orch.get_pools())
             print("\n📱 飞书卡片内容预览:")
             print(json.dumps(card, ensure_ascii=False, indent=2))
@@ -1218,7 +1219,7 @@ def main():
             time.sleep(LLM_THROTTLE_SECONDS)
             pools = orch.get_pools()
             if not check_circuit_breaker("skeptic"):
-                print(f"[熔断器] ⛔ skeptic 熔断，跳过")
+                plog("WARNING", f"[熔断器] ⛔ skeptic 熔断，跳过", module="cron")
                 r_skeptic = {}
             else:
                 r_skeptic = run_phase("skeptic", pools, wake_ctx=wake_ctx)
@@ -1239,7 +1240,7 @@ def main():
                 time.sleep(LLM_THROTTLE_SECONDS)
                 pools = orch.get_pools()
                 if not check_circuit_breaker("decision"):
-                    print(f"[熔断器] ⛔ decision 熔断，跳过")
+                    plog("WARNING", f"[熔断器] ⛔ decision 熔断，跳过", module="cron")
                     r_decision = {}
                 else:
                     print(f"[Decision调度] ▶️ 进入Decision阶段（LLM调用即将发起）")
@@ -1304,53 +1305,53 @@ def main():
         # ── 合规日结结束 ──────────────────────────────────────────
     elif phase == "screen":
         if not check_circuit_breaker("screen"):
-            print(f"[熔断器] ⛔ screen 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ screen 熔断，跳过", module="cron")
             results = {}
         else:
             results = run_phase("screen", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
-        if results.get("success"):
+        if results.get("screen", {}).get("success"):   # Q-H01: run_phase 返回 {"screen": r} 嵌套结构
             record_success("screen")
         else:
             record_failure("screen")
     elif phase == "review":
         if not check_circuit_breaker("review"):
-            print(f"[熔断器] ⛔ review 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ review 熔断，跳过", module="cron")
             results = {}
         else:
             results = run_phase("review", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
-        if results.get("success"):
+        if results.get("review", {}).get("success"):   # Q-H01: run_phase 返回 {"review": r} 嵌套结构
             record_success("review")
         else:
             record_failure("review")
     elif phase == "skeptic":
         if not check_circuit_breaker("skeptic"):
-            print(f"[熔断器] ⛔ skeptic 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ skeptic 熔断，跳过", module="cron")
             results = {}
         else:
             results = run_phase("skeptic", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
-        if results.get("success"):
+        if results.get("skeptic", {}).get("success"):   # Q-H01: run_phase 返回 {"skeptic": r} 嵌套结构
             record_success("skeptic")
         else:
             record_failure("skeptic")
     elif phase == "decision":
         if not check_circuit_breaker("decision"):
-            print(f"[熔断器] ⛔ decision 熔断，跳过")
+            plog("WARNING", f"[熔断器] ⛔ decision 熔断，跳过", module="cron")
             results = {}
         else:
             results = run_phase("decision", pools, wake_ctx=wake_ctx)
         if _graceful_shutdown:
             print("[守护] 已中断")
             return results
-        if results.get("success"):
+        if results.get("decision", {}).get("success"):   # Q-H01: run_phase 返回 {"decision": r} 嵌套结构
             record_success("decision")
         else:
             record_failure("decision")
@@ -1361,7 +1362,7 @@ def main():
     if phase == "full_cycle":
         _elapsed = time.time() - _run_started_at
         _end_str = datetime.now().strftime('%H:%M:%S')
-        print(f"[Cron看门狗] 🏁 full_cycle 完成 @ {_end_str} | 累计耗时 {_elapsed:.1f}s (启动 {_run_start_str})")
+        plog("INFO", f"[Cron看门狗] 🏁 full_cycle 完成 @ {_end_str} | 累计耗时 {_elapsed:.1f}s (启动 {_run_start_str})", module="cron")
     print(f"{'='*50}")
 
     # ── 五池健康审计 ──────────────────────────────────────
@@ -1384,7 +1385,8 @@ def main():
         pm = PoolManager()
         report = sweep_all_pools(pm)
         if report["total_demoted"] > 0:
-            print(f"  🧹 全池低分扫描: 共降级 {report['total_demoted']} 只低分标的(评分<{65})至边缘池")
+            # Q-H09: 原 f"...评分<{65}..." 会输出字面量 "<{65}"（大括号被当作嵌套表达式占位）
+            print(f"  🧹 全池低分扫描: 共降级 {report['total_demoted']} 只低分标的(评分<{AUTO_DOWNGRADE_SCORE})至边缘池")
             for pool in report["scanned_pools"]:
                 if pool["demoted"] > 0:
                     print(f"       {pool['pool']}: 降级 {pool['demoted']} 只")

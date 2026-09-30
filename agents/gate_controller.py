@@ -166,7 +166,8 @@ class GateController:
                     s["blocked_count"] = s.get("blocked_count", 0) + 1
                     s["total_blocked_count"] = s.get("total_blocked_count", 0) + 1
                     s["last_blocked_date"] = today_str
-                # 三振出局：阻塞≥2次 → 自动移入边缘池（无新催化事件的票不再重复审查）
+                # 三振出局：阻塞 >= SKEPTIC_BLOCK_LIMIT（3）→ 自动移入边缘池
+                # （无新催化事件的票不再重复审查；勿与「累计≥5次跨60天」的护城河规则混淆）
                 if s["blocked_count"] >= SKEPTIC_BLOCK_LIMIT:
                     s["_to_remove"] = True
                     demotions.append({

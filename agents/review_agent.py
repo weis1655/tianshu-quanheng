@@ -1116,18 +1116,30 @@ class ReviewAgent(BaseAgent):
         return len(re.findall(r"\d{6}", text))
 
     def _get_market_state(self) -> dict:
-        """获取市场状态（用于评分通缩和prompt上下文）"""
+        """获取市场状态（用于评分通缩和prompt上下文）
+
+        2026-09-30 T02/Q-H03 修复：原版按 `代码=="000001"` 匹配上证指数，
+        与平安银行 sz000001 撞码 —— 生产数据中上证指数为 sh000001、平安银行为 sz000001，
+        导致审查层长期拿**平安银行的涨跌幅**当大盘判定市场状态（评分通缩/弱市模式全线错位）。
+        改为名称匹配 + 市场前缀代码兜底。
+        """
         try:
             import json
             sm_file = self.root / "data" / "shared_memory.json"
             if sm_file.exists():
                 data = safe_read_json(sm_file)
                 if data and isinstance(data, list):
-                    sh = next((s for s in data if s.get("代码") == "000001"), None)
-                    if sh:
-                        sh_chg = float(sh.get("涨跌幅", 0))
-                        # 2026-09-11 P0-修复：弱市阈值 -1% → -2%，A股日常波动 -1~-2% 不应触发简化模式
-                        return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -2 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
+                    sh = next((s for s in data if s.get("名称") == "上证指数"), None)
+                    if sh is None:
+                        # 兜底：按市场前缀+代码匹配（sh000001 与 sz000001 不撞码）
+                        sh = next((s for s in data if str(s.get("代码", "")) in ("sh000001", "1A0001")), None)
+                    if sh is None:
+                        from logger import plog
+                        plog("WARNING", "[市场状态] ❌ 上证指数行情缺失，退化为默认'震荡'", module="market_state")
+                        return {"state": "震荡", "s_pool_cap": 2, "sh_chg": 0, "data_missing": True}
+                    sh_chg = float(sh.get("涨跌幅", 0))
+                    # 2026-09-11 P0-修复：弱市阈值 -1% → -2%，A股日常波动 -1~-2% 不应触发简化模式
+                    return {"state": "偏多" if sh_chg > 1 else "震荡偏强" if sh_chg > 0 else "震荡偏弱" if sh_chg > -2 else "偏空", "s_pool_cap": 2 if sh_chg > 0 else 1 if sh_chg > -1 else 0, "sh_chg": sh_chg}
         except Exception:  # 安全降级: 市场状态计算失败→使用默认"震荡"
             pass
         return {"state": "震荡", "s_pool_cap": 2, "sh_chg": 0}
