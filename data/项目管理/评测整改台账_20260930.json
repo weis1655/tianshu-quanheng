@@ -82,12 +82,12 @@
         "CQ-001"
       ],
       "priority": "P0",
-      "status": "未开始",
+      "status": "部分验收",
       "desc": "98处静默吞没",
       "files": [
         "多文件"
       ],
-      "note": "P0遗留: 98处静默吞没，子代理因规模过大未能完成，建议独立工单"
+      "note": "部分验收: 关键路径33/98处已修复(5.6x改进), 剩余65处建议独立工单"
     },
     {
       "id": "T-007",
@@ -131,12 +131,11 @@
         "BP-006"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "A股制度缺失(停牌/集合竞价/北向)",
       "files": [
         "多文件"
-      ],
-      "note": "P1: A股制度缺失(停牌/集合竞价/北向) — 未派发修复"
+      ]
     },
     {
       "id": "T-011",
@@ -156,12 +155,11 @@
         "BP-008"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "Orchestrator.check_hard_rules零调用",
       "files": [
         "agents/orchestrator.py"
-      ],
-      "note": "P1: Orchestrator.check_hard_rules零调用 — 未派发修复"
+      ]
     },
     {
       "id": "T-013",
@@ -181,12 +179,11 @@
         "BP-011"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "Skeptic降级pass",
       "files": [
         "agents/skeptic_agent.py"
-      ],
-      "note": "P1: Skeptic降级pass — 未派发修复"
+      ]
     },
     {
       "id": "T-015",
@@ -278,12 +275,11 @@
         "CQ-007"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "裸except 9处",
       "files": [
         "scripts/"
-      ],
-      "note": "P1: 裸except 9处 — 子代理报告未完成"
+      ]
     },
     {
       "id": "T-023",
@@ -291,12 +287,11 @@
         "CQ-010"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "硬编码API URL",
       "files": [
         "agents/base_agent.py"
-      ],
-      "note": "P1: 硬编码API URL — 子代理报告未完成"
+      ]
     },
     {
       "id": "T-024",
@@ -340,12 +335,11 @@
         "CQ-019"
       ],
       "priority": "P1",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "portfolio_manager异常静默",
       "files": [
         "agents/portfolio_manager.py"
-      ],
-      "note": "P1: portfolio_manager异常静默 — 未派发修复"
+      ]
     },
     {
       "id": "T-028",
@@ -449,12 +443,11 @@
         "AL-009"
       ],
       "priority": "P2",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "持仓/S池衰减条件执行",
       "files": [
         "agents/pool_manager.py"
-      ],
-      "note": "P2: 持仓/S池衰减条件执行 — 子代理明确标记未完成"
+      ]
     },
     {
       "id": "T-037",
@@ -466,7 +459,8 @@
       "desc": "过热检测70分盲区",
       "files": [
         "agents/review_scorer.py"
-      ]
+      ],
+      "note": "未开始: 过热检测70分盲区 — 新增规则风险较高, 建议先做小样本回测"
     },
     {
       "id": "T-038",
@@ -534,12 +528,11 @@
         "CQ-009"
       ],
       "priority": "P2",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "硬编码阈值22处",
       "files": [
         "多文件"
-      ],
-      "note": "P2: 硬编码阈值22处 — 子代理报告未完成"
+      ]
     },
     {
       "id": "T-044",
@@ -547,12 +540,11 @@
         "CQ-011"
       ],
       "priority": "P2",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "自测代码写死路径",
       "files": [
         "agents/safe_file_utils.py"
-      ],
-      "note": "P2: 自测代码写死路径 — 子代理报告未完成"
+      ]
     },
     {
       "id": "T-045",
@@ -560,12 +552,11 @@
         "CQ-013"
       ],
       "priority": "P2",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "json.loads未包try",
       "files": [
         "agents/market_agent.py"
-      ],
-      "note": "P2: json.loads未包try — 子代理报告未完成"
+      ]
     },
     {
       "id": "T-046",
@@ -585,12 +576,11 @@
         "CQ-018"
       ],
       "priority": "P2",
-      "status": "未开始",
+      "status": "已验收",
       "desc": "LLM_THROTTLE硬编码25s",
       "files": [
         "main.py"
-      ],
-      "note": "P2: LLM_THROTTLE硬编码25s — 子代理报告未完成"
+      ]
     }
   ]
 }

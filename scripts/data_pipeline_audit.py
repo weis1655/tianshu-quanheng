@@ -14,6 +14,7 @@
 """
 
 import os, sys, json, datetime, re, urllib.request, argparse
+from logger import plog
 from pathlib import Path
 from collections import defaultdict
 
@@ -108,8 +109,8 @@ def phase1_data_source_audit() -> dict:
                 if "复权类型" in s or "adjust_type" in s:
                     has_adjust_tag = True
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            plog("WARNING", f"[Audit] 审计解析失败: {e}，跳过")
     if not has_adjust_tag:
         findings.append({
             "level": "warning", "type": "除权除息",

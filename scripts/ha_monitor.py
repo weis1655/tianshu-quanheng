@@ -27,6 +27,7 @@ Exit code:
 """
 
 import argparse
+from logger import plog
 import json
 import os
 import shutil

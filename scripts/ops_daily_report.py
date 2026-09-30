@@ -9,6 +9,7 @@
   python scripts/ops_daily_report.py --output     # 输出到文件
 """
 import sys
+from logger import plog
 import json
 import re
 import os

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """高频池价格刷新脚本 - 盘中每30分钟刷新重点观察池+持仓池+ S级池行情"""
 import sys
+from logger import plog
 import os
 import json
 from pathlib import Path

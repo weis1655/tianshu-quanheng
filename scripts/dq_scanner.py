@@ -14,6 +14,7 @@
 """
 
 import os, sys, json, datetime, glob, re, shutil, argparse
+from logger import plog
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
