@@ -12,10 +12,13 @@
 """
 
 import os, sys, json, datetime, subprocess, argparse, glob
-from logger import plog
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
+from logger import plog
+
 DQ_DIR = PROJECT_ROOT / "data" / "dq"
 DQ_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_FILE = DQ_DIR / f"dq_report_{datetime.date.today().isoformat()}.md"

@@ -14,10 +14,13 @@
 """
 
 import os, sys, json, datetime, glob, re, shutil, argparse
-from logger import plog
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+sys.path.insert(0, str(PROJECT_ROOT / "agents"))
+from path_config import ensure_agent_paths; ensure_agent_paths()
+from logger import plog
+
 POOLS_DIR = PROJECT_ROOT / "五池管理"
 DATA_DIR = PROJECT_ROOT / "data"
 DQ_DIR = DATA_DIR / "dq"

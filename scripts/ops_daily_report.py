@@ -37,6 +37,7 @@ def collect_metrics(target_date: str) -> dict:
         "p0_found": 0,
         "p0_fixed": 0,
         "dq_checks": 0,
+        "dq_warnings": 0,
         "decision_loss_backtest": 0,
         "pool_changes": [],
         "decisions_made": 0,
@@ -84,6 +85,7 @@ def collect_metrics(target_date: str) -> dict:
             summ = dq.get("summary", {}) if isinstance(dq, dict) else {}
             metrics["p0_found"] = int(summ.get("criticals", 0))
             metrics["dq_checks"] = int(summ.get("total_checks", 0))
+            metrics["dq_warnings"] = int(summ.get("warnings", 0))
         except Exception:
             pass
 
@@ -132,7 +134,42 @@ def collect_metrics(target_date: str) -> dict:
     return metrics
 
 
-def generate_report(metrics: dict) -> str:
+def collect_details(target_date: str) -> dict:
+    """采集决策细节、推荐追踪、LLM退化、熔断器状态（补充日报空壳）"""
+    details = {"decisions": [], "recommendations": [], "llm_degradation": None, "circuit_breaker": {}}
+    try:
+        for d in json.loads((PROJECT_ROOT / "data" / "decision_log.json").read_text(encoding="utf-8")):
+            if d.get("date", "").startswith(target_date):
+                details["decisions"].append({
+                    "name": d.get("name", "?"), "code": d.get("code", "?"),
+                    "tech_score": d.get("tech_score", ""), "confidence": d.get("confidence", ""),
+                    "executed": d.get("$is_executed", False),
+                    "hypothesis": (d.get("hypothesis") or "")[:60],
+                })
+    except Exception: pass
+    try:
+        rt = json.loads((PROJECT_ROOT / "data" / "recommendation_tracker.json").read_text(encoding="utf-8"))
+        if isinstance(rt, list):
+            for r in rt:
+                if str(r.get("date", "")).startswith(target_date):
+                    details["recommendations"].append({
+                        "name": r.get("name", "?"), "code": r.get("code", "?"),
+                        "type": r.get("type", "?"), "score": r.get("score", ""),
+                    })
+    except Exception: pass
+    try:
+        ld = json.loads((PROJECT_ROOT / "data" / "llm_degradation_counter.json").read_text(encoding="utf-8"))
+        details["llm_degradation"] = {"count": ld.get("count", 0), "consecutive": ld.get("consecutive", 0), "latest": ld.get("latest", "")}
+    except Exception: pass
+    try:
+        for k, v in json.loads((PROJECT_ROOT / "data" / "circuit_breaker_state.json").read_text(encoding="utf-8")).items():
+            if isinstance(v, dict) and "state" in v:
+                details["circuit_breaker"][k] = v["state"]
+    except Exception: pass
+    return details
+
+
+def generate_report(metrics: dict, details: dict | None = None) -> str:
     """生成日报文本"""
     lines = []
     lines.append(f"# 🏛️ 天枢权衡 · 运营日报")
@@ -150,6 +187,7 @@ def generate_report(metrics: dict) -> str:
     lines.append(f"| API 成功率 | {metrics['api_success_rate']}% ({metrics['api_success']}/{metrics['api_success'] + metrics['api_failure']}) |")
     lines.append(f"| 决策数 | {metrics['decisions_made']} 次 |")
     lines.append(f"| 数据质量 P0 (严重) | {metrics['p0_found']} 个 |")
+    lines.append(f"| 数据质量 WARN | {metrics.get('dq_warnings', 0)} 个 / {metrics['dq_checks']} 检查 |")
     lines.append(f"| 决策亏损回测 | {metrics.get('decision_loss_backtest', 0)} 条 |")
     lines.append(f"| Auto-Heal PR | {metrics['auto_heal_prs']} 个 |")
     lines.append(f"| Auto-Heal 合并 | {metrics['auto_heal_merged']} 个 |")
@@ -164,6 +202,43 @@ def generate_report(metrics: dict) -> str:
         for p in metrics["pool_changes"]:
             lines.append(f"| {p['pool']} | {p['count']} 只 |")
         lines.append(f"")
+
+    # 决策细节
+    if details and details.get("decisions"):
+        lines.append(f"## 🎯 今日决策明细")
+        lines.append(f"")
+        lines.append(f"| 名称 | 代码 | 技术分 | 置信度 | 已执行 | 假设 |")
+        lines.append(f"|------|:----:|:------:|:------:|:------:|------|")
+        for d in details["decisions"]:
+            ex = "✅" if d["executed"] else "⏳"
+            hyp = (d["hypothesis"] or "-")[:50]
+            lines.append(f"| {d['name']} | {d['code']} | {d['tech_score']} | {d['confidence']} | {ex} | {hyp} |")
+        lines.append(f"")
+
+    # 推荐追踪
+    if details and details.get("recommendations"):
+        lines.append(f"## 📌 今日推荐追踪")
+        lines.append(f"")
+        for r in details["recommendations"]:
+            lines.append(f"- **{r['type']}** {r['name']}({r['code']}) 评分={r['score']}")
+        lines.append(f"")
+
+    # LLM 退化 & 熔断器
+    if details:
+        ld = details.get("llm_degradation")
+        cb = details.get("circuit_breaker")
+        if ld or cb:
+            lines.append(f"## 🤖 系统健康")
+            lines.append(f"")
+            if ld:
+                flag = "⚠️" if ld["consecutive"] > 0 else "✅"
+                lines.append(f"- {flag} LLM 退化: 累计 {ld['count']} 次, 连续 {ld['consecutive']} 次, 最近={ld['latest'] or '无'}")
+            if cb:
+                cb_str = ", ".join(f"{k}={v}" for k, v in cb.items())
+                lines.append(f"- 熔断器: {cb_str}")
+            else:
+                lines.append(f"- 熔断器: 全部 closed（正常）")
+            lines.append(f"")
 
     # 错误摘要
     if metrics["errors"]:
@@ -190,7 +265,8 @@ def main():
     target_date = args.date or datetime.now().strftime("%Y-%m-%d")
 
     metrics = collect_metrics(target_date)
-    report = generate_report(metrics)
+    details = collect_details(target_date)
+    report = generate_report(metrics, details)
 
     print(report)
 

@@ -5,7 +5,6 @@
 """
 
 import os
-from logger import plog
 import sys
 import json
 import re
@@ -14,8 +13,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from collections import defaultdict
 
-# 添加 agents 目录到 sys.path
+# 添加 agents 目录到 sys.path（必须在 import logger 之前）
 sys.path.insert(0, str(Path(__file__).parent.parent / 'agents'))
+from logger import plog
 from safe_file_utils import safe_read_file, safe_write_file, safe_read_json
 from path_config import PathConfig
 from trading_calendar import is_trading_day
