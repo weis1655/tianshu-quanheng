@@ -513,6 +513,12 @@ class ReviewAgent(BaseAgent):
                     plog("INFO", f"[ReviewAgent] 📉 弱市因子信号减半: {sr.name}({sr.code}) +{original_bonus:.0f}→+{half_bonus:.0f}分")
         # ════════════════════════════════════════════════════════════════════════
 
+        # ═══ P0-⑦修缮：守卫链覆盖记录（审查报告需透明显示 LLM 原分 vs 守卫后实际分）═══
+        # 问题：LLM 报告写 79 分→升级重点观察池，但守卫链（QualityGate/ML降级/硬性降级）
+        # 覆盖为 49 分→降级边缘池，实际池写入与报告不一致，用户无法看到覆盖过程。
+        # 修复：①在 QualityGate 前快照 LLM 原始分/流转 ②守卫链执行后对比并追加记录段
+        _llm_original_scores = {sr.code: (sr.composite_score, sr.flow_direction) for sr in review_result.stocks}
+        
         # ═══ P2-修复（2026-06-10）：QualityGate 上移 — 审查阶段历史表现检查 ═══
         try:
             from quality_gate import QualityGate
@@ -698,6 +704,32 @@ class ReviewAgent(BaseAgent):
                 report += ml_appendix
         except Exception as e:
             plog("INFO", f"[ReviewAgent] ⚠️ ML评分附录异常: {e}")
+
+        # ═══ P0-⑦修缮：守卫链覆盖记录 — 透明显示 LLM 原分/流转 vs 守卫后实际分/流转 ═══
+        # 对比 _llm_original_scores 快照 vs 当前 review_result.stocks 状态，
+        # 有差异的标的追加到审查报告末尾，让用户看到"为什么 LLM 写 79 分→升级 实际却 49 分→降级"
+        try:
+            _overridden = []
+            for sr in review_result.stocks:
+                orig = _llm_original_scores.get(sr.code)
+                if orig and (orig[0] != sr.composite_score or orig[1] != sr.flow_direction):
+                    _overridden.append((sr.name, sr.code, orig[0], orig[1], sr.composite_score, sr.flow_direction, sr.target_pool or ""))
+            if _overridden:
+                from safe_file_utils import safe_append_file
+                _lines = ["\n\n---\n## ⚠️ 守卫链覆盖记录（LLM 原分/流转 vs 守卫后实际分/流转）\n",
+                          "以下标的经守卫链（QualityGate/ML降级/硬性降级）覆盖，LLM 报告与实际池写入不一致：\n\n",
+                          "| 标的 | LLM 原分→流转 | 守卫后实际分→流转 | 目标池 |\n",
+                          "|------|:------------:|:-----------------:|:------:|\n"]
+                for _n, _c, _os, _of, _ns, _nf, _tp in _overridden:
+                    _lines.append(f"| {_n}({_c}) | {_os}→{_of} | {_ns}→{_nf} | {_tp} |\n")
+                _lines.append('\n注：审查报告正文的"流转方向"为 LLM 原始判断，守卫链会基于历史表现/ML评分/阈值进行覆盖。以本表为准。\n')
+                _appendix = "".join(_lines)
+                _success = safe_append_file(str(out_file), _appendix)
+                if _success:
+                    plog("INFO", f"[ReviewAgent] ⚠️ 守卫链覆盖记录已追加（{len(_overridden)} 只）")
+                report += _appendix
+        except Exception as _e:
+            plog("INFO", f"[ReviewAgent] ⚠️ 守卫链覆盖记录异常: {_e}")
 
         # ── P2-3：闭环追踪记录 ──────────────────────────────
         from closed_loop_tracker import ClosedLoopTracker
