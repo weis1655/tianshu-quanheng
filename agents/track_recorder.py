@@ -141,6 +141,43 @@ class TrackRecorder:
     def _safe_write_text(self, path: Path, content: str):
         path.write_text(content, encoding="utf-8")
 
+    def mark_executed(self, stock_code: str, today: Optional[str] = None) -> bool:
+        """P1: 建仓成功后同步标记决策日志 $is_executed=true。
+
+        record_decision 默认 is_executed=False（决策完成≠实际执行），
+        但建仓入池后未同步标记，导致 feedback_loop 无法回填实际结果。
+        按股票代码 + 日期匹配今日未执行记录，标记为 True。幂等，无匹配返回 False。
+        """
+        try:
+            sys.path.insert(0, str(self.root / "agents"))
+            from path_config import get_review_evo
+            ReviewEvo = get_review_evo()
+            evo = ReviewEvo(root=self.root)
+
+            from safe_file_utils import safe_read_json, safe_write_file
+            import json as _json
+            log = safe_read_json(evo.decision_log, default={}, required=False, log_error=False)
+            if not log or "决策记录" not in log:
+                return False
+
+            today = today or datetime.now().strftime("%Y-%m-%d")
+            matched = False
+            for r in log["决策记录"]:
+                if (r.get("股票代码") == stock_code
+                        and r.get("日期") == today
+                        and r.get("$is_executed") in (False, None)):
+                    r["$is_executed"] = True
+                    matched = True
+            if matched:
+                safe_write_file(evo.decision_log, _json.dumps(log, ensure_ascii=False, indent=2))
+                evo._sync_std_log()
+                plog("INFO", f"[TrackRecorder] ✅ {stock_code} 已标记为实际执行")
+            return matched
+        except Exception as e:
+            plog("INFO", f"[TrackRecorder] ⚠️ 标记执行异常: {e}")
+            return False
+
+
     def record_closed_loop(self, plans: list):
         """记录闭环追踪"""
         try:

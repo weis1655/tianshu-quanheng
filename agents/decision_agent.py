@@ -1276,11 +1276,12 @@ class DecisionAgent(BaseAgent):
             report = fallback_report
 
         # ── S级操作池写入（退化检测之后，避免矛盾）────────────
+        built_codes: list[str] = []
         if not is_degraded:
             self._update_s_pool(result, scored_stocks=scored_stocks or [])
             # ── P0-T001: 持仓池写入——【主推】建仓（LLM决策+Skeptic未阻断+合规预检通过之后）──
             try:
-                self._add_to_holding_pool(today, result)
+                built_codes = self._add_to_holding_pool(today, result) or []
             except Exception as _e:
                 plog("WARNING", f"[持仓池] ⚠️ 入池流程异常（不影响决策流程）: {_e}")
         # ──────────────────────────────────────────────────────
@@ -1291,6 +1292,12 @@ class DecisionAgent(BaseAgent):
         # P1-3: 记录决策日志（含可验证假设，从五池直取核心逻辑兜底）
         # 使用 all_scored_stocks（Gate过滤前的全量评分列表），确保被Gate阻塞的标也被记录
         self._record_to_evo(all_scored_stocks, result, review_report, pools=pools)
+
+        # P1: 建仓成功后同步标记决策日志 $is_executed=true
+        # 时序：record_to_evo（写入 is_executed=False）→ mark_executed（覆盖为 True）
+        # 仅对今日成功建仓的代码标记，避免误标记历史记录
+        for _built_code in built_codes:
+            self.track_recorder.mark_executed(_built_code, today)
 
         # ── P0: 推荐追踪器——记录每日推荐 ───────────────────────
         self._record_recommendation_tracker(today, result)
@@ -2338,22 +2345,26 @@ class DecisionAgent(BaseAgent):
         self.logger.pool_operation("S级操作池", "sync", count=0)
 
     # ── P0: 推荐追踪器 ──
-    def _add_to_holding_pool(self, today: str, result: str):
+    def _add_to_holding_pool(self, today: str, result: str) -> list[str]:
         """P0-T001: LLM决策通过+Skeptic未阻断后，将【主推】标的写入持仓池。
         调用 pool_manager.add_to_holding()（唯一入池入口），
         成本价用实时行情现价兜底（LLM文本未结构化提取买入价）。
         幂等：add_to_holding 内部检查重复持仓，已持仓标的会被跳过。
+
+        Returns:
+            成功建仓的股票代码列表（供调用方同步标记决策日志 $is_executed=true）
         """
         import re as _re
         if not result:
-            return
+            return []
         matches = _re.findall(
             r"【主推】\s*([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]",
             result,
         )
         if not matches:
-            return
+            return []
         added = 0
+        built_codes: list[str] = []
         for name, code in matches:
             try:
                 # 尝试从实时行情取现价作为成本价兜底
@@ -2375,6 +2386,7 @@ class DecisionAgent(BaseAgent):
                 )
                 if rec:
                     added += 1
+                    built_codes.append(code)
                     plog("INFO", f"[持仓池] ✅ {name}({code}) 已入池，成本价={cost}")
                 else:
                     plog("INFO", f"[持仓池] ℹ️ {name}({code}) 已持仓或入池失败，跳过")
@@ -2382,6 +2394,7 @@ class DecisionAgent(BaseAgent):
                 plog("WARNING", f"[持仓池] ⚠️ {name}({code}) 入池异常（不影响决策流程）: {e}")
         if added:
             self.logger.pool_operation("持仓池", "build", count=added)
+        return built_codes
 
     def _record_recommendation_tracker(self, today: str, result: str):
         """记录每日推荐标的到追踪器，用于后续执行状态跟踪和冷却期判断。"""
