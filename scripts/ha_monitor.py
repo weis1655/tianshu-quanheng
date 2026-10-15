@@ -27,12 +27,25 @@ Exit code:
 """
 
 import argparse
-from logger import plog
 import json
 import os
 import shutil
 import subprocess
 import sys
+
+# 添加项目路径（cron 独立运行时 PYTHONPATH 不含项目目录）
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+_agents_dir = os.path.join(_PROJECT_ROOT, "agents")
+if os.path.isdir(_agents_dir) and _agents_dir not in sys.path:
+    sys.path.insert(0, _agents_dir)
+
+try:
+    from logger import plog
+except ImportError:
+    def plog(level, msg, **kwargs):
+        print(f"[{level}] {msg}")
 import time
 from datetime import datetime
 
