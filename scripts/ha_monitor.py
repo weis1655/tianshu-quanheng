@@ -106,7 +106,7 @@ class HealthReport:
             self.alerts.append(f"[CRITICAL] {name}: {detail}")
         elif status == "warning" and self.exit_code < 2:
             self.status = "warning"
-            self.exit_code = max(self.exit_code, 1)
+            # warning 不设 exit_code，避免 cron 误判为失败
             self.alerts.append(f"[WARNING] {name}: {detail}")
 
     def to_dict(self):
