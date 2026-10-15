@@ -82,14 +82,17 @@ class PoolUpdater:
         plog("INFO", f"[PoolUpdater] 🔍 决策报告扫描【主推】: 找到{len(matches)}个匹配")
         if not matches:
             plog("INFO", f"[PoolUpdater] 📄 报告末尾300字符: ...{decision_result[-300:]}")
-            # 任务①: 07-21原则「有可执行交易信息即有效」的落地。
-            # LLM若未按【主推】格式输出，不再整批丢弃，而是从「有可执行交易信息」的
-            # 标的中宽松提取（需带6位代码 + 仓位/止损/止盈/买入/目标价等行动字段），
-            # 避免因格式漂移导致有效决策整批丢失S池记录。
-            # 09-10止血: 兜底须防两类误判——①"操作"是"不操作"的子串、"买入"是
-            # "买入逻辑矛盾"的子串（action_kw 收窄为带数值的行动字段）；②重点观察池
-            # 状态表里的否决标的（不操作/高风险）被误判为决策主推（否定语境守卫）。
-            broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
+            # ── 空仓守卫: 若报告整体结论为空仓/不操作，禁止宽松兜底 ──
+            # 根因：决策报告说"空仓观望"但备选观察区的标的被宽松匹配误入S池。
+            # 宽松兜底仅在LLM输出格式漂移（有行动字段但无【主推】标记）时使用，
+            # 当报告整体结论为空仓时，备选观察区的标的不应被视为决策推荐。
+            empty_kw = ["空仓观望", "空仓等待", "今日不操作", "无推荐标的", "空仓"]
+            _empty_guard = any(k in decision_result[:2000] for k in empty_kw)
+            if _empty_guard:
+                plog("INFO", f"[PoolUpdater] 🛑 空仓守卫: 决策报告整体结论为空仓，跳过宽松兜底")
+                broad = []
+            else:
+                broad = re.findall(r"([\u4e00-\u9fa5]{2,6})\s*[（(](\d{6})[）)]", decision_result)
             if "主推" in decision_result:
                 plog("INFO", f"[PoolUpdater] ⚠️ 发现「主推」字样但正则未匹配，可能是格式异常")
             if broad:
@@ -266,7 +269,12 @@ class PoolUpdater:
         }
 
         existing_dates = {r.get("日期") for r in data["历史记录"]}
-        if today not in existing_dates:
+        # 修复: 仅检查今日是否已有「进入」类型记录，不再被同日T+1清理等条目阻塞
+        _has_entry_today = any(
+            h.get("日期") == today and h.get("类型", "进入") == "进入"
+            for h in data["历史记录"]
+        )
+        if not _has_entry_today:
             data["历史记录"].append({
                 "日期": today,
                 "进入": len(new_stocks),

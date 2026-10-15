@@ -426,6 +426,13 @@ class DecisionAgent(BaseAgent):
     def _run_impl(self, review_report: Optional[str], pools: Optional[dict], wake_ctx: str = "") -> dict:
         today = datetime.now().strftime("%Y-%m-%d")
 
+        # ── 修复: 先读S池今日进入（在清理前捕获，避免报告口径0只）──
+        _s_pool_pre = self.pool_manager.load_pool("S级操作池")
+        _s_pool_today_count = 0
+        for h in _s_pool_pre.get("历史记录", []):
+            if h.get("日期") == today and "进入" in h:
+                _s_pool_today_count += h["进入"]
+
         # ── P0-2：S级操作池 T+1 过期清理 ────────────────────────
         self._handle_expired_s_pool()
 
@@ -1237,11 +1244,8 @@ class DecisionAgent(BaseAgent):
             is_degraded = True
         if is_degraded:
             plog("WARNING", "[DecisionAgent] ⚠️ 决策报告未包含完整交易方案（LLM输出退化），标记为无效")
-            # 退化计数器（持久化+连续退化检测）
-            from pathlib import Path
             deg_file = Path(self.root) / "data" / "llm_degradation_counter.json"
             try:
-                import json
                 deg_data = json.loads(deg_file.read_text()) if deg_file.exists() else {"count": 0, "dates": [], "consecutive": 0}
                 deg_data["count"] = deg_data.get("count", 0) + 1
                 deg_data["dates"] = deg_data.get("dates", []) + [today]
@@ -1284,6 +1288,23 @@ class DecisionAgent(BaseAgent):
                 built_codes = self._add_to_holding_pool(today, result) or []
             except Exception as _e:
                 plog("WARNING", f"[持仓池] ⚠️ 入池流程异常（不影响决策流程）: {_e}")
+            # ── 修复: _update_s_pool后刷新池联动确认（报告在S池写入前生成，此处回写实际数）──
+            try:
+                _s_data = json.loads((self.pool_dir / 'S级操作池.json').read_text(encoding='utf-8'))
+                _new_count, _new_codes = 0, []
+                for h in _s_data.get('历史记录', []):
+                    if h.get('日期') == today and h.get('类型', '进入') == '进入':
+                        _new_count += h.get('进入', 0)
+                        _new_codes.extend(str(s.get('代码','')) for s in h.get('标的',[]) if isinstance(s,dict))
+                if _new_count != s_pool_today:
+                    _old_line = f"- **S级操作池**: {s_pool_today}只今日主推标的"
+                    _new_line = f"- **S级操作池**: {_new_count}只今日主推标的"
+                    if _old_line in report:
+                        report = report.replace(_old_line, _new_line)
+                        out_file.write_text(report, encoding='utf-8')
+                        plog("INFO", f"[S池口径修复] 池联动确认更新: {s_pool_today}→{_new_count}只, 代码:{_new_codes}")
+            except Exception as _e:
+                plog("WARNING", f"[S池口径修复] ⚠️ 池联动确认更新失败: {_e}")
         # ──────────────────────────────────────────────────────
 
         # ── P0-2: S级操作池历史命中率评价 ──────────────────────

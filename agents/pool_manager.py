@@ -681,11 +681,11 @@ class PoolManager:
                     pass  # 日期格式异常，保留
 
             # 规则2：检查综合分（需明确 < min_score 才移除）
-            if remove_reason is None and score is not None:
+            if remove_reason is None:
                 try:
-                    score_val = float(score)
+                    score_val = float(score) if score is not None else -1
                     if score_val < min_score:
-                        remove_reason = f"综合分{score_val}<{min_score}"
+                        remove_reason = f"综合分{score if score is not None else '缺失'}<{min_score}"
                 except (TypeError, ValueError):
                     pass  # 评分无法解析，保留
 
